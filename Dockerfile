@@ -28,8 +28,8 @@ ENV APP_ENV=prod
 ENV APP_DEBUG=0
 
 # Install PHP deps (production)
-RUN git config --global --add safe.directory /var/www/html \
- && composer install --no-dev --optimize-autoloader --no-interaction
+RUN HOME=/tmp git config --global --add safe.directory /var/www/html || true
+RUN composer install --no-dev --optimize-autoloader --no-interaction
 
 # Ensure writable directories for Symfony (cache, sessions, logs)
 RUN mkdir -p var/cache var/log var/sessions \
