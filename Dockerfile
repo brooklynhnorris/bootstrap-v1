@@ -2,7 +2,7 @@
 
 # Install system deps + PHP extensions Symfony commonly needs
 RUN apt-get update && apt-get install -y \
-    git unzip libzip-dev \
+    git unzip libzip-dev libpq-dev \
  && docker-php-ext-install zip pdo pdo_pgsql \
  && a2enmod rewrite
 
