@@ -1,10 +1,19 @@
-﻿FROM php:8.3-apache
+﻿FROM php:8.4-apache
 
-# Install system deps + PHP extensions Symfony commonly needs
+# System deps + PHP extensions Symfony commonly needs
 RUN apt-get update && apt-get install -y \
     git unzip libzip-dev libpq-dev \
  && docker-php-ext-install zip pdo pdo_pgsql \
- && a2enmod rewrite
+ && rm -rf /var/lib/apt/lists/*
+
+# Enable Apache modules Symfony typically needs
+RUN a2enmod rewrite headers env
+
+# Set Apache DocumentRoot to Symfony /public
+ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
+RUN sed -ri -e 's!/var/www/html!${APACHE_DOCUMENT_ROOT}!g' /etc/apache2/sites-available/000-default.conf \
+ && sed -ri -e 's!<Directory /var/www/>!<Directory ${APACHE_DOCUMENT_ROOT}/>!g' /etc/apache2/apache2.conf \
+ && sed -ri -e 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
@@ -14,13 +23,25 @@ WORKDIR /var/www/html
 # Copy app source
 COPY . /var/www/html
 
+# App env defaults (Render should override DATABASE_URL in dashboard)
+ENV APP_ENV=prod
+ENV APP_DEBUG=0
+
 # Install PHP deps (production)
-RUN composer install --no-dev --optimize-autoloader
+RUN git config --global --add safe.directory /var/www/html \
+ && composer install --no-dev --optimize-autoloader --no-interaction
 
-# Symfony needs writable var/
-RUN chown -R www-data:www-data /var/www/html/var
+# Ensure writable directories for Symfony (cache, sessions, logs)
+RUN mkdir -p var/cache var/log var/sessions \
+ && chown -R www-data:www-data var \
+ && chmod -R ug+rwX var
 
-# Point Apache to Symfony /public
-ENV APACHE_DOCUMENT_ROOT=/var/www/html/public
-RUN sed -ri -e 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/*.conf \
- && sed -ri -e 's!/var/www/!/var/www/html/public!g' /etc/apache2/apache2.conf /etc/apache2/conf-available/*.conf
+# Warm up cache during build (optional but nice)
+RUN php bin/console cache:clear --env=prod --no-warmup || true \
+ && php bin/console cache:warmup --env=prod || true \
+ && chown -R www-data:www-data var \
+ && chmod -R ug+rwX var
+
+EXPOSE 80
+
+CMD ["apache2-foreground"]
