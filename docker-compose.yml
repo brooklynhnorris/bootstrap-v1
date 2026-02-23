@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: ddt-app
+    ports:
+      - "8080:80"
+    env_file:
+      - .env
+    depends_on:
+      - db
+
+  db:
+    image: postgres:16
+    container_name: ddt-db
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: logiri
+      POSTGRES_PASSWORD: logiri
+      POSTGRES_DB: logiri
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

@@ -1,0 +1,68 @@
+#!/bin/bash
+set -e
+
+echo "Running startup tasks..."
+
+# Strip BOM from index.php
+sed -i '1s/^\xEF\xBB\xBF//' /var/www/html/public/index.php 2>/dev/null || true
+find /var/www/html/src -name "*.php" -exec sed -i 's/\r//' {} \;
+
+# Wait for database to be ready using DATABASE_URL
+until php -r "new PDO(getenv('DATABASE_URL'));" 2>/dev/null; do
+  echo "Waiting for database..."
+  sleep 2
+done
+
+echo "Database ready. Running migrations..."
+
+# Create core tables if they don't exist
+php bin/console doctrine:schema:update --force --no-interaction 2>/dev/null || true
+
+# Create data tables
+php -r "
+\$pdo = new PDO(getenv('DATABASE_URL'));
+\$pdo->exec('CREATE TABLE IF NOT EXISTS semrush_snapshots (id SERIAL PRIMARY KEY, domain VARCHAR(255) NOT NULL, organic_keywords INT DEFAULT 0, organic_traffic INT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
+\$pdo->exec('CREATE TABLE IF NOT EXISTS gsc_snapshots (id SERIAL PRIMARY KEY, query VARCHAR(500) NOT NULL, page TEXT NOT NULL, clicks INT DEFAULT 0, impressions INT DEFAULT 0, ctr FLOAT DEFAULT 0, position FLOAT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
+\$pdo->exec('CREATE TABLE IF NOT EXISTS ga4_snapshots (id SERIAL PRIMARY KEY, page_path TEXT NOT NULL, sessions INT DEFAULT 0, pageviews INT DEFAULT 0, bounce_rate FLOAT DEFAULT 0, conversions INT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
+\$pdo->exec('CREATE TABLE IF NOT EXISTS team_members (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, role VARCHAR(50) NOT NULL, email VARCHAR(255), max_hours_per_week INT DEFAULT 40, is_active BOOLEAN DEFAULT true)');
+\$pdo->exec('CREATE TABLE IF NOT EXISTS tasks (id SERIAL PRIMARY KEY, title VARCHAR(500) NOT NULL, description TEXT, rule_id VARCHAR(20), assigned_to VARCHAR(100), assigned_role VARCHAR(50), status VARCHAR(20) DEFAULT pending, priority VARCHAR(20) DEFAULT medium, estimated_hours FLOAT DEFAULT 1, due_date DATE, created_at TIMESTAMP DEFAULT NOW(), completed_at TIMESTAMP)');
+echo 'Tables ready.' . PHP_EOL;
+"
+
+# Seed team members if empty
+php -r "
+\$pdo = new PDO(getenv('DATABASE_URL'));
+\$count = \$pdo->query('SELECT COUNT(*) FROM team_members')->fetchColumn();
+if (\$count == 0) {
+    \$pdo->exec(\"INSERT INTO team_members (name, role, email, max_hours_per_week) VALUES ('Brook', 'SEO + Content', 'brook@doubledtrailers.com', 40)\");
+    \$pdo->exec(\"INSERT INTO team_members (name, role, email, max_hours_per_week) VALUES ('Kalib', 'Sales', 'kalib@doubledtrailers.com', 40)\");
+    \$pdo->exec(\"INSERT INTO team_members (name, role, email, max_hours_per_week) VALUES ('Brad', 'Marketing', 'brad@doubledtrailers.com', 40)\");
+    echo 'Team members seeded.' . PHP_EOL;
+}
+"
+
+chmod -R 777 /var/www/html/var/cache
+chmod -R 777 /var/www/html/var/log
+
+# Fetch fresh data on startup
+echo "Fetching GSC and GA4 data..."
+php /var/www/html/bin/console app:fetch-gsc 2>/dev/null || echo "GSC fetch failed"
+php /var/www/html/bin/console app:fetch-ga4 2>/dev/null || echo "GA4 fetch failed"
+
+# Set up cron to fetch data daily at 6am
+apt-get update -qq && apt-get install -y -qq cron > /dev/null 2>&1
+echo "0 6 * * * cd /var/www/html && php bin/console app:fetch-gsc >> /var/log/cron.log 2>&1" > /etc/cron.d/logiri
+echo "0 6 * * * cd /var/www/html && php bin/console app:fetch-ga4 >> /var/log/cron.log 2>&1" >> /etc/cron.d/logiri
+chmod 0644 /etc/cron.d/logiri
+crontab /etc/cron.d/logiri
+service cron start
+
+echo "Startup complete."
+
+# Start Apache
+exec apache2-foreground
+```
+
+Also update your local `.env` to use the PDO-compatible format:
+```
+DATABASE_URL="pgsql:host=ddt-db;dbname=logiri;user=logiri;password=logiri"
