@@ -72,9 +72,12 @@ if (\$count == 0) {
 php -r "
 \$url = parse_url(getenv('DATABASE_URL'));
 \$pdo = new PDO('pgsql:host='.\$url['host'].';port='.(\$url['port']??5432).';dbname='.ltrim(\$url['path'],'/'), \$url['user'], \$url['pass']);
-\$cols = \$pdo->query(\"SELECT column_name FROM information_schema.columns WHERE table_name = 'user'\")->fetchAll(PDO::FETCH_COLUMN);
-if (!in_array('name', \$cols)) { \$pdo->exec('ALTER TABLE \"user\" ADD COLUMN name VARCHAR(100)'); }
-if (!in_array('team_role', \$cols)) { \$pdo->exec('ALTER TABLE \"user\" ADD COLUMN team_role VARCHAR(50)'); }
+\$tables = \$pdo->query(\"SELECT tablename FROM pg_tables WHERE schemaname = 'public'\")->fetchAll(PDO::FETCH_COLUMN);
+if (in_array('user', \$tables)) {
+    \$cols = \$pdo->query(\"SELECT column_name FROM information_schema.columns WHERE table_name = 'user'\")->fetchAll(PDO::FETCH_COLUMN);
+    if (!in_array('name', \$cols)) { \$pdo->exec('ALTER TABLE \"user\" ADD COLUMN name VARCHAR(100)'); }
+    if (!in_array('team_role', \$cols)) { \$pdo->exec('ALTER TABLE \"user\" ADD COLUMN team_role VARCHAR(50)'); }
+}
 echo 'User table updated.' . PHP_EOL;
 "
 
