@@ -8,6 +8,7 @@ services:
       - "8080:80"
     env_file:
       - .env
+      - .env.local
     depends_on:
       - db
 

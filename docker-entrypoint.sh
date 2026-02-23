@@ -1,4 +1,4 @@
-#!/bin/bash
+    #!/bin/bash
 set -e
 
 echo "Running startup tasks..."
@@ -29,7 +29,29 @@ php -r "
 \$pdo->exec('CREATE TABLE IF NOT EXISTS gsc_snapshots (id SERIAL PRIMARY KEY, query VARCHAR(500) NOT NULL, page TEXT NOT NULL, clicks INT DEFAULT 0, impressions INT DEFAULT 0, ctr FLOAT DEFAULT 0, position FLOAT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS ga4_snapshots (id SERIAL PRIMARY KEY, page_path TEXT NOT NULL, sessions INT DEFAULT 0, pageviews INT DEFAULT 0, bounce_rate FLOAT DEFAULT 0, conversions INT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS team_members (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, role VARCHAR(50) NOT NULL, email VARCHAR(255), max_hours_per_week INT DEFAULT 40, is_active BOOLEAN DEFAULT true)');
-\$pdo->exec('CREATE TABLE IF NOT EXISTS tasks (id SERIAL PRIMARY KEY, title VARCHAR(500) NOT NULL, description TEXT, rule_id VARCHAR(20), assigned_to VARCHAR(100), assigned_role VARCHAR(50), status VARCHAR(20) DEFAULT pending, priority VARCHAR(20) DEFAULT medium, estimated_hours FLOAT DEFAULT 1, due_date DATE, created_at TIMESTAMP DEFAULT NOW(), completed_at TIMESTAMP)');
+\$pdo->exec(\"CREATE TABLE IF NOT EXISTS tasks (
+    id SERIAL PRIMARY KEY,
+    title VARCHAR(500) NOT NULL,
+    description TEXT,
+    rule_id VARCHAR(20),
+    assigned_to VARCHAR(100),
+    assigned_role VARCHAR(50),
+    status VARCHAR(20) DEFAULT 'pending',
+    priority VARCHAR(20) DEFAULT 'medium',
+    estimated_hours FLOAT DEFAULT 1,
+    due_date DATE,
+    recheck_type VARCHAR(50),
+    recheck_date DATE,
+    recheck_verified BOOLEAN DEFAULT false,
+    recheck_result VARCHAR(20),
+    created_at TIMESTAMP DEFAULT NOW(),
+    completed_at TIMESTAMP
+)\");
+\$cols = \$pdo->query(\"SELECT column_name FROM information_schema.columns WHERE table_name = 'tasks'\")->fetchAll(PDO::FETCH_COLUMN);
+if (!in_array('recheck_type', \$cols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_type VARCHAR(50)'); }
+if (!in_array('recheck_date', \$cols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_date DATE'); }
+if (!in_array('recheck_verified', \$cols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_verified BOOLEAN DEFAULT false'); }
+if (!in_array('recheck_result', \$cols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_result VARCHAR(20)'); }
 echo 'Tables ready.' . PHP_EOL;
 "
 
@@ -46,6 +68,16 @@ if (\$count == 0) {
 }
 "
 
+# Add name and team_role to user table if missing
+php -r "
+\$url = parse_url(getenv('DATABASE_URL'));
+\$pdo = new PDO('pgsql:host='.\$url['host'].';port='.(\$url['port']??5432).';dbname='.ltrim(\$url['path'],'/'), \$url['user'], \$url['pass']);
+\$cols = \$pdo->query(\"SELECT column_name FROM information_schema.columns WHERE table_name = 'user'\")->fetchAll(PDO::FETCH_COLUMN);
+if (!in_array('name', \$cols)) { \$pdo->exec('ALTER TABLE \"user\" ADD COLUMN name VARCHAR(100)'); }
+if (!in_array('team_role', \$cols)) { \$pdo->exec('ALTER TABLE \"user\" ADD COLUMN team_role VARCHAR(50)'); }
+echo 'User table updated.' . PHP_EOL;
+"
+
 chmod -R 777 /var/www/html/var/cache
 chmod -R 777 /var/www/html/var/log
 
@@ -53,6 +85,17 @@ chmod -R 777 /var/www/html/var/log
 echo "Fetching GSC and GA4 data..."
 php /var/www/html/bin/console app:fetch-gsc 2>/dev/null || echo "GSC fetch failed"
 php /var/www/html/bin/console app:fetch-ga4 2>/dev/null || echo "GA4 fetch failed"
+
+# Insert SEMrush snapshot if none exists
+php -r "
+\$url = parse_url(getenv('DATABASE_URL'));
+\$pdo = new PDO('pgsql:host='.\$url['host'].';port='.(\$url['port']??5432).';dbname='.ltrim(\$url['path'],'/'), \$url['user'], \$url['pass']);
+\$count = \$pdo->query('SELECT COUNT(*) FROM semrush_snapshots')->fetchColumn();
+if (\$count == 0) {
+    \$pdo->exec(\"INSERT INTO semrush_snapshots (domain, organic_keywords, organic_traffic, fetched_at) VALUES ('doubledtrailers.com', 200, 3, NOW())\");
+    echo 'SEMrush snapshot seeded.' . PHP_EOL;
+}
+"
 
 # Set up cron to fetch data daily at 6am
 apt-get update -qq && apt-get install -y -qq cron > /dev/null 2>&1
@@ -66,3 +109,5 @@ echo "Startup complete."
 
 # Start Apache
 exec apache2-foreground
+
+    
