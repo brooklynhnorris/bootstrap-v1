@@ -8,7 +8,10 @@ sed -i '1s/^\xEF\xBB\xBF//' /var/www/html/public/index.php 2>/dev/null || true
 find /var/www/html/src -name "*.php" -exec sed -i 's/\r//' {} \;
 
 # Wait for database to be ready using DATABASE_URL
-until php -r "new PDO(getenv('DATABASE_URL'));" 2>/dev/null; do
+until php -r "
+\$url = parse_url(getenv('DATABASE_URL'));
+new PDO('pgsql:host='.\$url['host'].';port='.(\$url['port']??5432).';dbname='.ltrim(\$url['path'],'/'), \$url['user'], \$url['pass']);
+" 2>/dev/null; do
   echo "Waiting for database..."
   sleep 2
 done
@@ -20,7 +23,8 @@ php bin/console doctrine:schema:update --force --no-interaction 2>/dev/null || t
 
 # Create data tables
 php -r "
-\$pdo = new PDO(getenv('DATABASE_URL'));
+\$url = parse_url(getenv('DATABASE_URL'));
+\$pdo = new PDO('pgsql:host='.\$url['host'].';port='.(\$url['port']??5432).';dbname='.ltrim(\$url['path'],'/'), \$url['user'], \$url['pass']);
 \$pdo->exec('CREATE TABLE IF NOT EXISTS semrush_snapshots (id SERIAL PRIMARY KEY, domain VARCHAR(255) NOT NULL, organic_keywords INT DEFAULT 0, organic_traffic INT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS gsc_snapshots (id SERIAL PRIMARY KEY, query VARCHAR(500) NOT NULL, page TEXT NOT NULL, clicks INT DEFAULT 0, impressions INT DEFAULT 0, ctr FLOAT DEFAULT 0, position FLOAT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS ga4_snapshots (id SERIAL PRIMARY KEY, page_path TEXT NOT NULL, sessions INT DEFAULT 0, pageviews INT DEFAULT 0, bounce_rate FLOAT DEFAULT 0, conversions INT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
@@ -31,7 +35,8 @@ echo 'Tables ready.' . PHP_EOL;
 
 # Seed team members if empty
 php -r "
-\$pdo = new PDO(getenv('DATABASE_URL'));
+\$url = parse_url(getenv('DATABASE_URL'));
+\$pdo = new PDO('pgsql:host='.\$url['host'].';port='.(\$url['port']??5432).';dbname='.ltrim(\$url['path'],'/'), \$url['user'], \$url['pass']);
 \$count = \$pdo->query('SELECT COUNT(*) FROM team_members')->fetchColumn();
 if (\$count == 0) {
     \$pdo->exec(\"INSERT INTO team_members (name, role, email, max_hours_per_week) VALUES ('Brook', 'SEO + Content', 'brook@doubledtrailers.com', 40)\");
@@ -61,8 +66,3 @@ echo "Startup complete."
 
 # Start Apache
 exec apache2-foreground
-```
-
-Also update your local `.env` to use the PDO-compatible format:
-```
-DATABASE_URL="pgsql:host=ddt-db;dbname=logiri;user=logiri;password=logiri"
