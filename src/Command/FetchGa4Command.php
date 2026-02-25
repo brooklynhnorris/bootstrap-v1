@@ -30,23 +30,37 @@ class FetchGa4Command extends Command
 
         // Get access token
         $output->writeln('Getting Google access token...');
-        $tokenResponse = file_get_contents('https://oauth2.googleapis.com/token', false, stream_context_create([
+        $tokenUrl = 'https://oauth2.googleapis.com/token';
+        $tokenBody = http_build_query([
+            'client_id'     => $clientId,
+            'client_secret' => $clientSecret,
+            'refresh_token' => $refreshToken,
+            'grant_type'    => 'refresh_token',
+        ]);
+        $tokenResponse = file_get_contents($tokenUrl, false, stream_context_create([
             'http' => [
                 'method' => 'POST',
                 'header' => 'Content-Type: application/x-www-form-urlencoded',
-                'content' => http_build_query([
-                    'client_id'     => $clientId,
-                    'client_secret' => $clientSecret,
-                    'refresh_token' => $refreshToken,
-                    'grant_type'    => 'refresh_token',
-                ]),
+                'content' => $tokenBody,
                 'ignore_errors' => true,
             ],
         ]));
 
+        $tokenHttpStatus = $this->parseHttpStatus($http_response_header ?? []);
+        if ($tokenHttpStatus !== null && $tokenHttpStatus >= 400) {
+            $output->writeln("[DEBUG] Token request failed with HTTP {$tokenHttpStatus}");
+            $output->writeln("[DEBUG] Token request URL: {$tokenUrl}");
+            $output->writeln('[DEBUG] Token request body: ' . $tokenBody);
+            $output->writeln('[DEBUG] Token raw response: ' . ($tokenResponse !== false ? $tokenResponse : '(empty/false)'));
+        }
+
         $tokenData = json_decode($tokenResponse, true);
         if (!isset($tokenData['access_token'])) {
             $output->writeln('Failed to get access token: ' . ($tokenData['error_description'] ?? 'Unknown error'));
+            $output->writeln('[DEBUG] Token request URL: ' . $tokenUrl);
+            $output->writeln('[DEBUG] Token request body: ' . $tokenBody);
+            $output->writeln('[DEBUG] Token HTTP status: ' . ($tokenHttpStatus ?? 'unknown'));
+            $output->writeln('[DEBUG] Token raw response: ' . ($tokenResponse !== false ? $tokenResponse : '(empty/false)'));
             return Command::FAILURE;
         }
 
@@ -64,7 +78,7 @@ class FetchGa4Command extends Command
 
         // ── Fetch 1: Current 28-day page metrics with engagement ──
         $output->writeln('Fetching current 28-day page data with engagement metrics...');
-        $currentRows = $this->fetchGA4Pages($accessToken, $propertyId, 28, 0);
+        $currentRows = $this->fetchGA4Pages($accessToken, $propertyId, 28, 0, $output);
         foreach ($currentRows as $row) {
             $this->db->insert('ga4_snapshots', [
                 'page_path'             => $row['page_path'],
@@ -83,7 +97,7 @@ class FetchGa4Command extends Command
 
         // ── Fetch 2: Previous 28-day page metrics (for WoW/MoM comparison) ──
         $output->writeln('Fetching previous 28-day page data (comparison period)...');
-        $previousRows = $this->fetchGA4Pages($accessToken, $propertyId, 28, 28);
+        $previousRows = $this->fetchGA4Pages($accessToken, $propertyId, 28, 28, $output);
         $countPrev = 0;
         foreach ($previousRows as $row) {
             $this->db->insert('ga4_snapshots', [
@@ -104,7 +118,7 @@ class FetchGa4Command extends Command
 
         // ── Fetch 3: Landing page data with conversions ──
         $output->writeln('Fetching landing page + conversion data...');
-        $landingRows = $this->fetchGA4LandingPages($accessToken, $propertyId, 28);
+        $landingRows = $this->fetchGA4LandingPages($accessToken, $propertyId, 28, $output);
         $countLanding = 0;
         foreach ($landingRows as $row) {
             $this->db->insert('ga4_snapshots', [
@@ -128,7 +142,18 @@ class FetchGa4Command extends Command
         return Command::SUCCESS;
     }
 
-    private function fetchGA4Pages(string $token, string $propertyId, int $days, int $offset): array
+    /**
+     * @param array<string, mixed> $headers
+     */
+    private function parseHttpStatus(array $headers): ?int
+    {
+        if (isset($headers[0]) && preg_match('#HTTP/\d\.\d (\d{3})#', $headers[0], $m)) {
+            return (int) $m[1];
+        }
+        return null;
+    }
+
+    private function fetchGA4Pages(string $token, string $propertyId, int $days, int $offset, OutputInterface $output): array
     {
         $endDate   = date('Y-m-d', strtotime('-' . ($offset + 1) . ' days'));
         $startDate = date('Y-m-d', strtotime('-' . ($offset + $days) . ' days'));
@@ -148,8 +173,9 @@ class FetchGa4Command extends Command
             'limit' => 500,
         ];
 
+        $url = "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport";
         $response = file_get_contents(
-            "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport",
+            $url,
             false,
             stream_context_create([
                 'http' => [
@@ -161,10 +187,24 @@ class FetchGa4Command extends Command
             ])
         );
 
-        $data = json_decode($response, true);
-        $results = [];
+        $httpStatus = $this->parseHttpStatus($http_response_header ?? []);
+        $data = json_decode($response !== false ? $response : '{}', true);
+        $rows = $data['rows'] ?? [];
 
-        foreach ($data['rows'] ?? [] as $row) {
+        if ($httpStatus !== null && $httpStatus >= 400) {
+            $output->writeln('[DEBUG] GA4 [pages] request failed with HTTP ' . $httpStatus);
+            $output->writeln('[DEBUG] GA4 [pages] request URL: ' . $url);
+            $output->writeln('[DEBUG] GA4 [pages] request body: ' . json_encode($requestBody));
+            $output->writeln('[DEBUG] GA4 [pages] raw response: ' . ($response !== false ? $response : '(empty/false)'));
+        } elseif (count($rows) === 0) {
+            $output->writeln('[DEBUG] GA4 [pages] returned 0 rows. Request URL: ' . $url);
+            $output->writeln('[DEBUG] GA4 [pages] request body: ' . json_encode($requestBody));
+            $output->writeln('[DEBUG] GA4 [pages] HTTP status: ' . ($httpStatus ?? 'unknown'));
+            $output->writeln('[DEBUG] GA4 [pages] raw response: ' . ($response !== false ? $response : '(empty/false)'));
+        }
+
+        $results = [];
+        foreach ($rows as $row) {
             $results[] = [
                 'page_path'           => $row['dimensionValues'][0]['value'] ?? '/',
                 'sessions'            => intval($row['metricValues'][0]['value'] ?? 0),
@@ -179,7 +219,7 @@ class FetchGa4Command extends Command
         return $results;
     }
 
-    private function fetchGA4LandingPages(string $token, string $propertyId, int $days): array
+    private function fetchGA4LandingPages(string $token, string $propertyId, int $days, OutputInterface $output): array
     {
         $endDate   = date('Y-m-d', strtotime('-1 day'));
         $startDate = date('Y-m-d', strtotime("-{$days} days"));
@@ -198,8 +238,9 @@ class FetchGa4Command extends Command
             'limit' => 200,
         ];
 
+        $url = "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport";
         $response = file_get_contents(
-            "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport",
+            $url,
             false,
             stream_context_create([
                 'http' => [
@@ -211,10 +252,24 @@ class FetchGa4Command extends Command
             ])
         );
 
-        $data = json_decode($response, true);
-        $results = [];
+        $httpStatus = $this->parseHttpStatus($http_response_header ?? []);
+        $data = json_decode($response !== false ? $response : '{}', true);
+        $rows = $data['rows'] ?? [];
 
-        foreach ($data['rows'] ?? [] as $row) {
+        if ($httpStatus !== null && $httpStatus >= 400) {
+            $output->writeln('[DEBUG] GA4 [landing] request failed with HTTP ' . $httpStatus);
+            $output->writeln('[DEBUG] GA4 [landing] request URL: ' . $url);
+            $output->writeln('[DEBUG] GA4 [landing] request body: ' . json_encode($requestBody));
+            $output->writeln('[DEBUG] GA4 [landing] raw response: ' . ($response !== false ? $response : '(empty/false)'));
+        } elseif (count($rows) === 0) {
+            $output->writeln('[DEBUG] GA4 [landing] returned 0 rows. Request URL: ' . $url);
+            $output->writeln('[DEBUG] GA4 [landing] request body: ' . json_encode($requestBody));
+            $output->writeln('[DEBUG] GA4 [landing] HTTP status: ' . ($httpStatus ?? 'unknown'));
+            $output->writeln('[DEBUG] GA4 [landing] raw response: ' . ($response !== false ? $response : '(empty/false)'));
+        }
+
+        $results = [];
+        foreach ($rows as $row) {
             $results[] = [
                 'page_path'           => $row['dimensionValues'][0]['value'] ?? '/',
                 'sessions'            => intval($row['metricValues'][0]['value'] ?? 0),
