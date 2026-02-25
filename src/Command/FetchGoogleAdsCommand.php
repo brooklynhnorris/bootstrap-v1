@@ -6,14 +6,23 @@ use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
 #[AsCommand(name: 'app:fetch-google-ads', description: 'Fetch Google Ads campaign, keyword, and spend data')]
 class FetchGoogleAdsCommand extends Command
 {
+    private ?OutputInterface $output = null;
+    private bool $debug = false;
+
     public function __construct(private Connection $db)
     {
         parent::__construct();
+    }
+
+    protected function configure(): void
+    {
+        $this->addOption('debug', null, InputOption::VALUE_NONE, 'Print API response snippets when no data or on error');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -37,6 +46,10 @@ class FetchGoogleAdsCommand extends Command
         // Strip dashes from customer ID
         $customerId = str_replace('-', '', $customerId);
 
+        $this->output = $output;
+        $this->debug = (bool) $input->getOption('debug');
+
+        $output->writeln('Google Ads fetch (with diagnostics).');
         // ── Get access token ──
         $output->writeln('Getting Google access token...');
         $tokenResponse = file_get_contents('https://oauth2.googleapis.com/token', false, stream_context_create([
@@ -204,7 +217,7 @@ class FetchGoogleAdsCommand extends Command
             LIMIT 1000
         ";
 
-        return $this->runGaqlQuery($token, $devToken, $customerId, $query);
+        return $this->runGaqlQuery($token, $devToken, $customerId, $query, 'campaign');
     }
 
     // ── Keyword performance query ──
@@ -235,7 +248,7 @@ class FetchGoogleAdsCommand extends Command
             LIMIT 5000
         ";
 
-        return $this->runGaqlQuery($token, $devToken, $customerId, $query);
+        return $this->runGaqlQuery($token, $devToken, $customerId, $query, 'keyword');
     }
 
     // ── Search terms query ──
@@ -263,7 +276,7 @@ class FetchGoogleAdsCommand extends Command
             LIMIT 5000
         ";
 
-        return $this->runGaqlQuery($token, $devToken, $customerId, $query);
+        return $this->runGaqlQuery($token, $devToken, $customerId, $query, 'search_term');
     }
 
     // ── Daily spend trend query ──
@@ -286,15 +299,15 @@ class FetchGoogleAdsCommand extends Command
             ORDER BY segments.date ASC
         ";
 
-        return $this->runGaqlQuery($token, $devToken, $customerId, $query);
+        return $this->runGaqlQuery($token, $devToken, $customerId, $query, 'daily_spend');
     }
 
     // ── Core GAQL request ──
-    private function runGaqlQuery(string $token, string $devToken, string $customerId, string $query): array
+    private function runGaqlQuery(string $token, string $devToken, string $customerId, string $query, string $label = 'query'): array
     {
         $url = "https://googleads.googleapis.com/v17/customers/{$customerId}/googleAds:searchStream";
 
-        $response = file_get_contents($url, false, stream_context_create([
+        $response = @file_get_contents($url, false, stream_context_create([
             'http' => [
                 'method'        => 'POST',
                 'header'        => implode("\r\n", [
@@ -307,7 +320,41 @@ class FetchGoogleAdsCommand extends Command
             ],
         ]));
 
+        $statusLine = $http_response_header[0] ?? '';
+        $statusCode = (int) preg_replace('/^HTTP\/\S+\s+(\d+).*$/i', '$1', $statusLine);
+
         if ($response === false) {
+            if ($this->output) {
+                $this->output->writeln("<comment>[{$label}] Request failed (no response body). Status: {$statusLine}</comment>");
+            }
+            return [];
+        }
+
+        // Non-2xx: try to parse API error and show it
+        if ($statusCode >= 400) {
+            $err = json_decode($response, true);
+            $msg = isset($err['error']['message'])
+                ? $err['error']['message']
+                : (isset($err['error']['status']) ? ($err['error']['status'] . ' – ' . ($err['error']['message'] ?? $response)) : $response);
+            if ($this->output) {
+                $this->output->writeln("<error>[{$label}] API error (HTTP {$statusCode}): {$msg}</error>");
+                if ($this->debug) {
+                    $this->output->writeln('[DEBUG] Raw: ' . substr($response, 0, 800));
+                }
+            }
+            return [];
+        }
+
+        // Single JSON error object (e.g. API returns 200 but body is {"error": ...})
+        $single = json_decode($response, true);
+        if (is_array($single) && isset($single['error'])) {
+            $msg = $single['error']['message'] ?? json_encode($single['error']);
+            if ($this->output) {
+                $this->output->writeln("<error>[{$label}] API error: {$msg}</error>");
+                if ($this->debug) {
+                    $this->output->writeln('[DEBUG] Raw: ' . substr($response, 0, 800));
+                }
+            }
             return [];
         }
 
@@ -316,11 +363,30 @@ class FetchGoogleAdsCommand extends Command
         foreach (explode("\n", trim($response)) as $line) {
             $line = trim($line);
             if (!$line || $line === '[' || $line === ']') continue;
-            // Strip leading comma if present
             $line = ltrim($line, ',');
             $decoded = json_decode($line, true);
             if (isset($decoded['results'])) {
                 $results = array_merge($results, $decoded['results']);
+            }
+            // One line might be an error object
+            if (is_array($decoded ?? null) && isset($decoded['error'])) {
+                $msg = $decoded['error']['message'] ?? json_encode($decoded['error']);
+                if ($this->output) {
+                    $this->output->writeln("<error>[{$label}] Stream error: {$msg}</error>");
+                }
+                return [];
+            }
+        }
+
+        // When 0 rows, always show diagnostic so we can see why (HTTP status + response snippet or "empty")
+        if (count($results) === 0 && $this->output) {
+            $len = strlen($response);
+            $status = trim($statusLine);
+            if ($len > 0) {
+                $snippet = substr($response, 0, 800);
+                $this->output->writeln("[{$label}] 0 rows. HTTP: {$status} | Response ({$len} bytes): " . $snippet . ($len > 800 ? '...' : ''));
+            } else {
+                $this->output->writeln("[{$label}] 0 rows. HTTP: {$status} | Response: (empty body)");
             }
         }
 
