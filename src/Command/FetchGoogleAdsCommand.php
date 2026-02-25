@@ -358,23 +358,40 @@ class FetchGoogleAdsCommand extends Command
             return [];
         }
 
-        // searchStream returns newline-delimited JSON objects (one per batch)
+        // searchStream can return: (1) single JSON array [{ "results": [...] }, ...], or (2) NDJSON lines
         $results = [];
-        foreach (explode("\n", trim($response)) as $line) {
-            $line = trim($line);
-            if (!$line || $line === '[' || $line === ']') continue;
-            $line = ltrim($line, ',');
-            $decoded = json_decode($line, true);
-            if (isset($decoded['results'])) {
-                $results = array_merge($results, $decoded['results']);
-            }
-            // One line might be an error object
-            if (is_array($decoded ?? null) && isset($decoded['error'])) {
-                $msg = $decoded['error']['message'] ?? json_encode($decoded['error']);
-                if ($this->output) {
-                    $this->output->writeln("<error>[{$label}] Stream error: {$msg}</error>");
+        $full = json_decode($response, true);
+        if (is_array($full)) {
+            // Single JSON array of batches
+            foreach ($full as $batch) {
+                if (is_array($batch) && isset($batch['results'])) {
+                    $results = array_merge($results, $batch['results']);
                 }
-                return [];
+                if (is_array($batch) && isset($batch['error'])) {
+                    $msg = $batch['error']['message'] ?? json_encode($batch['error']);
+                    if ($this->output) {
+                        $this->output->writeln("<error>[{$label}] Stream error: {$msg}</error>");
+                    }
+                    return [];
+                }
+            }
+        } else {
+            // Fallback: newline-delimited JSON (one batch per line)
+            foreach (explode("\n", trim($response)) as $line) {
+                $line = trim($line);
+                if (!$line || $line === '[' || $line === ']') continue;
+                $line = ltrim($line, ',');
+                $decoded = json_decode($line, true);
+                if (isset($decoded['results'])) {
+                    $results = array_merge($results, $decoded['results']);
+                }
+                if (is_array($decoded ?? null) && isset($decoded['error'])) {
+                    $msg = $decoded['error']['message'] ?? json_encode($decoded['error']);
+                    if ($this->output) {
+                        $this->output->writeln("<error>[{$label}] Stream error: {$msg}</error>");
+                    }
+                    return [];
+                }
             }
         }
 
