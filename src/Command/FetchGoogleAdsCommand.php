@@ -88,6 +88,7 @@ class FetchGoogleAdsCommand extends Command
         $output->writeln('Fetching campaign performance (30 days)...');
         $campaigns = $this->fetchCampaigns($accessToken, $developerToken, $customerId, 30);
         foreach ($campaigns as $row) {
+            $m = $row['metrics'] ?? [];
             $this->db->insert('google_ads_snapshots', [
                 'data_type'    => 'campaign',
                 'campaign_id'  => $row['campaign']['id'] ?? '',
@@ -96,12 +97,12 @@ class FetchGoogleAdsCommand extends Command
                 'ad_group_name'=> null,
                 'keyword'      => null,
                 'match_type'   => null,
-                'impressions'  => $row['metrics']['impressions'] ?? 0,
-                'clicks'       => $row['metrics']['clicks'] ?? 0,
-                'cost_micros'  => $row['metrics']['costMicros'] ?? 0,
-                'conversions'  => round($row['metrics']['conversions'] ?? 0, 2),
-                'ctr'          => round(($row['metrics']['ctr'] ?? 0), 4),
-                'average_cpc'  => $row['metrics']['averageCpc'] ?? 0,
+                'impressions'  => (int) ($m['impressions'] ?? 0),
+                'clicks'       => (int) ($m['clicks'] ?? 0),
+                'cost_micros'  => (int) round((float) ($m['costMicros'] ?? 0)),
+                'conversions'  => round((float) ($m['conversions'] ?? 0), 2),
+                'ctr'          => round((float) ($m['ctr'] ?? 0), 4),
+                'average_cpc'  => (int) round((float) ($m['averageCpc'] ?? 0)),
                 'status'       => $row['campaign']['status'] ?? '',
                 'date_range'   => '30d',
                 'fetched_at'   => date('Y-m-d H:i:s'),
@@ -114,6 +115,7 @@ class FetchGoogleAdsCommand extends Command
         $output->writeln('Fetching keyword performance (30 days)...');
         $keywords = $this->fetchKeywords($accessToken, $developerToken, $customerId, 30);
         foreach ($keywords as $row) {
+            $m = $row['metrics'] ?? [];
             $this->db->insert('google_ads_snapshots', [
                 'data_type'    => 'keyword',
                 'campaign_id'  => $row['campaign']['id'] ?? '',
@@ -122,12 +124,12 @@ class FetchGoogleAdsCommand extends Command
                 'ad_group_name'=> $row['adGroup']['name'] ?? '',
                 'keyword'      => $row['adGroupCriterion']['keyword']['text'] ?? '',
                 'match_type'   => $row['adGroupCriterion']['keyword']['matchType'] ?? '',
-                'impressions'  => $row['metrics']['impressions'] ?? 0,
-                'clicks'       => $row['metrics']['clicks'] ?? 0,
-                'cost_micros'  => $row['metrics']['costMicros'] ?? 0,
-                'conversions'  => round($row['metrics']['conversions'] ?? 0, 2),
-                'ctr'          => round(($row['metrics']['ctr'] ?? 0), 4),
-                'average_cpc'  => $row['metrics']['averageCpc'] ?? 0,
+                'impressions'  => (int) ($m['impressions'] ?? 0),
+                'clicks'       => (int) ($m['clicks'] ?? 0),
+                'cost_micros'  => (int) round((float) ($m['costMicros'] ?? 0)),
+                'conversions'  => round((float) ($m['conversions'] ?? 0), 2),
+                'ctr'          => round((float) ($m['ctr'] ?? 0), 4),
+                'average_cpc'  => (int) round((float) ($m['averageCpc'] ?? 0)),
                 'status'       => $row['adGroupCriterion']['status'] ?? '',
                 'date_range'   => '30d',
                 'fetched_at'   => date('Y-m-d H:i:s'),
@@ -140,6 +142,7 @@ class FetchGoogleAdsCommand extends Command
         $output->writeln('Fetching search term report (30 days)...');
         $searchTerms = $this->fetchSearchTerms($accessToken, $developerToken, $customerId, 30);
         foreach ($searchTerms as $row) {
+            $m = $row['metrics'] ?? [];
             $this->db->insert('google_ads_snapshots', [
                 'data_type'    => 'search_term',
                 'campaign_id'  => $row['campaign']['id'] ?? '',
@@ -148,12 +151,12 @@ class FetchGoogleAdsCommand extends Command
                 'ad_group_name'=> $row['adGroup']['name'] ?? '',
                 'keyword'      => $row['searchTermView']['searchTerm'] ?? '',
                 'match_type'   => null,
-                'impressions'  => $row['metrics']['impressions'] ?? 0,
-                'clicks'       => $row['metrics']['clicks'] ?? 0,
-                'cost_micros'  => $row['metrics']['costMicros'] ?? 0,
-                'conversions'  => round($row['metrics']['conversions'] ?? 0, 2),
-                'ctr'          => round(($row['metrics']['ctr'] ?? 0), 4),
-                'average_cpc'  => $row['metrics']['averageCpc'] ?? 0,
+                'impressions'  => (int) ($m['impressions'] ?? 0),
+                'clicks'       => (int) ($m['clicks'] ?? 0),
+                'cost_micros'  => (int) round((float) ($m['costMicros'] ?? 0)),
+                'conversions'  => round((float) ($m['conversions'] ?? 0), 2),
+                'ctr'          => round((float) ($m['ctr'] ?? 0), 4),
+                'average_cpc'  => (int) round((float) ($m['averageCpc'] ?? 0)),
                 'status'       => null,
                 'date_range'   => '30d',
                 'fetched_at'   => date('Y-m-d H:i:s'),
@@ -166,6 +169,7 @@ class FetchGoogleAdsCommand extends Command
         $output->writeln('Fetching daily spend trend (90 days)...');
         $dailySpend = $this->fetchDailySpend($accessToken, $developerToken, $customerId, 90);
         foreach ($dailySpend as $row) {
+            $m = $row['metrics'] ?? [];
             $this->db->insert('google_ads_snapshots', [
                 'data_type'    => 'daily_spend',
                 'campaign_id'  => null,
@@ -174,12 +178,12 @@ class FetchGoogleAdsCommand extends Command
                 'ad_group_name'=> null,
                 'keyword'      => null,
                 'match_type'   => null,
-                'impressions'  => $row['metrics']['impressions'] ?? 0,
-                'clicks'       => $row['metrics']['clicks'] ?? 0,
-                'cost_micros'  => $row['metrics']['costMicros'] ?? 0,
-                'conversions'  => round($row['metrics']['conversions'] ?? 0, 2),
-                'ctr'          => round(($row['metrics']['ctr'] ?? 0), 4),
-                'average_cpc'  => $row['metrics']['averageCpc'] ?? 0,
+                'impressions'  => (int) ($m['impressions'] ?? 0),
+                'clicks'       => (int) ($m['clicks'] ?? 0),
+                'cost_micros'  => (int) round((float) ($m['costMicros'] ?? 0)),
+                'conversions'  => round((float) ($m['conversions'] ?? 0), 2),
+                'ctr'          => round((float) ($m['ctr'] ?? 0), 4),
+                'average_cpc'  => (int) round((float) ($m['averageCpc'] ?? 0)),
                 'status'       => null,
                 'date_range'   => $row['segments']['date'] ?? '',
                 'fetched_at'   => date('Y-m-d H:i:s'),
