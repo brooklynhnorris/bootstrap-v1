@@ -66,7 +66,7 @@ class HomeController extends AbstractController
         );
 
         $activeTasks = $this->db->fetchAllAssociative(
-            "SELECT id, title, assigned_to, assigned_role, status, priority, estimated_hours, created_at FROM tasks WHERE status != 'done' ORDER BY created_at DESC LIMIT 10"
+            "SELECT id, title, assigned_to, assigned_role, status, priority, estimated_hours, logged_hours, created_at FROM tasks WHERE status != 'done' ORDER BY created_at DESC LIMIT 10"
         );
 
         $pendingRechecks = $this->db->fetchAllAssociative(
@@ -146,6 +146,7 @@ class HomeController extends AbstractController
             'status' => 'pending',
             'priority' => $body['priority'] ?? 'medium',
             'estimated_hours' => $body['estimated_hours'] ?? 1,
+            'logged_hours' => 0,
             'due_date' => $body['due_date'] ?? null,
             'recheck_type' => $body['recheck_type'] ?? null,
             'created_at' => date('Y-m-d H:i:s'),
@@ -165,7 +166,6 @@ class HomeController extends AbstractController
             return new JsonResponse(['error' => 'Task not found'], 404);
         }
 
-        // Calculate recheck date based on recheck_type
         $recheckDays = match($task['recheck_type']) {
             '404_fix' => 7,
             'sitemap_fix' => 7,
@@ -205,6 +205,30 @@ class HomeController extends AbstractController
         $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
 
         return new JsonResponse($task);
+    }
+
+    #[Route('/api/tasks/{id}/log-time', name: 'api_tasks_log_time', methods: ['POST'])]
+    public function logTime(int $id, Request $request): JsonResponse
+    {
+        $body = json_decode($request->getContent(), true);
+        $hours = floatval($body['hours'] ?? 0);
+
+        if ($hours <= 0) {
+            return new JsonResponse(['error' => 'Hours must be positive'], 400);
+        }
+
+        $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
+        if (!$task) {
+            return new JsonResponse(['error' => 'Task not found'], 404);
+        }
+
+        $newLogged = floatval($task['logged_hours'] ?? 0) + $hours;
+
+        $this->db->update('tasks', ['logged_hours' => $newLogged], ['id' => $id]);
+
+        $updated = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
+
+        return new JsonResponse($updated);
     }
 
     #[Route('/api/tasks/{id}/verify', name: 'api_tasks_verify', methods: ['POST'])]
@@ -259,16 +283,17 @@ class HomeController extends AbstractController
         $traffic  = $semrush['organic_traffic'] ?? 'N/A';
         $updated  = $semrush['fetched_at'] ?? 'N/A';
 
-        // Active tasks context
         $taskContext = '';
         if (!empty($activeTasks)) {
             $taskContext .= "\n\nACTIVE TASKS IN SYSTEM:\n";
             foreach ($activeTasks as $t) {
-                $taskContext .= "- [" . strtoupper($t['priority']) . "] " . $t['title'] . " | Assigned: " . ($t['assigned_to'] ?? 'Unassigned') . " | Status: " . $t['status'] . "\n";
+                $logged = floatval($t['logged_hours'] ?? 0);
+                $est = floatval($t['estimated_hours'] ?? 0);
+                $timeInfo = $est > 0 ? " | Time: {$logged}/{$est}h" : "";
+                $taskContext .= "- [" . strtoupper($t['priority']) . "] " . $t['title'] . " | Assigned: " . ($t['assigned_to'] ?? 'Unassigned') . " | Status: " . $t['status'] . $timeInfo . "\n";
             }
         }
 
-        // Pending rechecks context
         $recheckContext = '';
         if (!empty($pendingRechecks)) {
             $recheckContext .= "\n\nPENDING VERIFICATION RECHECKS:\n";
@@ -299,3 +324,5 @@ class HomeController extends AbstractController
         return $intro;
     }
 }
+
+    

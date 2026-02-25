@@ -39,6 +39,7 @@ php -r "
     status VARCHAR(20) DEFAULT 'pending',
     priority VARCHAR(20) DEFAULT 'medium',
     estimated_hours FLOAT DEFAULT 1,
+    logged_hours FLOAT DEFAULT 0,
     due_date DATE,
     recheck_type VARCHAR(50),
     recheck_date DATE,
@@ -47,11 +48,15 @@ php -r "
     created_at TIMESTAMP DEFAULT NOW(),
     completed_at TIMESTAMP
 )\");
+
+// Add columns if they dont exist (for existing tables)
 \$cols = \$pdo->query(\"SELECT column_name FROM information_schema.columns WHERE table_name = 'tasks'\")->fetchAll(PDO::FETCH_COLUMN);
 if (!in_array('recheck_type', \$cols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_type VARCHAR(50)'); }
 if (!in_array('recheck_date', \$cols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_date DATE'); }
 if (!in_array('recheck_verified', \$cols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_verified BOOLEAN DEFAULT false'); }
 if (!in_array('recheck_result', \$cols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_result VARCHAR(20)'); }
+if (!in_array('logged_hours', \$cols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN logged_hours FLOAT DEFAULT 0'); }
+
 echo 'Tables ready.' . PHP_EOL;
 "
 

@@ -7,145 +7,50 @@
     <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-primary: #0a0a0b;
-            --bg-secondary: #111113;
-            --bg-tertiary: #18181b;
-            --border-subtle: #222226;
-            --border-medium: #2a2a2f;
-            --text-primary: #e8e8ec;
-            --text-secondary: #9898a0;
-            --text-muted: #5c5c66;
-            --accent-blue: #5b8af5;
-            --accent-blue-dim: #2a3a5a;
-            --accent-red: #e85454;
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f8fa;
+            --border-subtle: #e4e4e8;
+            --border-medium: #d0d0d6;
+            --text-primary: #1a1a1f;
+            --text-secondary: #5c5c66;
+            --text-muted: #9898a0;
+            --accent-blue: #2563eb;
+            --accent-red: #dc2626;
         }
-
         * { margin: 0; padding: 0; box-sizing: border-box; }
-
         body {
             font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .login-container {
-            width: 100%;
-            max-width: 380px;
-            padding: 0 24px;
-        }
-
-        .login-header {
-            text-align: center;
-            margin-bottom: 32px;
-        }
-
-        .login-header h1 {
-            font-size: 28px;
-            font-weight: 700;
-            color: #fff;
-            letter-spacing: -0.5px;
-        }
-
-        .login-header p {
-            font-size: 12px;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-top: 6px;
-        }
-
-        .login-card {
             background: var(--bg-secondary);
-            border: 1px solid var(--border-subtle);
-            border-radius: 12px;
-            padding: 28px;
-        }
-
-        .alert-danger {
-            background: rgba(232, 84, 84, 0.1);
-            border: 1px solid rgba(232, 84, 84, 0.3);
-            color: var(--accent-red);
-            padding: 10px 14px;
-            border-radius: 8px;
-            font-size: 13px;
-            margin-bottom: 20px;
-        }
-
-        .form-group {
-            margin-bottom: 16px;
-        }
-
-        .form-group label {
-            display: block;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-secondary);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 6px;
-        }
-
-        .form-control {
-            width: 100%;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-medium);
-            border-radius: 8px;
-            padding: 11px 14px;
             color: var(--text-primary);
-            font-size: 14px;
-            font-family: 'DM Sans', sans-serif;
-            transition: border-color 0.15s;
+            height: 100vh; display: flex; align-items: center; justify-content: center;
         }
-
-        .form-control:focus {
-            outline: none;
-            border-color: var(--accent-blue);
+        .login-container { width: 100%; max-width: 380px; padding: 0 24px; }
+        .login-header { text-align: center; margin-bottom: 32px; }
+        .login-header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+        .login-header p { font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 6px; }
+        .login-card {
+            background: #fff; border: 1px solid var(--border-subtle); border-radius: 12px;
+            padding: 28px; box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
         }
-
-        .form-control::placeholder {
-            color: var(--text-muted);
+        .alert-danger { background: #fef2f2; border: 1px solid #fecaca; color: var(--accent-red); padding: 10px 14px; border-radius: 8px; font-size: 13px; margin-bottom: 20px; }
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 6px; }
+        .form-control {
+            width: 100%; background: var(--bg-secondary); border: 1px solid var(--border-medium);
+            border-radius: 8px; padding: 11px 14px; color: var(--text-primary);
+            font-size: 14px; font-family: 'DM Sans', sans-serif; transition: border-color 0.15s;
         }
-
-        .checkbox-group {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin: 18px 0;
-        }
-
-        .checkbox-group input[type="checkbox"] {
-            accent-color: var(--accent-blue);
-        }
-
-        .checkbox-group label {
-            font-size: 13px;
-            color: var(--text-secondary);
-            cursor: pointer;
-        }
-
+        .form-control:focus { outline: none; border-color: var(--accent-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+        .form-control::placeholder { color: var(--text-muted); }
+        .checkbox-group { display: flex; align-items: center; gap: 8px; margin: 18px 0; }
+        .checkbox-group input[type="checkbox"] { accent-color: var(--accent-blue); }
+        .checkbox-group label { font-size: 13px; color: var(--text-secondary); cursor: pointer; }
         .btn-login {
-            width: 100%;
-            background: var(--accent-blue-dim);
-            border: 1px solid var(--accent-blue);
-            color: var(--accent-blue);
-            padding: 11px 0;
-            border-radius: 8px;
-            font-size: 14px;
-            font-weight: 600;
-            font-family: 'DM Sans', sans-serif;
-            cursor: pointer;
-            transition: all 0.15s;
-            letter-spacing: 0.2px;
+            width: 100%; background: var(--accent-blue); border: none; color: #fff;
+            padding: 11px 0; border-radius: 8px; font-size: 14px; font-weight: 600;
+            font-family: 'DM Sans', sans-serif; cursor: pointer; transition: background 0.15s;
         }
-
-        .btn-login:hover {
-            background: var(--accent-blue);
-            color: #fff;
-        }
+        .btn-login:hover { background: #1d4ed8; }
     </style>
 </head>
 <body>
@@ -154,30 +59,24 @@
             <h1>Logiri</h1>
             <p>SEO Intelligence · Double D Trailers</p>
         </div>
-
         <div class="login-card">
             {% if error %}
                 <div class="alert-danger">{{ error.messageKey|trans(error.messageData, 'security') }}</div>
             {% endif %}
-
             <form method="post">
                 <div class="form-group">
                     <label for="inputEmail">Email</label>
                     <input type="email" value="{{ last_username }}" name="email" id="inputEmail" class="form-control" placeholder="you@doubledtrailers.com" autocomplete="email" required autofocus>
                 </div>
-
                 <div class="form-group">
                     <label for="inputPassword">Password</label>
                     <input type="password" name="password" id="inputPassword" class="form-control" placeholder="••••••••" autocomplete="current-password" required>
                 </div>
-
                 <input type="hidden" name="_csrf_token" value="{{ csrf_token('authenticate') }}">
-
                 <div class="checkbox-group">
                     <input type="checkbox" name="_remember_me" id="rememberMe">
                     <label for="rememberMe">Remember me</label>
                 </div>
-
                 <button class="btn-login" type="submit">Sign In</button>
             </form>
         </div>

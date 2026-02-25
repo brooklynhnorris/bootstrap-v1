@@ -8,26 +8,32 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
     <style>
         :root {
-            --bg-primary: #0a0a0b;
-            --bg-secondary: #111113;
-            --bg-tertiary: #18181b;
-            --bg-card: #141416;
-            --border-subtle: #222226;
-            --border-medium: #2a2a2f;
-            --border-accent: #3a3a4a;
-            --text-primary: #e8e8ec;
-            --text-secondary: #9898a0;
-            --text-muted: #5c5c66;
-            --accent-blue: #5b8af5;
-            --accent-blue-dim: #2a3a5a;
-            --accent-red: #e85454;
-            --accent-red-dim: #3a1a1a;
-            --accent-yellow: #e8b84a;
-            --accent-yellow-dim: #3a2e1a;
-            --accent-green: #4ae88a;
-            --accent-green-dim: #1a3a2a;
-            --accent-purple: #9b7aed;
-            --accent-purple-dim: #2a1e4a;
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f8fa;
+            --bg-tertiary: #f0f0f3;
+            --bg-card: #ffffff;
+            --border-subtle: #e4e4e8;
+            --border-medium: #d0d0d6;
+            --border-accent: #b0b0ba;
+            --text-primary: #1a1a1f;
+            --text-secondary: #5c5c66;
+            --text-muted: #9898a0;
+            --accent-blue: #2563eb;
+            --accent-blue-dim: #eff4ff;
+            --accent-blue-border: #bfdbfe;
+            --accent-red: #dc2626;
+            --accent-red-dim: #fef2f2;
+            --accent-red-border: #fecaca;
+            --accent-yellow: #d97706;
+            --accent-yellow-dim: #fffbeb;
+            --accent-yellow-border: #fde68a;
+            --accent-green: #16a34a;
+            --accent-green-dim: #f0fdf4;
+            --accent-green-border: #bbf7d0;
+            --accent-purple: #7c3aed;
+            --accent-purple-dim: #f5f3ff;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+            --shadow-md: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
             --radius-sm: 6px;
             --radius-md: 10px;
             --radius-lg: 14px;
@@ -35,51 +41,35 @@
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg-primary);
+            background: var(--bg-secondary);
             color: var(--text-primary);
-            height: 100vh;
-            display: flex;
-            overflow: hidden;
+            height: 100vh; display: flex; overflow: hidden;
         }
 
         /* ── Sidebar ── */
         #sidebar {
-            width: 290px;
-            min-width: 290px;
-            background: var(--bg-secondary);
+            width: 290px; min-width: 290px; background: var(--bg-primary);
             border-right: 1px solid var(--border-subtle);
-            display: flex;
-            flex-direction: column;
-            overflow: hidden;
+            display: flex; flex-direction: column; overflow: hidden;
         }
-        #sidebar-header {
-            padding: 20px;
-            border-bottom: 1px solid var(--border-subtle);
-        }
-        #sidebar-header h1 { font-size: 20px; font-weight: 700; color: #fff; letter-spacing: -0.3px; }
+        #sidebar-header { padding: 20px; border-bottom: 1px solid var(--border-subtle); }
+        #sidebar-header h1 { font-size: 20px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
         #sidebar-header p { font-size: 11px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px; }
 
-        /* User card */
         .user-card {
-            padding: 14px 20px;
-            border-bottom: 1px solid var(--border-subtle);
-            display: flex;
-            align-items: center;
-            gap: 10px;
+            padding: 14px 20px; border-bottom: 1px solid var(--border-subtle);
+            display: flex; align-items: center; gap: 10px;
         }
         .user-avatar {
             width: 34px; height: 34px; border-radius: 50%;
             background: var(--accent-blue-dim); color: var(--accent-blue);
             display: flex; align-items: center; justify-content: center;
-            font-size: 13px; font-weight: 600;
+            font-size: 13px; font-weight: 600; border: 1px solid var(--accent-blue-border);
         }
         .user-info { flex: 1; }
-        .user-name { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+        .user-name { font-size: 13px; font-weight: 600; }
         .user-role { font-size: 11px; color: var(--text-muted); }
-        .user-logout {
-            font-size: 11px; color: var(--text-muted); text-decoration: none;
-            padding: 4px 8px; border-radius: 4px; transition: all 0.15s;
-        }
+        .user-logout { font-size: 11px; color: var(--text-muted); text-decoration: none; padding: 4px 8px; border-radius: 4px; transition: all 0.15s; }
         .user-logout:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
 
         .sidebar-section { padding: 14px 20px; border-bottom: 1px solid var(--border-subtle); }
@@ -88,11 +78,9 @@
             text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;
             display: flex; align-items: center; justify-content: space-between;
         }
-
-        /* Task counts */
         .task-summary { display: flex; gap: 6px; }
         .task-stat {
-            flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border-subtle);
+            flex: 1; background: var(--bg-secondary); border: 1px solid var(--border-subtle);
             border-radius: var(--radius-sm); padding: 8px; text-align: center;
         }
         .task-stat-number { font-size: 18px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
@@ -101,30 +89,34 @@
         .task-stat-number.done { color: var(--accent-green); }
         .task-stat-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 1px; }
 
-        /* Task list */
         #sidebar-scroll { flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-medium) transparent; }
 
+        /* Task items */
         .task-item {
-            padding: 10px 12px;
-            background: var(--bg-tertiary);
-            border: 1px solid var(--border-subtle);
-            border-radius: var(--radius-sm);
-            margin-bottom: 6px;
-            transition: border-color 0.15s;
-            cursor: default;
+            padding: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm); margin-bottom: 6px; cursor: pointer;
+            transition: border-color 0.15s, box-shadow 0.15s;
         }
-        .task-item:hover { border-color: var(--border-accent); }
+        .task-item:hover { border-color: var(--accent-blue-border); box-shadow: var(--shadow-sm); }
+        .task-item.selected { border-color: var(--accent-blue); box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
         .task-item-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
         .task-priority {
             font-size: 9px; font-weight: 600; padding: 2px 6px; border-radius: 3px;
             text-transform: uppercase; letter-spacing: 0.5px;
         }
-        .task-priority.urgent { background: var(--accent-red-dim); color: var(--accent-red); }
-        .task-priority.high { background: var(--accent-yellow-dim); color: var(--accent-yellow); }
-        .task-priority.medium { background: var(--accent-blue-dim); color: var(--accent-blue); }
-        .task-priority.low { background: var(--bg-secondary); color: var(--text-muted); }
+        .task-priority.urgent { background: var(--accent-red-dim); color: var(--accent-red); border: 1px solid var(--accent-red-border); }
+        .task-priority.high { background: var(--accent-yellow-dim); color: var(--accent-yellow); border: 1px solid var(--accent-yellow-border); }
+        .task-priority.medium { background: var(--accent-blue-dim); color: var(--accent-blue); border: 1px solid var(--accent-blue-border); }
+        .task-priority.low { background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border-subtle); }
         .task-assignee { font-size: 10px; color: var(--text-muted); margin-left: auto; }
         .task-title { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
+        .task-meta { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
+        .task-hours { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+        .task-status-badge {
+            font-size: 9px; padding: 1px 5px; border-radius: 3px;
+            background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border-subtle);
+        }
+        .task-status-badge.in_progress { background: var(--accent-yellow-dim); color: var(--accent-yellow); border-color: var(--accent-yellow-border); }
         .task-actions-row { display: flex; gap: 4px; margin-top: 6px; }
         .task-action-btn {
             font-size: 10px; padding: 3px 8px; border-radius: 3px; border: 1px solid var(--border-subtle);
@@ -132,15 +124,14 @@
             font-family: 'DM Sans', sans-serif; transition: all 0.15s;
         }
         .task-action-btn:hover { border-color: var(--border-accent); color: var(--text-secondary); }
-        .task-action-btn.complete:hover { border-color: var(--accent-green); color: var(--accent-green); background: var(--accent-green-dim); }
-        .task-action-btn.start:hover { border-color: var(--accent-yellow); color: var(--accent-yellow); background: var(--accent-yellow-dim); }
-
+        .task-action-btn.complete:hover { border-color: var(--accent-green-border); color: var(--accent-green); background: var(--accent-green-dim); }
+        .task-action-btn.start:hover { border-color: var(--accent-yellow-border); color: var(--accent-yellow); background: var(--accent-yellow-dim); }
         .task-empty { font-size: 12px; color: var(--text-muted); font-style: italic; padding: 4px 0; }
 
         /* Rechecks */
         .recheck-item {
             display: flex; align-items: center; justify-content: space-between;
-            padding: 8px 10px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle);
+            padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border-subtle);
             border-radius: var(--radius-sm); margin-bottom: 5px;
         }
         .recheck-info { font-size: 11px; color: var(--text-secondary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -150,34 +141,47 @@
         }
         .recheck-date.overdue { background: var(--accent-red-dim); color: var(--accent-red); }
         .recheck-date.upcoming { background: var(--accent-yellow-dim); color: var(--accent-yellow); }
-        .recheck-date.future { background: var(--bg-secondary); color: var(--text-muted); }
         .recheck-verify-btn {
-            font-size: 9px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--accent-green);
+            font-size: 9px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--accent-green-border);
             background: var(--accent-green-dim); color: var(--accent-green); cursor: pointer;
             font-family: 'DM Sans', sans-serif; margin-left: 4px; transition: all 0.15s;
         }
         .recheck-verify-btn:hover { background: var(--accent-green); color: #fff; }
 
-        /* ── Main Chat ── */
+        /* ── Main Area ── */
         #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
         #chat-header {
             padding: 12px 24px; border-bottom: 1px solid var(--border-subtle);
             display: flex; align-items: center; justify-content: space-between;
-            background: var(--bg-secondary);
+            background: var(--bg-primary);
         }
         #chat-header-left { display: flex; align-items: center; gap: 10px; }
         .pulse-dot { width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; animation: pulse 2s infinite; }
         @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
         #chat-header-label { font-size: 13px; color: var(--text-secondary); }
+
+        /* Tab bar */
+        .tab-bar { display: flex; gap: 2px; }
+        .tab-btn {
+            padding: 6px 14px; border-radius: var(--radius-sm); border: 1px solid transparent;
+            background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 500;
+            font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s;
+        }
+        .tab-btn:hover { background: var(--bg-secondary); color: var(--text-secondary); }
+        .tab-btn.active { background: var(--accent-blue-dim); color: var(--accent-blue); border-color: var(--accent-blue-border); }
+
         .header-btns { display: flex; gap: 6px; }
         .header-btn {
-            background: var(--bg-tertiary); border: 1px solid var(--border-medium);
+            background: var(--bg-secondary); border: 1px solid var(--border-medium);
             color: var(--text-secondary); padding: 6px 12px; border-radius: var(--radius-sm);
             font-size: 12px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s;
         }
-        .header-btn:hover { background: var(--border-medium); color: var(--text-primary); }
+        .header-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
 
-        /* Messages */
+        /* Chat view */
+        #chat-view, #tasks-view { flex: 1; display: flex; flex-direction: column; }
+        #tasks-view { display: none; }
+
         #messages {
             flex: 1; overflow-y: auto; padding: 24px 32px;
             display: flex; flex-direction: column; gap: 20px;
@@ -186,54 +190,50 @@
         .message { max-width: 820px; line-height: 1.7; font-size: 14px; animation: fadeIn 0.25s ease; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
         .message.user {
-            align-self: flex-end; background: #1a1a2e; border: 1px solid #2a2a5a;
+            align-self: flex-end; background: var(--accent-blue); color: #fff;
             padding: 10px 16px; border-radius: var(--radius-lg) var(--radius-lg) 3px var(--radius-lg);
-            color: var(--text-primary); font-size: 14px;
+            font-size: 14px;
         }
         .message.assistant { align-self: flex-start; width: 100%; }
         .message.assistant .bubble {
-            background: var(--bg-card); border: 1px solid var(--border-subtle);
+            background: var(--bg-primary); border: 1px solid var(--border-subtle);
             padding: 20px 24px; border-radius: 3px var(--radius-lg) var(--radius-lg) var(--radius-lg);
+            box-shadow: var(--shadow-sm);
         }
 
-        /* Markdown */
-        .bubble h1 { font-size: 18px; font-weight: 700; color: #fff; margin: 20px 0 8px 0; letter-spacing: -0.3px; }
+        /* Markdown in chat */
+        .bubble h1 { font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 20px 0 8px 0; letter-spacing: -0.3px; }
         .bubble h1:first-child { margin-top: 0; }
-        .bubble h2 { font-size: 15px; font-weight: 600; color: #fff; margin: 18px 0 6px 0; padding-bottom: 6px; border-bottom: 1px solid var(--border-subtle); }
+        .bubble h2 { font-size: 15px; font-weight: 600; color: var(--text-primary); margin: 18px 0 6px 0; padding-bottom: 6px; border-bottom: 1px solid var(--border-subtle); }
         .bubble h3 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 14px 0 4px 0; }
         .bubble p { margin: 8px 0; color: var(--text-secondary); }
         .bubble strong { color: var(--text-primary); font-weight: 600; }
-        .bubble em { color: var(--text-secondary); }
         .bubble ul, .bubble ol { margin: 8px 0; padding-left: 20px; color: var(--text-secondary); }
         .bubble li { margin: 4px 0; }
-        .bubble li strong { color: var(--text-primary); }
         .bubble code {
             font-family: 'JetBrains Mono', monospace; font-size: 12px;
             background: var(--bg-tertiary); border: 1px solid var(--border-subtle);
             padding: 1px 5px; border-radius: 3px; color: var(--accent-blue);
         }
-        .bubble pre { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 12px 16px; margin: 10px 0; overflow-x: auto; }
+        .bubble pre { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 12px 16px; margin: 10px 0; overflow-x: auto; }
         .bubble pre code { background: none; border: none; padding: 0; color: var(--text-secondary); }
         .bubble hr { border: none; border-top: 1px solid var(--border-subtle); margin: 16px 0; }
         .bubble table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
-        .bubble th { text-align: left; padding: 8px 12px; background: var(--bg-tertiary); border: 1px solid var(--border-subtle); color: var(--text-primary); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .bubble th { text-align: left; padding: 8px 12px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); color: var(--text-primary); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
         .bubble td { padding: 8px 12px; border: 1px solid var(--border-subtle); color: var(--text-secondary); }
-        .bubble tr:hover td { background: rgba(255,255,255,0.02); }
+        .bubble tr:hover td { background: var(--bg-secondary); }
 
         /* Chat quick actions */
-        .chat-actions {
-            display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px;
-            border-top: 1px solid var(--border-subtle);
-        }
+        .chat-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
         .chat-btn {
-            background: var(--bg-tertiary); border: 1px solid var(--border-medium);
+            background: var(--bg-secondary); border: 1px solid var(--border-medium);
             color: var(--text-secondary); padding: 6px 12px; border-radius: var(--radius-sm);
             font-size: 11px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s;
         }
-        .chat-btn:hover { background: var(--border-medium); color: var(--text-primary); border-color: var(--border-accent); }
+        .chat-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-accent); }
 
         /* Typing */
-        .typing-indicator { display: none; align-self: flex-start; padding: 8px 0; }
+        .typing-indicator { display: none; align-self: flex-start; padding: 8px 32px; }
         .typing-dots { display: flex; gap: 4px; align-items: center; }
         .typing-dots span { width: 6px; height: 6px; background: var(--text-muted); border-radius: 50%; animation: bounce 1.2s infinite; }
         .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
@@ -241,56 +241,113 @@
         @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
 
         /* Input */
-        #input-area { padding: 14px 32px 18px; border-top: 1px solid var(--border-subtle); display: flex; gap: 10px; background: var(--bg-secondary); }
+        #input-area { padding: 14px 32px 18px; border-top: 1px solid var(--border-subtle); display: flex; gap: 10px; background: var(--bg-primary); }
         #input {
-            flex: 1; background: var(--bg-tertiary); border: 1px solid var(--border-medium);
+            flex: 1; background: var(--bg-secondary); border: 1px solid var(--border-medium);
             border-radius: var(--radius-md); padding: 12px 16px; color: var(--text-primary);
             font-size: 14px; resize: none; height: 48px; line-height: 24px;
             font-family: 'DM Sans', sans-serif; transition: border-color 0.15s;
         }
-        #input:focus { outline: none; border-color: var(--accent-blue); }
+        #input:focus { outline: none; border-color: var(--accent-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
         #input::placeholder { color: var(--text-muted); }
         #send {
-            background: var(--accent-blue-dim); border: 1px solid var(--accent-blue);
-            color: var(--accent-blue); padding: 0 20px; border-radius: var(--radius-md);
-            cursor: pointer; font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif;
+            background: var(--accent-blue); border: none; color: #fff;
+            padding: 0 20px; border-radius: var(--radius-md); cursor: pointer;
+            font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; transition: background 0.15s;
+        }
+        #send:hover { background: #1d4ed8; }
+        #send:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        /* ── Task Detail Panel ── */
+        #task-detail-panel {
+            display: none; width: 380px; min-width: 380px; background: var(--bg-primary);
+            border-left: 1px solid var(--border-subtle); flex-direction: column; overflow: hidden;
+        }
+        #task-detail-panel.open { display: flex; }
+        .panel-header {
+            padding: 16px 20px; border-bottom: 1px solid var(--border-subtle);
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .panel-header h3 { font-size: 14px; font-weight: 600; }
+        .panel-close {
+            background: none; border: none; font-size: 18px; color: var(--text-muted);
+            cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: all 0.15s;
+        }
+        .panel-close:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+        .panel-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+        .panel-field { margin-bottom: 14px; }
+        .panel-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .panel-value { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
+
+        /* Time log in panel */
+        .time-log-row {
+            display: flex; gap: 6px; align-items: center; margin-top: 8px;
+        }
+        .time-log-input {
+            width: 60px; background: var(--bg-secondary); border: 1px solid var(--border-medium);
+            border-radius: 4px; padding: 4px 8px; font-size: 12px; color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace; text-align: center;
+        }
+        .time-log-input:focus { outline: none; border-color: var(--accent-blue); }
+        .time-log-btn {
+            font-size: 11px; padding: 4px 10px; border-radius: 4px;
+            background: var(--accent-blue-dim); border: 1px solid var(--accent-blue-border);
+            color: var(--accent-blue); cursor: pointer; font-family: 'DM Sans', sans-serif;
             transition: all 0.15s;
         }
-        #send:hover { background: var(--accent-blue); color: #fff; }
-        #send:disabled { opacity: 0.3; cursor: not-allowed; }
+        .time-log-btn:hover { background: var(--accent-blue); color: #fff; }
 
-        /* Add task modal */
+        /* Task AI chat in panel */
+        .panel-chat { border-top: 1px solid var(--border-subtle); padding: 12px 20px; }
+        .panel-chat-title { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .panel-chat-input-row { display: flex; gap: 6px; }
+        .panel-chat-input {
+            flex: 1; background: var(--bg-secondary); border: 1px solid var(--border-medium);
+            border-radius: 6px; padding: 8px 12px; font-size: 12px; color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif;
+        }
+        .panel-chat-input:focus { outline: none; border-color: var(--accent-blue); }
+        .panel-chat-send {
+            font-size: 11px; padding: 8px 12px; border-radius: 6px;
+            background: var(--accent-blue); border: none; color: #fff;
+            cursor: pointer; font-family: 'DM Sans', sans-serif;
+        }
+        .panel-chat-messages { max-height: 200px; overflow-y: auto; margin-bottom: 8px; }
+        .panel-chat-msg { font-size: 12px; margin-bottom: 6px; line-height: 1.5; }
+        .panel-chat-msg.ai { color: var(--text-secondary); background: var(--bg-secondary); padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-subtle); }
+        .panel-chat-msg.user-msg { color: var(--accent-blue); text-align: right; }
+
+        /* Modal */
         .modal-overlay {
             display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.6); z-index: 100; align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.3); z-index: 100; align-items: center; justify-content: center;
         }
         .modal-overlay.active { display: flex; }
         .modal {
-            background: var(--bg-secondary); border: 1px solid var(--border-subtle);
+            background: var(--bg-primary); border: 1px solid var(--border-subtle);
             border-radius: 12px; padding: 24px; width: 420px; max-width: 90vw;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
         }
         .modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
         .modal-field { margin-bottom: 12px; }
         .modal-field label { display: block; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
         .modal-field input, .modal-field select, .modal-field textarea {
-            width: 100%; background: var(--bg-tertiary); border: 1px solid var(--border-medium);
+            width: 100%; background: var(--bg-secondary); border: 1px solid var(--border-medium);
             border-radius: 6px; padding: 8px 12px; color: var(--text-primary); font-size: 13px;
             font-family: 'DM Sans', sans-serif;
         }
         .modal-field textarea { height: 60px; resize: vertical; }
         .modal-field input:focus, .modal-field select:focus, .modal-field textarea:focus { outline: none; border-color: var(--accent-blue); }
         .modal-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
-        .modal-btn {
-            padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500;
-            font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s;
-        }
-        .modal-btn.cancel { background: var(--bg-tertiary); border: 1px solid var(--border-medium); color: var(--text-secondary); }
-        .modal-btn.cancel:hover { background: var(--border-medium); }
-        .modal-btn.save { background: var(--accent-blue-dim); border: 1px solid var(--accent-blue); color: var(--accent-blue); }
-        .modal-btn.save:hover { background: var(--accent-blue); color: #fff; }
+        .modal-btn { padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s; }
+        .modal-btn.cancel { background: var(--bg-secondary); border: 1px solid var(--border-medium); color: var(--text-secondary); }
+        .modal-btn.cancel:hover { background: var(--bg-tertiary); }
+        .modal-btn.save { background: var(--accent-blue); border: none; color: #fff; }
+        .modal-btn.save:hover { background: #1d4ed8; }
 
         @media (max-width: 768px) {
             #sidebar { display: none; }
+            #task-detail-panel { display: none !important; }
             #messages { padding: 16px; }
             #input-area { padding: 12px 16px; }
         }
@@ -303,8 +360,6 @@
             <h1>Logiri</h1>
             <p>SEO Intelligence · Double D Trailers</p>
         </div>
-
-        <!-- Logged in user -->
         <div class="user-card">
             <div class="user-avatar">{{ userName[:2]|upper }}</div>
             <div class="user-info">
@@ -313,50 +368,38 @@
             </div>
             <a href="{{ logout_path() }}" class="user-logout">Logout</a>
         </div>
-
         <div id="sidebar-scroll">
-            <!-- Task counts -->
             <div class="sidebar-section">
                 <div class="sidebar-section-title">Overview</div>
                 <div class="task-summary">
-                    <div class="task-stat">
-                        <div class="task-stat-number urgent" id="count-urgent">{{ taskCounts.urgent }}</div>
-                        <div class="task-stat-label">Urgent</div>
-                    </div>
-                    <div class="task-stat">
-                        <div class="task-stat-number active" id="count-active">{{ taskCounts.active }}</div>
-                        <div class="task-stat-label">Active</div>
-                    </div>
-                    <div class="task-stat">
-                        <div class="task-stat-number done" id="count-done">{{ taskCounts.done }}</div>
-                        <div class="task-stat-label">Done</div>
-                    </div>
+                    <div class="task-stat"><div class="task-stat-number urgent" id="count-urgent">{{ taskCounts.urgent }}</div><div class="task-stat-label">Urgent</div></div>
+                    <div class="task-stat"><div class="task-stat-number active" id="count-active">{{ taskCounts.active }}</div><div class="task-stat-label">Active</div></div>
+                    <div class="task-stat"><div class="task-stat-number done" id="count-done">{{ taskCounts.done }}</div><div class="task-stat-label">Done</div></div>
                 </div>
             </div>
-
-            <!-- Active tasks -->
             <div class="sidebar-section" style="border-bottom: none;">
-                <div class="sidebar-section-title">
-                    Tasks
-                    <button class="task-action-btn" onclick="openAddTask()" style="font-size: 10px;">+ Add</button>
-                </div>
+                <div class="sidebar-section-title">Tasks <button class="task-action-btn" onclick="openAddTask()">+ Add</button></div>
                 <div id="task-list">
                     {% if tasks is empty %}
-                        <div class="task-empty">No active tasks. Ask Logiri for a briefing to generate tasks.</div>
+                        <div class="task-empty">No active tasks. Ask Logiri for a briefing.</div>
                     {% else %}
                         {% for task in tasks %}
-                        <div class="task-item" id="task-{{ task.id }}">
+                        <div class="task-item" id="task-{{ task.id }}" onclick="openTaskDetail({{ task.id }})">
                             <div class="task-item-header">
                                 <span class="task-priority {{ task.priority }}">{{ task.priority }}</span>
                                 <span class="task-assignee">{{ task.assigned_to ?? 'Unassigned' }}</span>
                             </div>
                             <div class="task-title">{{ task.title }}</div>
+                            <div class="task-meta">
+                                <span class="task-hours">{{ task.estimated_hours ?? '?' }}h est</span>
+                                <span class="task-status-badge {{ task.status }}">{{ task.status }}</span>
+                            </div>
                             <div class="task-actions-row">
                                 {% if task.status == 'pending' %}
-                                    <button class="task-action-btn start" onclick="startTask({{ task.id }})">▶ Start</button>
+                                    <button class="task-action-btn start" onclick="event.stopPropagation(); startTask({{ task.id }})">▶ Start</button>
                                 {% endif %}
                                 {% if task.status != 'done' %}
-                                    <button class="task-action-btn complete" onclick="completeTask({{ task.id }})">✓ Complete</button>
+                                    <button class="task-action-btn complete" onclick="event.stopPropagation(); completeTask({{ task.id }})">✓ Done</button>
                                 {% endif %}
                             </div>
                         </div>
@@ -364,10 +407,8 @@
                     {% endif %}
                 </div>
             </div>
-
-            <!-- Rechecks -->
             <div class="sidebar-section">
-                <div class="sidebar-section-title">Verification Rechecks</div>
+                <div class="sidebar-section-title">Rechecks</div>
                 <div id="recheck-list">
                     {% if rechecks is empty %}
                         <div class="task-empty">No rechecks pending</div>
@@ -389,48 +430,12 @@
     <div class="modal-overlay" id="add-task-modal">
         <div class="modal">
             <h3>Add Task</h3>
-            <div class="modal-field">
-                <label>Title</label>
-                <input type="text" id="new-task-title" placeholder="Task description...">
-            </div>
-            <div class="modal-field">
-                <label>Assigned To</label>
-                <select id="new-task-assignee">
-                    <option value="Brook">Brook (SEO + Content)</option>
-                    <option value="Kalib">Kalib (Sales)</option>
-                    <option value="Brad">Brad (Marketing)</option>
-                </select>
-            </div>
-            <div class="modal-field">
-                <label>Priority</label>
-                <select id="new-task-priority">
-                    <option value="high">High</option>
-                    <option value="medium" selected>Medium</option>
-                    <option value="urgent">Urgent</option>
-                    <option value="low">Low</option>
-                </select>
-            </div>
-            <div class="modal-field">
-                <label>Estimated Hours</label>
-                <input type="number" id="new-task-hours" value="1" min="0.5" step="0.5">
-            </div>
-            <div class="modal-field">
-                <label>Recheck Type</label>
-                <select id="new-task-recheck">
-                    <option value="">None</option>
-                    <option value="cannibalization_fix">Cannibalization Fix (14 days)</option>
-                    <option value="intent_mismatch">Intent Mismatch (14 days)</option>
-                    <option value="ranking_drop">Ranking Drop (28 days)</option>
-                    <option value="404_fix">404 Fix (7 days)</option>
-                    <option value="sitemap_fix">Sitemap Fix (7 days)</option>
-                    <option value="weak_page">Weak Page (14 days)</option>
-                    <option value="zero_click">Zero Click (14 days)</option>
-                </select>
-            </div>
-            <div class="modal-btns">
-                <button class="modal-btn cancel" onclick="closeAddTask()">Cancel</button>
-                <button class="modal-btn save" onclick="saveNewTask()">Add Task</button>
-            </div>
+            <div class="modal-field"><label>Title</label><input type="text" id="new-task-title" placeholder="Task description..."></div>
+            <div class="modal-field"><label>Assigned To</label><select id="new-task-assignee"><option value="Brook">Brook (SEO + Content)</option><option value="Kalib">Kalib (Sales)</option><option value="Brad">Brad (Marketing)</option></select></div>
+            <div class="modal-field"><label>Priority</label><select id="new-task-priority"><option value="high">High</option><option value="medium" selected>Medium</option><option value="urgent">Urgent</option><option value="low">Low</option></select></div>
+            <div class="modal-field"><label>Est. Hours</label><input type="number" id="new-task-hours" value="1" min="0.5" step="0.5"></div>
+            <div class="modal-field"><label>Recheck Type</label><select id="new-task-recheck"><option value="">None</option><option value="cannibalization_fix">Cannibalization (14d)</option><option value="intent_mismatch">Intent Mismatch (14d)</option><option value="ranking_drop">Ranking Drop (28d)</option><option value="404_fix">404 Fix (7d)</option><option value="sitemap_fix">Sitemap Fix (7d)</option></select></div>
+            <div class="modal-btns"><button class="modal-btn cancel" onclick="closeAddTask()">Cancel</button><button class="modal-btn save" onclick="saveNewTask()">Add Task</button></div>
         </div>
     </div>
 
@@ -445,31 +450,46 @@
                 <button class="header-btn" onclick="resetChat()">+ New Chat</button>
             </div>
         </div>
-
-        <div id="messages"></div>
-
-        <div class="typing-indicator" id="typing">
-            <div class="typing-dots"><span></span><span></span><span></span></div>
+        <div id="chat-view">
+            <div id="messages"></div>
+            <div class="typing-indicator" id="typing"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+            <div id="input-area">
+                <textarea id="input" placeholder="Ask Logiri about your SEO, tasks, or priorities..." rows="1"></textarea>
+                <button id="send">Send</button>
+            </div>
         </div>
+    </div>
 
-        <div id="input-area">
-            <textarea id="input" placeholder="Ask Logiri about your SEO, tasks, or priorities..." rows="1"></textarea>
-            <button id="send">Send</button>
+    <!-- Task Detail Panel -->
+    <div id="task-detail-panel">
+        <div class="panel-header">
+            <h3 id="panel-title">Task Detail</h3>
+            <button class="panel-close" onclick="closeTaskDetail()">✕</button>
+        </div>
+        <div class="panel-body" id="panel-body"></div>
+        <div class="panel-chat">
+            <div class="panel-chat-title">Ask AI about this task</div>
+            <div class="panel-chat-messages" id="panel-chat-messages"></div>
+            <div class="panel-chat-input-row">
+                <input type="text" class="panel-chat-input" id="panel-chat-input" placeholder="Ask about this task...">
+                <button class="panel-chat-send" onclick="sendTaskChat()">Ask</button>
+            </div>
         </div>
     </div>
 
     <script>
         marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
-
         const USER_NAME = '{{ userName }}';
         const USER_ROLE = '{{ userRole }}';
         let messages = [];
+        let currentTaskId = null;
+        let taskChatMessages = [];
         const messagesEl = document.getElementById('messages');
         const inputEl = document.getElementById('input');
         const sendEl = document.getElementById('send');
         const typingEl = document.getElementById('typing');
 
-        // ── Chat ──
+        // ── Main Chat ──
         async function sendMessage(text) {
             messages.push({ role: 'user', content: text });
             appendMessage('user', text);
@@ -477,21 +497,13 @@
             sendEl.disabled = true;
             typingEl.style.display = 'block';
             messagesEl.scrollTop = messagesEl.scrollHeight;
-
             try {
-                const res = await fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ messages })
-                });
+                const res = await fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }) });
                 const data = await res.json();
                 const reply = data.response || data.error || 'No response.';
                 messages.push({ role: 'assistant', content: reply });
                 appendMessage('assistant', reply);
-            } catch (e) {
-                appendMessage('assistant', 'Error reaching Logiri. Please try again.');
-            }
-
+            } catch (e) { appendMessage('assistant', 'Error reaching Logiri. Please try again.'); }
             typingEl.style.display = 'none';
             sendEl.disabled = false;
             inputEl.focus();
@@ -500,80 +512,136 @@
         function appendMessage(role, text) {
             const div = document.createElement('div');
             div.className = 'message ' + role;
-
             if (role === 'assistant') {
                 const bubble = document.createElement('div');
                 bubble.className = 'bubble';
                 bubble.innerHTML = marked.parse(text);
                 div.appendChild(bubble);
-
                 if (text.length > 200) {
                     const actions = document.createElement('div');
                     actions.className = 'chat-actions';
                     actions.innerHTML = `
                         <button class="chat-btn" onclick="sendMessage('What should ${USER_NAME} work on today?')">📋 My Tasks</button>
                         <button class="chat-btn" onclick="sendMessage('Show team status and blockers')">👥 Team Status</button>
-                        <button class="chat-btn" onclick="sendMessage('Show me quick wins under 2 hours')">⚡ Quick Wins</button>
-                        <button class="chat-btn" onclick="sendMessage('What rechecks are due?')">🔄 Rechecks Due</button>
+                        <button class="chat-btn" onclick="sendMessage('Quick wins under 2 hours')">⚡ Quick Wins</button>
+                        <button class="chat-btn" onclick="sendMessage('What rechecks are due?')">🔄 Rechecks</button>
                         <button class="chat-btn" onclick="openAddTask()">+ Add Task</button>
                     `;
                     bubble.appendChild(actions);
                 }
-            } else {
-                div.textContent = text;
-            }
-
+            } else { div.textContent = text; }
             messagesEl.appendChild(div);
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
 
-        function resetChat() {
-            messages = [];
-            messagesEl.innerHTML = '';
-            sendMessage('Hello, give me my briefing for today.');
-        }
+        function resetChat() { messages = []; messagesEl.innerHTML = ''; sendMessage('Hello ' + USER_NAME + ', give me my briefing for today.'); }
 
         // ── Task Management ──
         async function startTask(id) {
-            await fetch(`/api/tasks/${id}/status`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'in_progress' })
-            });
-            location.reload();
+            await fetch(`/api/tasks/${id}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'in_progress' }) });
+            refreshSidebar();
         }
-
         async function completeTask(id) {
             const res = await fetch(`/api/tasks/${id}/complete`, { method: 'POST' });
             const data = await res.json();
             if (data.recheck_date) {
-                sendMessage(`I just completed a task (ID: ${id}). The recheck is set for ${data.recheck_date} (${data.recheck_days} days). What should I work on next?`);
+                sendMessage(`I completed task #${id}. Recheck set for ${data.recheck_date} (${data.recheck_days} days). What's next?`);
             }
+            refreshSidebar();
+        }
+        async function verifyRecheck(id) {
+            const passed = confirm('Did this task pass verification?\n\nOK = Pass\nCancel = Fail');
+            await fetch(`/api/tasks/${id}/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passed }) });
+            sendMessage(passed ? `Recheck #${id} PASSED. Update the team.` : `Recheck #${id} FAILED. What should we do?`);
             refreshSidebar();
         }
 
-        async function verifyRecheck(id) {
-            const passed = confirm('Did this task pass verification? (OK = Pass, Cancel = Fail)');
-            await fetch(`/api/tasks/${id}/verify`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ passed })
-            });
-            if (passed) {
-                sendMessage(`Recheck for task ${id} PASSED verification. Update the team.`);
-            } else {
-                sendMessage(`Recheck for task ${id} FAILED verification. What should we do to fix this?`);
-            }
-            refreshSidebar();
+        // ── Task Detail Panel ──
+        async function openTaskDetail(id) {
+            currentTaskId = id;
+            taskChatMessages = [];
+            document.getElementById('panel-chat-messages').innerHTML = '';
+            document.querySelectorAll('.task-item').forEach(el => el.classList.remove('selected'));
+            const el = document.getElementById('task-' + id);
+            if (el) el.classList.add('selected');
+
+            const res = await fetch('/api/tasks?status=');
+            const tasks = await res.json();
+            const task = tasks.find(t => t.id == id);
+            if (!task) return;
+
+            document.getElementById('panel-title').textContent = 'Task #' + task.id;
+            document.getElementById('panel-body').innerHTML = `
+                <div class="panel-field"><div class="panel-label">Title</div><div class="panel-value">${task.title}</div></div>
+                <div class="panel-field"><div class="panel-label">Assigned To</div><div class="panel-value">${task.assigned_to || 'Unassigned'}</div></div>
+                <div class="panel-field"><div class="panel-label">Priority</div><div class="panel-value"><span class="task-priority ${task.priority}">${task.priority}</span></div></div>
+                <div class="panel-field"><div class="panel-label">Status</div><div class="panel-value"><span class="task-status-badge ${task.status}">${task.status}</span></div></div>
+                <div class="panel-field"><div class="panel-label">Estimated Hours</div><div class="panel-value">${task.estimated_hours || '?'}h</div></div>
+                <div class="panel-field">
+                    <div class="panel-label">Log Time</div>
+                    <div class="time-log-row">
+                        <input type="number" class="time-log-input" id="log-hours-input" value="0.5" min="0.5" step="0.5">
+                        <span style="font-size:12px;color:var(--text-muted)">hours</span>
+                        <button class="time-log-btn" onclick="logTime(${task.id})">Log</button>
+                    </div>
+                </div>
+                ${task.description ? `<div class="panel-field"><div class="panel-label">Description</div><div class="panel-value">${task.description}</div></div>` : ''}
+                ${task.recheck_date ? `<div class="panel-field"><div class="panel-label">Recheck Date</div><div class="panel-value">${task.recheck_date}</div></div>` : ''}
+            `;
+            document.getElementById('task-detail-panel').classList.add('open');
         }
+
+        function closeTaskDetail() {
+            document.getElementById('task-detail-panel').classList.remove('open');
+            document.querySelectorAll('.task-item').forEach(el => el.classList.remove('selected'));
+            currentTaskId = null;
+        }
+
+        async function logTime(taskId) {
+            const hours = parseFloat(document.getElementById('log-hours-input').value);
+            if (!hours || hours <= 0) return;
+            // For now, log time via chat — full time_logs table can be added later
+            sendMessage(`Logged ${hours}h on task #${taskId}. Update the task estimate if needed.`);
+        }
+
+        // ── Per-task AI Chat ──
+        async function sendTaskChat() {
+            const input = document.getElementById('panel-chat-input');
+            const text = input.value.trim();
+            if (!text || !currentTaskId) return;
+            input.value = '';
+
+            const msgContainer = document.getElementById('panel-chat-messages');
+            msgContainer.innerHTML += `<div class="panel-chat-msg user-msg">${text}</div>`;
+
+            const taskEl = document.getElementById('task-' + currentTaskId);
+            const taskTitle = taskEl ? taskEl.querySelector('.task-title').textContent : '';
+
+            const taskMessages = [
+                ...taskChatMessages,
+                { role: 'user', content: `Regarding task #${currentTaskId} "${taskTitle}": ${text}` }
+            ];
+
+            try {
+                const res = await fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: taskMessages }) });
+                const data = await res.json();
+                const reply = data.response || 'No response.';
+                taskChatMessages.push({ role: 'user', content: text });
+                taskChatMessages.push({ role: 'assistant', content: reply });
+                msgContainer.innerHTML += `<div class="panel-chat-msg ai">${marked.parse(reply)}</div>`;
+                msgContainer.scrollTop = msgContainer.scrollHeight;
+            } catch (e) {
+                msgContainer.innerHTML += `<div class="panel-chat-msg ai">Error connecting to AI.</div>`;
+            }
+        }
+
+        document.getElementById('panel-chat-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); sendTaskChat(); }
+        });
 
         // ── Add Task Modal ──
-        function openAddTask() {
-            document.getElementById('add-task-modal').classList.add('active');
-        }
-        function closeAddTask() {
-            document.getElementById('add-task-modal').classList.remove('active');
-        }
+        function openAddTask() { document.getElementById('add-task-modal').classList.add('active'); }
+        function closeAddTask() { document.getElementById('add-task-modal').classList.remove('active'); }
         async function saveNewTask() {
             const task = {
                 title: document.getElementById('new-task-title').value,
@@ -583,98 +651,51 @@
                 recheck_type: document.getElementById('new-task-recheck').value || null,
             };
             if (!task.title) return alert('Enter a task title');
-
-            await fetch('/api/tasks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(task)
-            });
+            await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
             closeAddTask();
             document.getElementById('new-task-title').value = '';
             refreshSidebar();
         }
 
-        // ── Refresh sidebar data ──
+        // ── Refresh Sidebar ──
         async function refreshSidebar() {
             try {
                 const res = await fetch('/api/tasks?status=');
                 const tasks = await res.json();
-
                 let urgent = 0, active = 0, done = 0;
-                tasks.forEach(t => {
-                    if (t.status === 'done') done++;
-                    else if (t.status === 'in_progress') active++;
-                    if (t.priority === 'urgent' || t.priority === 'high') urgent++;
-                });
-
+                tasks.forEach(t => { if (t.status === 'done') done++; else if (t.status === 'in_progress') active++; if (t.priority === 'urgent' || t.priority === 'high') urgent++; });
                 document.getElementById('count-urgent').textContent = urgent;
                 document.getElementById('count-active').textContent = active;
                 document.getElementById('count-done').textContent = done;
-
                 const taskList = document.getElementById('task-list');
                 const activeTasks = tasks.filter(t => t.status !== 'done');
-                if (activeTasks.length === 0) {
-                    taskList.innerHTML = '<div class="task-empty">No active tasks.</div>';
-                } else {
+                if (activeTasks.length === 0) { taskList.innerHTML = '<div class="task-empty">No active tasks.</div>'; }
+                else {
                     taskList.innerHTML = activeTasks.slice(0, 15).map(t => `
-                        <div class="task-item" id="task-${t.id}">
-                            <div class="task-item-header">
-                                <span class="task-priority ${t.priority}">${t.priority}</span>
-                                <span class="task-assignee">${t.assigned_to || 'Unassigned'}</span>
-                            </div>
+                        <div class="task-item${currentTaskId == t.id ? ' selected' : ''}" id="task-${t.id}" onclick="openTaskDetail(${t.id})">
+                            <div class="task-item-header"><span class="task-priority ${t.priority}">${t.priority}</span><span class="task-assignee">${t.assigned_to || 'Unassigned'}</span></div>
                             <div class="task-title">${t.title}</div>
+                            <div class="task-meta"><span class="task-hours">${t.estimated_hours || '?'}h est</span><span class="task-status-badge ${t.status}">${t.status}</span></div>
                             <div class="task-actions-row">
-                                ${t.status === 'pending' ? `<button class="task-action-btn start" onclick="startTask(${t.id})">▶ Start</button>` : ''}
-                                <button class="task-action-btn complete" onclick="completeTask(${t.id})">✓ Complete</button>
+                                ${t.status === 'pending' ? `<button class="task-action-btn start" onclick="event.stopPropagation(); startTask(${t.id})">▶ Start</button>` : ''}
+                                ${t.status !== 'done' ? `<button class="task-action-btn complete" onclick="event.stopPropagation(); completeTask(${t.id})">✓ Done</button>` : ''}
                             </div>
                         </div>
                     `).join('');
                 }
-
-                // Refresh rechecks
                 const recheckRes = await fetch('/api/rechecks');
                 const rechecks = await recheckRes.json();
                 const recheckList = document.getElementById('recheck-list');
-                if (rechecks.length === 0) {
-                    recheckList.innerHTML = '<div class="task-empty">No rechecks pending</div>';
-                } else {
-                    recheckList.innerHTML = rechecks.map(r => `
-                        <div class="recheck-item">
-                            <span class="recheck-info">${r.title}</span>
-                            <span class="recheck-date upcoming">${r.recheck_date}</span>
-                            <button class="recheck-verify-btn" onclick="verifyRecheck(${r.id})">Verify</button>
-                        </div>
-                    `).join('');
-                }
-            } catch (e) {
-                console.error('Failed to refresh sidebar:', e);
-            }
+                if (rechecks.length === 0) { recheckList.innerHTML = '<div class="task-empty">No rechecks pending</div>'; }
+                else { recheckList.innerHTML = rechecks.map(r => `<div class="recheck-item"><span class="recheck-info">${r.title}</span><span class="recheck-date upcoming">${r.recheck_date}</span><button class="recheck-verify-btn" onclick="verifyRecheck(${r.id})">Verify</button></div>`).join(''); }
+            } catch (e) { console.error('Refresh failed:', e); }
         }
 
         // ── Init ──
-        window.addEventListener('load', () => {
-            sendMessage('Hello ' + USER_NAME + ', give me my briefing for today.');
-        });
-
-        sendEl.addEventListener('click', () => {
-            const text = inputEl.value.trim();
-            if (text) sendMessage(text);
-        });
-
-        inputEl.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                const text = inputEl.value.trim();
-                if (text) sendMessage(text);
-            }
-        });
-
-        inputEl.addEventListener('input', () => {
-            inputEl.style.height = '48px';
-            inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px';
-        });
-
-        // Refresh sidebar every 60 seconds
+        window.addEventListener('load', () => { sendMessage('Hello ' + USER_NAME + ', give me my briefing for today.'); });
+        sendEl.addEventListener('click', () => { const t = inputEl.value.trim(); if (t) sendMessage(t); });
+        inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const t = inputEl.value.trim(); if (t) sendMessage(t); } });
+        inputEl.addEventListener('input', () => { inputEl.style.height = '48px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px'; });
         setInterval(refreshSidebar, 60000);
     </script>
 </body>
