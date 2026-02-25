@@ -120,7 +120,7 @@ class HomeController extends AbstractController
                 )),
                 'content'       => json_encode(array(
                     'model'      => $_ENV['CLAUDE_MODEL'] ?? 'claude-sonnet-4-6',
-                    'max_tokens' => 2048,
+                    'max_tokens' => 4096,
                     'system'     => $systemPrompt,
                     'messages'   => $messages,
                 )),
@@ -136,7 +136,55 @@ class HomeController extends AbstractController
 
         $text = $data['content'][0]['text'] ?? 'No response from Claude.';
 
-        return new JsonResponse(array('response' => $text));
+        // ── Parse and auto-create tasks from AI response ──
+        $tasksCreated = [];
+        if (preg_match('/<!-- TASKS_JSON -->\s*(.*?)\s*<!-- \/TASKS_JSON -->/s', $text, $matches)) {
+            $tasksJson = trim($matches[1]);
+            $aiTasks = json_decode($tasksJson, true);
+
+            if (is_array($aiTasks)) {
+                foreach ($aiTasks as $aiTask) {
+                    $title = $aiTask['title'] ?? '';
+                    if (!$title) continue;
+
+                    // Check for duplicate: skip if a task with similar title already exists and isn't done
+                    $existing = $this->db->fetchAssociative(
+                        "SELECT id FROM tasks WHERE title = ? AND status != 'done' LIMIT 1",
+                        [$title]
+                    );
+                    if ($existing) continue;
+
+                    $priority = $aiTask['priority'] ?? 'medium';
+                    if (!in_array($priority, ['critical', 'high', 'medium', 'low'])) {
+                        $priority = 'medium';
+                    }
+
+                    $this->db->insert('tasks', [
+                        'title'           => $title,
+                        'description'     => $aiTask['description'] ?? null,
+                        'assigned_to'     => $aiTask['assigned_to'] ?? null,
+                        'assigned_role'   => $aiTask['role'] ?? null,
+                        'status'          => 'pending',
+                        'priority'        => $priority,
+                        'estimated_hours' => floatval($aiTask['estimated_hours'] ?? 1),
+                        'logged_hours'    => 0,
+                        'recheck_type'    => $aiTask['recheck_type'] ?? null,
+                        'created_at'      => date('Y-m-d H:i:s'),
+                    ]);
+
+                    $tasksCreated[] = $title;
+                }
+            }
+
+            // Strip the hidden JSON block from the visible response
+            $text = preg_replace('/<!-- TASKS_JSON -->.*?<!-- \/TASKS_JSON -->/s', '', $text);
+            $text = rtrim($text);
+        }
+
+        return new JsonResponse(array(
+            'response' => $text,
+            'tasks_created' => $tasksCreated,
+        ));
     }
 
     // ── Task API Endpoints ──
@@ -326,11 +374,45 @@ class HomeController extends AbstractController
         $taskContext = '';
         if (!empty($activeTasks)) {
             $taskContext .= "\n\nACTIVE TASKS IN SYSTEM:\n";
+
+            // Calculate per-person workload
+            $workload = [];
+            $overdueNudges = [];
+
             foreach ($activeTasks as $t) {
                 $logged = floatval($t['logged_hours'] ?? 0);
                 $est = floatval($t['estimated_hours'] ?? 0);
+                $assignee = $t['assigned_to'] ?? 'Unassigned';
+                $status = $t['status'];
                 $timeInfo = $est > 0 ? " | Time: {$logged}/{$est}h" : "";
-                $taskContext .= "- [" . strtoupper($t['priority']) . "] " . $t['title'] . " | Assigned: " . ($t['assigned_to'] ?? 'Unassigned') . " | Status: " . $t['status'] . $timeInfo . "\n";
+
+                // Track workload per person
+                if ($assignee !== 'Unassigned' && $status !== 'done') {
+                    $workload[$assignee] = ($workload[$assignee] ?? 0) + $est;
+                }
+
+                // Detect over-estimate tasks for nudging
+                if ($logged > $est && $est > 0 && $status !== 'done') {
+                    $overdueNudges[] = "⚠️ OVER-ESTIMATE: \"{$t['title']}\" — {$logged}h logged vs {$est}h estimated, still {$status}. Assigned: {$assignee}";
+                }
+
+                $taskContext .= "- [" . strtoupper($t['priority']) . "] " . $t['title'] . " | Assigned: " . $assignee . " | Status: " . $status . $timeInfo . "\n";
+            }
+
+            // Capacity summary
+            $taskContext .= "\nTEAM WORKLOAD (open task hours / 40h capacity):\n";
+            foreach (['Brook', 'Kalib', 'Brad'] as $name) {
+                $load = $workload[$name] ?? 0;
+                $status = $load > 40 ? '🔴 OVERLOADED' : ($load > 30 ? '🟡 HIGH' : '🟢 OK');
+                $taskContext .= "- {$name}: {$load}h assigned | {$status}\n";
+            }
+
+            // Nudges for over-estimate tasks
+            if (!empty($overdueNudges)) {
+                $taskContext .= "\nTASKS EXCEEDING ESTIMATES (requires nudge):\n";
+                foreach ($overdueNudges as $nudge) {
+                    $taskContext .= $nudge . "\n";
+                }
             }
         }
 
@@ -345,11 +427,50 @@ class HomeController extends AbstractController
         $promptFile = dirname(__DIR__, 2) . '/system-prompt.txt';
         $staticRules = file_exists($promptFile) ? file_get_contents($promptFile) : '';
 
-        $intro  = 'You are Logiri, an SEO intelligence assistant built specifically for Double D Trailers (doubledtrailers.com).';
-        $intro .= ' You help the internal team identify and act on SEO issues using real data from SEMrush, Google Search Console, and Google Analytics 4.';
+        $intro  = "You are Logiri, the AI Chief of Staff for Double D Trailers (doubledtrailers.com).";
+        $intro .= "\n\nYOUR PERSONA & BEHAVIOR:";
+        $intro .= "\n- You are an authoritative yet encouraging Project Manager. You are the 'Chief of Staff' for this team.";
+        $intro .= "\n- You don't just provide dry data. You are focused on deadlines, accountability, and moving work forward.";
+        $intro .= "\n- Address the user by name. Be professional, direct, and action-oriented.";
+        $intro .= "\n- When giving briefings, lead with the MOST URGENT items first (overdue tasks, capacity issues, critical incidents).";
+        $intro .= "\n- When analyzing SEO data, always connect findings to ACTIONABLE TASKS with specific owners.";
+        $intro .= "\n\nTASK GENERATION RULES:";
+        $intro .= "\n- When you identify SEO issues or give a briefing, generate ACTIONABLE TASKS.";
+        $intro .= "\n- At the END of your response, include a hidden JSON block with all tasks you recommend.";
+        $intro .= "\n- Format: wrap the JSON in <!-- TASKS_JSON --> and <!-- /TASKS_JSON --> tags.";
+        $intro .= "\n- The JSON must be a valid array of task objects.";
+        $intro .= "\n- Each task object has: title, assigned_to, priority (critical/high/medium/low), estimated_hours (min 0.5), recheck_type (optional: cannibalization_fix, intent_mismatch, ranking_drop, 404_fix, sitemap_fix, or null), description (brief).";
+        $intro .= "\n- In your VISIBLE response, present tasks in readable format with context and reasoning.";
+        $intro .= "\n- Only generate tasks for NEW issues. Do NOT duplicate tasks that already exist in ACTIVE TASKS (shown below).";
+        $intro .= "\n- Assign to the person with the matching role and lowest current workload.";
+        $intro .= "\n- Estimates are working hours. Be realistic. Minimum 0.5h.";
+        $intro .= "\n\nExample of the hidden block at end of response:";
+        $intro .= "\n<!-- TASKS_JSON -->";
+        $intro .= "\n[{\"title\":\"Resolve horse trailers for sale cannibalization\",\"assigned_to\":\"Brook\",\"priority\":\"critical\",\"estimated_hours\":3,\"recheck_type\":\"cannibalization_fix\",\"description\":\"De-optimize 9 competing pages, consolidate signals to homepage\"}]";
+        $intro .= "\n<!-- /TASKS_JSON -->";
+        $intro .= "\n\nIMPORTANT: Always include the TASKS_JSON block when recommending work. This is how tasks get created in the system.";
+        $intro .= "\n\nCAPACITY & WORKLOAD AWARENESS:";
+        $intro .= "\n- Each team member has 40 hours/week capacity.";
+        $intro .= "\n- A user is OVERLOADED if sum(estimated_hours of open tasks) > 40.";
+        $intro .= "\n- Flag overload in briefings. Suggest rebalancing when someone is overloaded.";
+        $intro .= "\n- When a task has logged_hours > estimated_hours and status is NOT done, flag it as OVER-ESTIMATE with a nudge.";
+        $intro .= "\n\nPROACTIVE NUDGE FORMAT (for tasks exceeding estimates):";
+        $intro .= "\n  ⚠️ **Estimate exceeded** — Task \"[title]\" has [logged]h logged against [est]h estimated, still marked as [status].";
+        $intro .= "\n  Please provide: 1) an updated ETA, 2) a brief note on what is blocking completion.";
+        $intro .= "\n\nINCIDENT & RECHECK LIFECYCLE:";
+        $intro .= "\n- When a rule triggers an issue, it creates an INCIDENT with evidence.";
+        $intro .= "\n- Incidents generate remediation TASKS with time estimates.";
+        $intro .= "\n- Completed tasks are RECHECKED after the appropriate interval (7-28 days depending on type).";
+        $intro .= "\n- Do NOT suggest creating duplicate incidents for issues that already have active tasks.";
+        $intro .= "\n\nTASK STATUSES: pending (backlog/todo), in_progress, blocked, done";
+        $intro .= "\nTASK PRIORITIES: critical, high, medium, low";
+        $intro .= "\n\nTEAM ROSTER:";
+        $intro .= "\n- Brook | Role: SEO + Content | Capacity: 40h/week";
+        $intro .= "\n- Kalib | Role: Sales | Capacity: 40h/week";
+        $intro .= "\n- Brad | Role: Marketing | Capacity: 40h/week";
         $intro .= "\n\nToday is " . $date . '.';
         $intro .= "\n\nCURRENT USER: " . $userName . " | Role: " . $userRole;
-        $intro .= "\nPersonalize your response for this user. Address them by name. Prioritize tasks relevant to their role.";
+        $intro .= "\nPersonalize your response for this user. Prioritize tasks relevant to their role.";
         $intro .= "\n\nCURRENT DATA SNAPSHOT:";
         $intro .= "\nSEMrush Overview:";
         $intro .= "\n- Organic Keywords: " . $keywords;

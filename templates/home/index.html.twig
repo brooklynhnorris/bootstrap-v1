@@ -503,10 +503,24 @@
                 const reply = data.response || data.error || 'No response.';
                 messages.push({ role: 'assistant', content: reply });
                 appendMessage('assistant', reply);
+
+                // Auto-refresh sidebar if tasks were created
+                if (data.tasks_created && data.tasks_created.length > 0) {
+                    await refreshSidebar();
+                    showTaskNotification(data.tasks_created.length);
+                }
             } catch (e) { appendMessage('assistant', 'Error reaching Logiri. Please try again.'); }
             typingEl.style.display = 'none';
             sendEl.disabled = false;
             inputEl.focus();
+        }
+
+        function showTaskNotification(count) {
+            const notif = document.createElement('div');
+            notif.style.cssText = 'position:fixed;top:16px;right:16px;background:var(--accent-green);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:200;animation:fadeIn 0.3s ease;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+            notif.textContent = `✓ ${count} task${count > 1 ? 's' : ''} created from Logiri's analysis`;
+            document.body.appendChild(notif);
+            setTimeout(() => { notif.style.opacity = '0'; notif.style.transition = 'opacity 0.5s'; setTimeout(() => notif.remove(), 500); }, 4000);
         }
 
         function appendMessage(role, text) {
@@ -702,7 +716,7 @@
             messagesEl.scrollTop = messagesEl.scrollHeight;
             sendEl.disabled = true;
 
-            const briefingPrompt = 'Give me my SEO briefing for today. Address me as ' + USER_NAME + '. Focus on my role: ' + USER_ROLE + '.';
+            const briefingPrompt = 'Give me my SEO briefing for today. Address me as ' + USER_NAME + '. Focus on my role: ' + USER_ROLE + '. Generate tasks for any issues you find.';
             messages.push({ role: 'user', content: briefingPrompt });
 
             try {
@@ -715,6 +729,12 @@
                 const loadEl = document.getElementById('briefing-loading');
                 if (loadEl) loadEl.remove();
                 appendMessage('assistant', reply);
+
+                // Auto-refresh sidebar if tasks were created
+                if (data.tasks_created && data.tasks_created.length > 0) {
+                    await refreshSidebar();
+                    showTaskNotification(data.tasks_created.length);
+                }
             } catch (e) {
                 const loadEl = document.getElementById('briefing-loading');
                 if (loadEl) loadEl.remove();
@@ -734,3 +754,4 @@
     </script>
 </body>
 </html>
+
