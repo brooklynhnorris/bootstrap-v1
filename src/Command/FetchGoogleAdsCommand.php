@@ -39,37 +39,23 @@ class FetchGoogleAdsCommand extends Command
 
         // ── Get access token ──
         $output->writeln('Getting Google access token...');
-        $tokenUrl = 'https://oauth2.googleapis.com/token';
-        $tokenBody = http_build_query([
-            'client_id'     => $clientId,
-            'client_secret' => $clientSecret,
-            'refresh_token' => $refreshToken,
-            'grant_type'    => 'refresh_token',
-        ]);
-        $tokenResponse = file_get_contents($tokenUrl, false, stream_context_create([
+        $tokenResponse = file_get_contents('https://oauth2.googleapis.com/token', false, stream_context_create([
             'http' => [
                 'method'        => 'POST',
                 'header'        => 'Content-Type: application/x-www-form-urlencoded',
-                'content'       => $tokenBody,
+                'content'       => http_build_query([
+                    'client_id'     => $clientId,
+                    'client_secret' => $clientSecret,
+                    'refresh_token' => $refreshToken,
+                    'grant_type'    => 'refresh_token',
+                ]),
                 'ignore_errors' => true,
             ],
         ]));
 
-        $tokenHttpStatus = $this->parseHttpStatus($http_response_header ?? []);
-        if ($tokenHttpStatus !== null && $tokenHttpStatus >= 400) {
-            $output->writeln("[DEBUG] Token request failed with HTTP {$tokenHttpStatus}");
-            $output->writeln("[DEBUG] Token request URL: {$tokenUrl}");
-            $output->writeln('[DEBUG] Token request body: ' . $tokenBody);
-            $output->writeln('[DEBUG] Token raw response: ' . ($tokenResponse !== false ? $tokenResponse : '(empty/false)'));
-        }
-
         $tokenData = json_decode($tokenResponse, true);
         if (!isset($tokenData['access_token'])) {
             $output->writeln('Failed to get access token: ' . ($tokenData['error_description'] ?? 'Unknown error'));
-            $output->writeln('[DEBUG] Token request URL: ' . $tokenUrl);
-            $output->writeln('[DEBUG] Token request body: ' . $tokenBody);
-            $output->writeln('[DEBUG] Token HTTP status: ' . ($tokenHttpStatus ?? 'unknown'));
-            $output->writeln('[DEBUG] Token raw response: ' . ($tokenResponse !== false ? $tokenResponse : '(empty/false)'));
             return Command::FAILURE;
         }
 
@@ -87,7 +73,7 @@ class FetchGoogleAdsCommand extends Command
 
         // ── Fetch 1: Campaign performance (30 days) ──
         $output->writeln('Fetching campaign performance (30 days)...');
-        $campaigns = $this->fetchCampaigns($accessToken, $developerToken, $customerId, 30, $output);
+        $campaigns = $this->fetchCampaigns($accessToken, $developerToken, $customerId, 30);
         foreach ($campaigns as $row) {
             $this->db->insert('google_ads_snapshots', [
                 'data_type'    => 'campaign',
@@ -113,7 +99,7 @@ class FetchGoogleAdsCommand extends Command
 
         // ── Fetch 2: Keyword performance (30 days) ──
         $output->writeln('Fetching keyword performance (30 days)...');
-        $keywords = $this->fetchKeywords($accessToken, $developerToken, $customerId, 30, $output);
+        $keywords = $this->fetchKeywords($accessToken, $developerToken, $customerId, 30);
         foreach ($keywords as $row) {
             $this->db->insert('google_ads_snapshots', [
                 'data_type'    => 'keyword',
@@ -139,7 +125,7 @@ class FetchGoogleAdsCommand extends Command
 
         // ── Fetch 3: Search terms (30 days) ──
         $output->writeln('Fetching search term report (30 days)...');
-        $searchTerms = $this->fetchSearchTerms($accessToken, $developerToken, $customerId, 30, $output);
+        $searchTerms = $this->fetchSearchTerms($accessToken, $developerToken, $customerId, 30);
         foreach ($searchTerms as $row) {
             $this->db->insert('google_ads_snapshots', [
                 'data_type'    => 'search_term',
@@ -165,7 +151,7 @@ class FetchGoogleAdsCommand extends Command
 
         // ── Fetch 4: Daily spend (last 90 days for trend) ──
         $output->writeln('Fetching daily spend trend (90 days)...');
-        $dailySpend = $this->fetchDailySpend($accessToken, $developerToken, $customerId, 90, $output);
+        $dailySpend = $this->fetchDailySpend($accessToken, $developerToken, $customerId, 90);
         foreach ($dailySpend as $row) {
             $this->db->insert('google_ads_snapshots', [
                 'data_type'    => 'daily_spend',
@@ -195,7 +181,7 @@ class FetchGoogleAdsCommand extends Command
     }
 
     // ── Campaign performance query ──
-    private function fetchCampaigns(string $token, string $devToken, string $customerId, int $days, OutputInterface $output): array
+    private function fetchCampaigns(string $token, string $devToken, string $customerId, int $days): array
     {
         $startDate = date('Y-m-d', strtotime("-{$days} days"));
         $endDate   = date('Y-m-d', strtotime('-1 day'));
@@ -218,11 +204,11 @@ class FetchGoogleAdsCommand extends Command
             LIMIT 1000
         ";
 
-        return $this->runGaqlQuery($token, $devToken, $customerId, $query, $output, 'campaigns');
+        return $this->runGaqlQuery($token, $devToken, $customerId, $query);
     }
 
     // ── Keyword performance query ──
-    private function fetchKeywords(string $token, string $devToken, string $customerId, int $days, OutputInterface $output): array
+    private function fetchKeywords(string $token, string $devToken, string $customerId, int $days): array
     {
         $startDate = date('Y-m-d', strtotime("-{$days} days"));
         $endDate   = date('Y-m-d', strtotime('-1 day'));
@@ -249,11 +235,11 @@ class FetchGoogleAdsCommand extends Command
             LIMIT 5000
         ";
 
-        return $this->runGaqlQuery($token, $devToken, $customerId, $query, $output, 'keywords');
+        return $this->runGaqlQuery($token, $devToken, $customerId, $query);
     }
 
     // ── Search terms query ──
-    private function fetchSearchTerms(string $token, string $devToken, string $customerId, int $days, OutputInterface $output): array
+    private function fetchSearchTerms(string $token, string $devToken, string $customerId, int $days): array
     {
         $startDate = date('Y-m-d', strtotime("-{$days} days"));
         $endDate   = date('Y-m-d', strtotime('-1 day'));
@@ -277,11 +263,11 @@ class FetchGoogleAdsCommand extends Command
             LIMIT 5000
         ";
 
-        return $this->runGaqlQuery($token, $devToken, $customerId, $query, $output, 'search_terms');
+        return $this->runGaqlQuery($token, $devToken, $customerId, $query);
     }
 
     // ── Daily spend trend query ──
-    private function fetchDailySpend(string $token, string $devToken, string $customerId, int $days, OutputInterface $output): array
+    private function fetchDailySpend(string $token, string $devToken, string $customerId, int $days): array
     {
         $startDate = date('Y-m-d', strtotime("-{$days} days"));
         $endDate   = date('Y-m-d', strtotime('-1 day'));
@@ -300,25 +286,13 @@ class FetchGoogleAdsCommand extends Command
             ORDER BY segments.date ASC
         ";
 
-        return $this->runGaqlQuery($token, $devToken, $customerId, $query, $output, 'daily_spend');
-    }
-
-    /**
-     * @param array<string, mixed> $headers
-     */
-    private function parseHttpStatus(array $headers): ?int
-    {
-        if (isset($headers[0]) && preg_match('#HTTP/\d\.\d (\d{3})#', $headers[0], $m)) {
-            return (int) $m[1];
-        }
-        return null;
+        return $this->runGaqlQuery($token, $devToken, $customerId, $query);
     }
 
     // ── Core GAQL request ──
-    private function runGaqlQuery(string $token, string $devToken, string $customerId, string $query, OutputInterface $output, string $label): array
+    private function runGaqlQuery(string $token, string $devToken, string $customerId, string $query): array
     {
         $url = "https://googleads.googleapis.com/v17/customers/{$customerId}/googleAds:searchStream";
-        $requestBody = ['query' => trim($query)];
 
         $response = file_get_contents($url, false, stream_context_create([
             'http' => [
@@ -328,17 +302,12 @@ class FetchGoogleAdsCommand extends Command
                     "Authorization: Bearer {$token}",
                     "developer-token: {$devToken}",
                 ]),
-                'content'       => json_encode($requestBody),
+                'content'       => json_encode(['query' => trim($query)]),
                 'ignore_errors' => true,
             ],
         ]));
 
-        $httpStatus = $this->parseHttpStatus($http_response_header ?? []);
-
         if ($response === false) {
-            $output->writeln("[DEBUG] Google Ads [{$label}] request failed (response false). URL: {$url}");
-            $output->writeln('[DEBUG] Google Ads [' . $label . '] request body: ' . json_encode($requestBody));
-            $output->writeln('[DEBUG] Google Ads [' . $label . '] HTTP status: ' . ($httpStatus ?? 'unknown'));
             return [];
         }
 
@@ -355,18 +324,6 @@ class FetchGoogleAdsCommand extends Command
             }
         }
 
-        if ($httpStatus !== null && $httpStatus >= 400) {
-            $output->writeln("[DEBUG] Google Ads [{$label}] request failed with HTTP {$httpStatus}");
-            $output->writeln("[DEBUG] Google Ads [{$label}] request URL: {$url}");
-            $output->writeln('[DEBUG] Google Ads [' . $label . '] request body: ' . json_encode($requestBody));
-            $output->writeln('[DEBUG] Google Ads [' . $label . '] raw response: ' . $response);
-        } elseif (count($results) === 0) {
-            $output->writeln("[DEBUG] Google Ads [{$label}] returned 0 rows. Request URL: {$url}");
-            $output->writeln('[DEBUG] Google Ads [' . $label . '] request body: ' . json_encode($requestBody));
-            $output->writeln('[DEBUG] Google Ads [' . $label . '] HTTP status: ' . ($httpStatus ?? 'unknown'));
-            $output->writeln('[DEBUG] Google Ads [' . $label . '] raw response: ' . $response);
-        }
-
         return $results;
     }
 
@@ -374,14 +331,14 @@ class FetchGoogleAdsCommand extends Command
     private function ensureSchema(OutputInterface $output): void
     {
         $tables = $this->db->fetchFirstColumn(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE()"
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
         );
 
         if (!in_array('google_ads_snapshots', $tables)) {
             $output->writeln('Creating google_ads_snapshots table...');
             $this->db->executeStatement("
                 CREATE TABLE google_ads_snapshots (
-                    id            INT AUTO_INCREMENT PRIMARY KEY,
+                    id            SERIAL PRIMARY KEY,
                     data_type     VARCHAR(30)  NOT NULL,
                     campaign_id   VARCHAR(30)  DEFAULT NULL,
                     campaign_name VARCHAR(255) DEFAULT NULL,
@@ -397,12 +354,12 @@ class FetchGoogleAdsCommand extends Command
                     average_cpc   BIGINT       DEFAULT 0,
                     status        VARCHAR(30)  DEFAULT NULL,
                     date_range    VARCHAR(30)  DEFAULT NULL,
-                    fetched_at    DATETIME     DEFAULT NULL,
-                    INDEX idx_data_type (data_type),
-                    INDEX idx_campaign_id (campaign_id),
-                    INDEX idx_date_range (date_range)
-                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+                    fetched_at    TIMESTAMP    DEFAULT NULL
+                )
             ");
+            $this->db->executeStatement("CREATE INDEX idx_data_type ON google_ads_snapshots (data_type)");
+            $this->db->executeStatement("CREATE INDEX idx_campaign_id ON google_ads_snapshots (campaign_id)");
+            $this->db->executeStatement("CREATE INDEX idx_date_range ON google_ads_snapshots (date_range)");
             $output->writeln('Table created.');
         }
     }
