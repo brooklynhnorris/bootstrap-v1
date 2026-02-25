@@ -305,7 +305,7 @@ class FetchGoogleAdsCommand extends Command
     // ── Core GAQL request ──
     private function runGaqlQuery(string $token, string $devToken, string $customerId, string $query, string $label = 'query'): array
     {
-        $url = "https://googleads.googleapis.com/v17/customers/{$customerId}/googleAds:searchStream";
+        $url = "https://googleads.googleapis.com/v23/customers/{$customerId}/googleAds:searchStream";
 
         $response = @file_get_contents($url, false, stream_context_create([
             'http' => [
