@@ -57,13 +57,44 @@ class HomeController extends AbstractController
             'SELECT organic_keywords, organic_traffic, fetched_at FROM semrush_snapshots ORDER BY fetched_at DESC LIMIT 1'
         );
 
-        $topQueries = $this->db->fetchAllAssociative(
-            'SELECT query, page, clicks, impressions, position FROM gsc_snapshots ORDER BY impressions DESC LIMIT 20'
+        // Full GSC data by date range
+        $topQueries28d = $this->db->fetchAllAssociative(
+            "SELECT query, page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE date_range = '28d' ORDER BY impressions DESC LIMIT 50"
+        );
+        $topQueries90d = $this->db->fetchAllAssociative(
+            "SELECT query, page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE date_range = '90d' ORDER BY impressions DESC LIMIT 30"
+        );
+        $pageAggregates = $this->db->fetchAllAssociative(
+            "SELECT page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE query = '__PAGE_AGGREGATE__' ORDER BY impressions DESC LIMIT 30"
+        );
+        $brandedQueries = $this->db->fetchAllAssociative(
+            "SELECT query, page, clicks, impressions, position FROM gsc_snapshots WHERE date_range = '28d_branded' ORDER BY impressions DESC LIMIT 20"
         );
 
-        $topPages = $this->db->fetchAllAssociative(
-            'SELECT page_path, sessions, pageviews, conversions FROM ga4_snapshots ORDER BY sessions DESC LIMIT 20'
+        // Cannibalization: find queries appearing on multiple pages
+        $cannibalizationCandidates = $this->db->fetchAllAssociative(
+            "SELECT query, COUNT(DISTINCT page) as page_count, SUM(impressions) as total_impressions
+             FROM gsc_snapshots WHERE date_range = '28d' AND query != '__PAGE_AGGREGATE__'
+             GROUP BY query HAVING COUNT(DISTINCT page) > 1
+             ORDER BY total_impressions DESC LIMIT 30"
         );
+
+        // GA4 current + comparison
+        $topPages = $this->db->fetchAllAssociative(
+            "SELECT page_path, sessions, pageviews, bounce_rate, avg_engagement_time, engaged_sessions, conversions
+             FROM ga4_snapshots WHERE date_range = '28d' ORDER BY sessions DESC LIMIT 30"
+        );
+        $previousPages = $this->db->fetchAllAssociative(
+            "SELECT page_path, sessions, pageviews, bounce_rate, avg_engagement_time, conversions
+             FROM ga4_snapshots WHERE date_range = '28d_previous' ORDER BY sessions DESC LIMIT 30"
+        );
+        $landingPages = $this->db->fetchAllAssociative(
+            "SELECT page_path, sessions, bounce_rate, avg_engagement_time, conversions
+             FROM ga4_snapshots WHERE date_range = '28d_landing' ORDER BY sessions DESC LIMIT 20"
+        );
+
+        // For backward compat, pass topQueries28d as topQueries
+        $topQueries = $topQueries28d;
 
         $activeTasks = $this->db->fetchAllAssociative(
             "SELECT id, title, assigned_to, assigned_role, status, priority, estimated_hours, logged_hours, created_at FROM tasks WHERE status != 'done' ORDER BY created_at DESC LIMIT 10"
@@ -74,7 +105,9 @@ class HomeController extends AbstractController
         );
 
         $systemPrompt = $this->buildSystemPrompt(
-            $semrush ?: [], $topQueries, $topPages, $userName, $userRole, $activeTasks, $pendingRechecks
+            $semrush ?: [], $topQueries, $topPages, $userName, $userRole, $activeTasks, $pendingRechecks,
+            $topQueries90d, $pageAggregates, $brandedQueries, $cannibalizationCandidates,
+            $previousPages, $landingPages
         );
 
         $response = file_get_contents('https://api.anthropic.com/v1/messages', false, stream_context_create(array(
@@ -265,7 +298,13 @@ class HomeController extends AbstractController
         string $userName,
         string $userRole,
         array $activeTasks,
-        array $pendingRechecks
+        array $pendingRechecks,
+        array $topQueries90d = [],
+        array $pageAggregates = [],
+        array $brandedQueries = [],
+        array $cannibalizationCandidates = [],
+        array $previousPages = [],
+        array $landingPages = []
     ): string {
         $date = date('l, F j, Y');
 
@@ -276,7 +315,8 @@ class HomeController extends AbstractController
 
         $pageSummary = '';
         foreach (array_slice($topPages, 0, 20) as $row) {
-            $pageSummary .= '- ' . $row['page_path'] . ' | Sessions: ' . $row['sessions'] . ' | Pageviews: ' . $row['pageviews'] . ' | Conversions: ' . $row['conversions'] . "\n";
+            $engTime = isset($row['avg_engagement_time']) ? ' | Engagement: ' . round($row['avg_engagement_time'], 0) . 's' : '';
+            $pageSummary .= '- ' . $row['page_path'] . ' | Sessions: ' . $row['sessions'] . ' | Pageviews: ' . $row['pageviews'] . ' | Conversions: ' . $row['conversions'] . $engTime . "\n";
         }
 
         $keywords = $semrush['organic_keywords'] ?? 'N/A';
@@ -317,6 +357,70 @@ class HomeController extends AbstractController
         $intro .= "\n- Last updated: " . $updated;
         $intro .= "\n\nTop GSC Queries (last 28 days):\n" . $querySummary;
         $intro .= "\nTop GA4 Pages (last 28 days):\n" . $pageSummary;
+
+        // ── 90-day GSC trends (for algorithm update detection) ──
+        if (!empty($topQueries90d)) {
+            $intro .= "\n\n90-DAY GSC QUERY TRENDS (for AU1/AU2 algorithm update detection):\n";
+            foreach (array_slice($topQueries90d, 0, 20) as $row) {
+                $intro .= '- "' . $row['query'] . '" | Page: ' . $row['page'] . ' | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | Position: ' . round($row['position'], 1) . "\n";
+            }
+        }
+
+        // ── Page-level aggregates (for consolidation rules CON-R1 through CON-R6) ──
+        if (!empty($pageAggregates)) {
+            $intro .= "\n\nGSC PAGE AGGREGATES (for CON rules - zero-click, weak pages):\n";
+            foreach (array_slice($pageAggregates, 0, 20) as $row) {
+                $intro .= '- ' . $row['page'] . ' | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | CTR: ' . round($row['ctr'] * 100, 1) . '% | Position: ' . round($row['position'], 1) . "\n";
+            }
+        }
+
+        // ── Branded queries (for BE1/BE2 brand/entity rules) ──
+        if (!empty($brandedQueries)) {
+            $intro .= "\n\nBRANDED QUERIES (for BE1/BE2 brand entity rules):\n";
+            foreach (array_slice($brandedQueries, 0, 15) as $row) {
+                $intro .= '- "' . $row['query'] . '" | Page: ' . $row['page'] . ' | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . "\n";
+            }
+        }
+
+        // ── Cannibalization candidates (for C-R1 through C-R5) ──
+        if (!empty($cannibalizationCandidates)) {
+            $intro .= "\n\nCANNIBALIZATION CANDIDATES (queries ranking on multiple pages - C-R1 through C-R5):\n";
+            foreach (array_slice($cannibalizationCandidates, 0, 20) as $row) {
+                $intro .= '- "' . $row['query'] . '" → ' . $row['page_count'] . ' pages competing | Total impressions: ' . $row['total_impressions'] . "\n";
+            }
+        }
+
+        // ── GA4 period comparison (for CP1/CP2 content performance rules) ──
+        if (!empty($previousPages)) {
+            $intro .= "\n\nGA4 PERIOD COMPARISON (current 28d vs previous 28d - for CP1/CP2 rules):\n";
+            // Build lookup of previous period
+            $prevLookup = [];
+            foreach ($previousPages as $p) { $prevLookup[$p['page_path']] = $p; }
+            foreach (array_slice($topPages, 0, 15) as $current) {
+                $path = $current['page_path'];
+                $prev = $prevLookup[$path] ?? null;
+                $sessionDelta = $prev ? ($current['sessions'] - $prev['sessions']) : 'N/A';
+                $convDelta = $prev ? ($current['conversions'] - ($prev['conversions'] ?? 0)) : 'N/A';
+                $intro .= '- ' . $path . ' | Sessions: ' . $current['sessions'] . ' (Δ ' . $sessionDelta . ') | Conversions: ' . $current['conversions'] . ' (Δ ' . $convDelta . ")\n";
+            }
+        }
+
+        // ── Landing page performance (for conversion optimization) ──
+        if (!empty($landingPages)) {
+            $intro .= "\n\nTOP LANDING PAGES WITH ENGAGEMENT:\n";
+            foreach (array_slice($landingPages, 0, 15) as $row) {
+                $intro .= '- ' . $row['page_path'] . ' | Sessions: ' . $row['sessions'] . ' | Bounce: ' . round($row['bounce_rate'] * 100, 1) . '% | Avg Engagement: ' . round($row['avg_engagement_time'], 0) . "s | Conversions: " . $row['conversions'] . "\n";
+            }
+        }
+
+        // ── GA4 Engagement metrics for top pages ──
+        if (!empty($topPages) && isset($topPages[0]['avg_engagement_time'])) {
+            $intro .= "\n\nENGAGEMENT METRICS (for scroll depth/time on page analysis):\n";
+            foreach (array_slice($topPages, 0, 10) as $row) {
+                $engRate = ($row['sessions'] > 0) ? round(($row['engaged_sessions'] / $row['sessions']) * 100, 1) : 0;
+                $intro .= '- ' . $row['page_path'] . ' | Avg Engagement: ' . round($row['avg_engagement_time'] ?? 0, 0) . 's | Engagement Rate: ' . $engRate . '% | Bounce: ' . round(($row['bounce_rate'] ?? 0) * 100, 1) . "%\n";
+            }
+        }
         $intro .= $taskContext;
         $intro .= $recheckContext;
         $intro .= "\n\n" . $staticRules;
@@ -324,5 +428,3 @@ class HomeController extends AbstractController
         return $intro;
     }
 }
-
-    

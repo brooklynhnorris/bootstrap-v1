@@ -149,7 +149,7 @@
         .recheck-verify-btn:hover { background: var(--accent-green); color: #fff; }
 
         /* ── Main Area ── */
-        #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        #main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
         #chat-header {
             padding: 12px 24px; border-bottom: 1px solid var(--border-subtle);
             display: flex; align-items: center; justify-content: space-between;
@@ -179,11 +179,11 @@
         .header-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
 
         /* Chat view */
-        #chat-view, #tasks-view { flex: 1; display: flex; flex-direction: column; }
+        #chat-view, #tasks-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
         #tasks-view { display: none; }
 
         #messages {
-            flex: 1; overflow-y: auto; padding: 24px 32px;
+            flex: 1; overflow-y: auto; padding: 24px 32px; min-height: 0;
             display: flex; flex-direction: column; gap: 20px;
             scrollbar-width: thin; scrollbar-color: var(--border-medium) transparent;
         }
@@ -534,7 +534,7 @@
             messagesEl.scrollTop = messagesEl.scrollHeight;
         }
 
-        function resetChat() { messages = []; messagesEl.innerHTML = ''; sendMessage('Hello ' + USER_NAME + ', give me my briefing for today.'); }
+        function resetChat() { messages = []; messagesEl.innerHTML = ''; requestBriefing(); }
 
         // ── Task Management ──
         async function startTask(id) {
@@ -691,8 +691,42 @@
             } catch (e) { console.error('Refresh failed:', e); }
         }
 
+        // ── Briefing request (shows preparing message, not user bubble) ──
+        async function requestBriefing() {
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'message assistant';
+            loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Hello ' + USER_NAME + ', I\'m preparing your briefing for today...</div>';
+            loadingDiv.id = 'briefing-loading';
+            messagesEl.appendChild(loadingDiv);
+            typingEl.style.display = 'block';
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            sendEl.disabled = true;
+
+            const briefingPrompt = 'Give me my SEO briefing for today. Address me as ' + USER_NAME + '. Focus on my role: ' + USER_ROLE + '.';
+            messages.push({ role: 'user', content: briefingPrompt });
+
+            try {
+                const res = await fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }) });
+                const data = await res.json();
+                const reply = data.response || data.error || 'No response.';
+                messages.push({ role: 'assistant', content: reply });
+
+                // Remove loading message and show real briefing
+                const loadEl = document.getElementById('briefing-loading');
+                if (loadEl) loadEl.remove();
+                appendMessage('assistant', reply);
+            } catch (e) {
+                const loadEl = document.getElementById('briefing-loading');
+                if (loadEl) loadEl.remove();
+                appendMessage('assistant', 'Error reaching Logiri. Please try again.');
+            }
+            typingEl.style.display = 'none';
+            sendEl.disabled = false;
+            inputEl.focus();
+        }
+
         // ── Init ──
-        window.addEventListener('load', () => { sendMessage('Hello ' + USER_NAME + ', give me my briefing for today.'); });
+        window.addEventListener('load', () => { requestBriefing(); });
         sendEl.addEventListener('click', () => { const t = inputEl.value.trim(); if (t) sendMessage(t); });
         inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const t = inputEl.value.trim(); if (t) sendMessage(t); } });
         inputEl.addEventListener('input', () => { inputEl.style.height = '48px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px'; });
