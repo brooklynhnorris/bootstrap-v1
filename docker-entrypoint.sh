@@ -1,4 +1,4 @@
-    #!/bin/bash
+#!/bin/bash
 set -e
 
 echo "Running startup tasks..."
@@ -89,10 +89,19 @@ echo 'User table updated.' . PHP_EOL;
 chmod -R 777 /var/www/html/var/cache
 chmod -R 777 /var/www/html/var/log
 
-# Fetch fresh data on startup
-echo "Fetching GSC and GA4 data..."
-php /var/www/html/bin/console app:fetch-gsc 2>/dev/null || echo "GSC fetch failed"
-php /var/www/html/bin/console app:fetch-ga4 2>/dev/null || echo "GA4 fetch failed"
+# Fetch fresh data on startup (only if tables are empty)
+echo "Checking if initial data fetch is needed..."
+php -r "
+\$url = parse_url(getenv('DATABASE_URL'));
+\$pdo = new PDO('pgsql:host='.\$url['host'].';port='.(\$url['port']??5432).';dbname='.ltrim(\$url['path'],'/'), \$url['user'], \$url['pass']);
+\$count = \$pdo->query('SELECT COUNT(*) FROM gsc_snapshots')->fetchColumn();
+exit(\$count > 0 ? 1 : 0);
+" && {
+    echo "No GSC data found, running initial fetch..."
+    php /var/www/html/bin/console app:fetch-gsc || echo "GSC fetch failed"
+    php /var/www/html/bin/console app:fetch-ga4 || echo "GA4 fetch failed"
+    php /var/www/html/bin/console app:fetch-google-ads || echo "Google Ads fetch failed"
+} || echo "Data already exists, skipping startup fetch."
 
 # Insert SEMrush snapshot if none exists
 php -r "
@@ -105,10 +114,11 @@ if (\$count == 0) {
 }
 "
 
-# Set up cron to fetch data daily at 6am
+# Set up cron — all three fetches every 3 days at 6am
 apt-get update -qq && apt-get install -y -qq cron > /dev/null 2>&1
-echo "0 6 * * * cd /var/www/html && php bin/console app:fetch-gsc >> /var/log/cron.log 2>&1" > /etc/cron.d/logiri
-echo "0 6 * * * cd /var/www/html && php bin/console app:fetch-ga4 >> /var/log/cron.log 2>&1" >> /etc/cron.d/logiri
+echo "0 6 */3 * * cd /var/www/html && php bin/console app:fetch-gsc >> /var/log/cron.log 2>&1" > /etc/cron.d/logiri
+echo "0 6 */3 * * cd /var/www/html && php bin/console app:fetch-ga4 >> /var/log/cron.log 2>&1" >> /etc/cron.d/logiri
+echo "0 7 */3 * * cd /var/www/html && php bin/console app:fetch-google-ads >> /var/log/cron.log 2>&1" >> /etc/cron.d/logiri
 chmod 0644 /etc/cron.d/logiri
 crontab /etc/cron.d/logiri
 service cron start
@@ -117,5 +127,3 @@ echo "Startup complete."
 
 # Start Apache
 exec apache2-foreground
-
-    
