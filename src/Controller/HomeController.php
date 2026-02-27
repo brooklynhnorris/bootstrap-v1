@@ -95,6 +95,24 @@ class HomeController extends AbstractController
 
         $topQueries = $topQueries28d;
 
+        // Google Ads data
+        $adsCampaigns = $this->db->fetchAllAssociative(
+            "SELECT campaign_name, impressions, clicks, cost_micros, conversions, ctr, average_cpc, status
+             FROM google_ads_snapshots WHERE data_type = 'campaign' ORDER BY cost_micros DESC LIMIT 10"
+        );
+        $adsKeywords = $this->db->fetchAllAssociative(
+            "SELECT keyword, match_type, campaign_name, impressions, clicks, cost_micros, conversions, ctr, average_cpc
+             FROM google_ads_snapshots WHERE data_type = 'keyword' ORDER BY cost_micros DESC LIMIT 15"
+        );
+        $adsSearchTerms = $this->db->fetchAllAssociative(
+            "SELECT keyword as search_term, campaign_name, impressions, clicks, cost_micros, conversions, ctr
+             FROM google_ads_snapshots WHERE data_type = 'search_term' ORDER BY clicks DESC LIMIT 15"
+        );
+        $adsDailySpend = $this->db->fetchAllAssociative(
+            "SELECT date_range as date, cost_micros, clicks, impressions, conversions
+             FROM google_ads_snapshots WHERE data_type = 'daily_spend' ORDER BY date_range DESC LIMIT 14"
+        );
+
         $activeTasks = $this->db->fetchAllAssociative(
             "SELECT id, title, assigned_to, assigned_role, status, priority, estimated_hours, logged_hours, created_at FROM tasks WHERE status != 'done' ORDER BY created_at DESC LIMIT 10"
         );
@@ -106,7 +124,7 @@ class HomeController extends AbstractController
         $systemPrompt = $this->buildSystemPrompt(
             $semrush ?: [], $topQueries, $topPages, $userName, $userRole, $activeTasks, $pendingRechecks,
             $topQueries90d, $pageAggregates, $brandedQueries, $cannibalizationCandidates,
-            $previousPages, $landingPages
+            $previousPages, $landingPages, $adsCampaigns, $adsKeywords, $adsSearchTerms, $adsDailySpend
         );
 
         // Gemini expects system prompt prepended to messages
@@ -371,7 +389,11 @@ class HomeController extends AbstractController
         array $brandedQueries = [],
         array $cannibalizationCandidates = [],
         array $previousPages = [],
-        array $landingPages = []
+        array $landingPages = [],
+        array $adsCampaigns = [],
+        array $adsKeywords = [],
+        array $adsSearchTerms = [],
+        array $adsDailySpend = []
     ): string {
         $date = date('l, F j, Y');
 
@@ -519,6 +541,38 @@ class HomeController extends AbstractController
                 $engRate = ($row['sessions'] > 0) ? round(($row['engaged_sessions'] / $row['sessions']) * 100, 1) : 0;
                 $intro .= '- ' . $row['page_path'] . ' | Engagement: ' . round($row['avg_engagement_time'] ?? 0, 0) . 's | Rate: ' . $engRate . '% | Bounce: ' . round(($row['bounce_rate'] ?? 0) * 100, 1) . "%\n";
             }
+        }
+
+        // ── Google Ads data ──
+        if (!empty($adsCampaigns)) {
+            $intro .= "\n\nGOOGLE ADS CAMPAIGNS (30d):\n";
+            foreach ($adsCampaigns as $row) {
+                $spend = '$' . number_format($row['cost_micros'] / 1000000, 2);
+                $cpc   = '$' . number_format($row['average_cpc'] / 1000000, 2);
+                $intro .= '- ' . $row['campaign_name'] . ' | Spend: ' . $spend . ' | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | CPC: ' . $cpc . ' | Conversions: ' . $row['conversions'] . ' | Status: ' . $row['status'] . "\n";
+            }
+        }
+
+        if (!empty($adsKeywords)) {
+            $intro .= "\n\nTOP GOOGLE ADS KEYWORDS (30d by spend):\n";
+            foreach (array_slice($adsKeywords, 0, 10) as $row) {
+                $spend = '$' . number_format($row['cost_micros'] / 1000000, 2);
+                $cpc   = '$' . number_format($row['average_cpc'] / 1000000, 2);
+                $intro .= '- "' . $row['keyword'] . '" [' . $row['match_type'] . '] | Spend: ' . $spend . ' | Clicks: ' . $row['clicks'] . ' | CPC: ' . $cpc . ' | Conversions: ' . $row['conversions'] . "\n";
+            }
+        }
+
+        if (!empty($adsSearchTerms)) {
+            $intro .= "\n\nTOP SEARCH TERMS TRIGGERING ADS (30d):\n";
+            foreach (array_slice($adsSearchTerms, 0, 10) as $row) {
+                $spend = '$' . number_format($row['cost_micros'] / 1000000, 2);
+                $intro .= '- "' . $row['search_term'] . '" | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | Spend: ' . $spend . ' | Conversions: ' . $row['conversions'] . "\n";
+            }
+        }
+
+        if (!empty($adsDailySpend)) {
+            $totalSpend = array_sum(array_column($adsDailySpend, 'cost_micros')) / 1000000;
+            $intro .= "\n\nGOOGLE ADS TOTAL SPEND (last 14 days): $" . number_format($totalSpend, 2) . "\n";
         }
 
         $intro .= $taskContext;
