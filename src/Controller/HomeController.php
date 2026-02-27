@@ -174,7 +174,14 @@ class HomeController extends AbstractController
             return new JsonResponse(['error' => $data['error']['message']], 500);
         }
 
-        $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? 'No response from Gemini.';
+      // Gemini 2.5 may return multiple parts (thinking + response), get the last text part
+$text = 'No response from Gemini.';
+$parts = $data['candidates'][0]['content']['parts'] ?? [];
+foreach ($parts as $part) {
+    if (isset($part['text'])) {
+        $text = $part['text'];
+    }
+} 
 
         // ── Parse and auto-create tasks from AI response ──
         $tasksCreated = [];
