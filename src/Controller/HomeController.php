@@ -129,7 +129,7 @@ array_splice($geminiMessages, 1, 0, [[
     'parts' => [['text' => 'Understood. I am Logiri, ready to assist.']],
 ]]);
 
-$geminiModel = $_ENV['GEMINI_MODEL'] ?? 'gemini-2.0-flash-001';
+$geminiModel = $_ENV['GEMINI_MODEL'] ?? 'gemini-2.5-flash';
 $geminiKey   = $_ENV['GEMINI_API_KEY'] ?? '';
 
 $response = file_get_contents(
