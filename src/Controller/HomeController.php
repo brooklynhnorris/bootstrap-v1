@@ -98,19 +98,19 @@ class HomeController extends AbstractController
         // Google Ads data
         $adsCampaigns = $this->db->fetchAllAssociative(
             "SELECT campaign_name, impressions, clicks, cost_micros, conversions, ctr, average_cpc, status
-             FROM google_ads_snapshots WHERE data_type = 'campaign' ORDER BY cost_micros DESC LIMIT 10"
+             FROM google_ads_snapshots WHERE data_type = 'campaign' ORDER BY cost_micros DESC LIMIT 8"
         );
         $adsKeywords = $this->db->fetchAllAssociative(
             "SELECT keyword, match_type, campaign_name, impressions, clicks, cost_micros, conversions, ctr, average_cpc
-             FROM google_ads_snapshots WHERE data_type = 'keyword' ORDER BY cost_micros DESC LIMIT 15"
+             FROM google_ads_snapshots WHERE data_type = 'keyword' ORDER BY cost_micros DESC LIMIT 8"
         );
         $adsSearchTerms = $this->db->fetchAllAssociative(
             "SELECT keyword as search_term, campaign_name, impressions, clicks, cost_micros, conversions, ctr
-             FROM google_ads_snapshots WHERE data_type = 'search_term' ORDER BY clicks DESC LIMIT 15"
+             FROM google_ads_snapshots WHERE data_type = 'search_term' ORDER BY clicks DESC LIMIT 8"
         );
         $adsDailySpend = $this->db->fetchAllAssociative(
             "SELECT date_range as date, cost_micros, clicks, impressions, conversions
-             FROM google_ads_snapshots WHERE data_type = 'daily_spend' ORDER BY date_range DESC LIMIT 14"
+             FROM google_ads_snapshots WHERE data_type = 'daily_spend' ORDER BY date_range DESC LIMIT 7"
         );
 
         $activeTasks = $this->db->fetchAllAssociative(
@@ -555,7 +555,7 @@ class HomeController extends AbstractController
 
         if (!empty($adsKeywords)) {
             $intro .= "\n\nTOP GOOGLE ADS KEYWORDS (30d by spend):\n";
-            foreach (array_slice($adsKeywords, 0, 10) as $row) {
+            foreach (array_slice($adsKeywords, 0, 8) as $row) {
                 $spend = '$' . number_format($row['cost_micros'] / 1000000, 2);
                 $cpc   = '$' . number_format($row['average_cpc'] / 1000000, 2);
                 $intro .= '- "' . $row['keyword'] . '" [' . $row['match_type'] . '] | Spend: ' . $spend . ' | Clicks: ' . $row['clicks'] . ' | CPC: ' . $cpc . ' | Conversions: ' . $row['conversions'] . "\n";
@@ -564,7 +564,7 @@ class HomeController extends AbstractController
 
         if (!empty($adsSearchTerms)) {
             $intro .= "\n\nTOP SEARCH TERMS TRIGGERING ADS (30d):\n";
-            foreach (array_slice($adsSearchTerms, 0, 10) as $row) {
+            foreach (array_slice($adsSearchTerms, 0, 8) as $row) {
                 $spend = '$' . number_format($row['cost_micros'] / 1000000, 2);
                 $intro .= '- "' . $row['search_term'] . '" | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | Spend: ' . $spend . ' | Conversions: ' . $row['conversions'] . "\n";
             }
