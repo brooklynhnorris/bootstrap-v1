@@ -142,7 +142,7 @@ $response = file_get_contents(
             'content'       => json_encode([
                 'contents'          => $geminiMessages,
                 'generationConfig'  => [
-                    'maxOutputTokens' => 4096,
+                    'maxOutputTokens' => 8192,
                     'temperature'     => 0.7,
                 ],
             ]),
@@ -471,7 +471,7 @@ $text = $data['candidates'][0]['content']['parts'][0]['text'] ?? 'No response fr
         $intro .= "\n<!-- TASKS_JSON -->";
         $intro .= "\n[{\"title\":\"Resolve horse trailers for sale cannibalization\",\"assigned_to\":\"Brook\",\"priority\":\"critical\",\"estimated_hours\":3,\"recheck_type\":\"cannibalization_fix\",\"description\":\"De-optimize 9 competing pages, consolidate signals to homepage\"}]";
         $intro .= "\n<!-- /TASKS_JSON -->";
-        $intro .= "\n\nCRITICAL INSTRUCTION - YOU MUST FOLLOW THIS EXACTLY: Every single response you give MUST end with a <!-- TASKS_JSON --> block containing an array of tasks. This is not optional. Even if you have no new tasks, include an empty array: <!-- TASKS_JSON --> [] <!-- /TASKS_JSON -->. If you do not include this block, tasks will not be created and the system will break. Never omit this block under any circumstances.";
+        $intro .= $intro .= "\n\nCRITICAL INSTRUCTION: Structure EVERY response like this:\n1. First line: <!-- TASKS_JSON --> [array of tasks] <!-- /TASKS_JSON -->\n2. Then your briefing text\n\nNever omit the TASKS_JSON block. It must always be the very first thing in your response.";
         $intro .= "\n\nCAPACITY & WORKLOAD AWARENESS:";
         $intro .= "\n- Each team member has 40 hours/week capacity.";
         $intro .= "\n- A user is OVERLOADED if sum(estimated_hours of open tasks) > 40.";
