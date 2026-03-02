@@ -549,7 +549,7 @@ class HomeController extends AbstractController
                         core_links_found, word_count, h1, title_tag, h1_matches_title, h2s,
                         schema_types, is_noindex, crawled_at
                  FROM page_crawl_snapshots
-                 WHERE crawled_at = (SELECT MAX(crawled_at) FROM page_crawl_snapshots)
+                 WHERE crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
                  ORDER BY page_type, word_count DESC
                  LIMIT 150"
             );
