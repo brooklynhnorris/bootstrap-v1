@@ -134,7 +134,7 @@ class CrawlPagesCommand extends Command
                 $crawled++;
             }
 
-            usleep(1500000); // 1.5 second polite delay
+            usleep(500000); // 0.5 second polite delay
         }
 
         $output->writeln("Done. Crawled: {$crawled} | Failed: {$failed} | Total: {$total}");
@@ -317,7 +317,13 @@ class CrawlPagesCommand extends Command
             $parsed = parse_url($row['page'], PHP_URL_PATH);
             if ($parsed) $paths[] = $parsed;
         }
-        return array_unique($paths);
+
+        // Always include core URLs even if not in GSC
+        foreach ($this->coreUrls as $core) {
+            $paths[] = $core;
+        }
+
+        return array_slice(array_unique($paths), 0, $limit);
     }
 
     private function buildFullUrl(string $path): string
@@ -391,5 +397,3 @@ class CrawlPagesCommand extends Command
         }
     }
 }
-
-    
