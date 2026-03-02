@@ -68,9 +68,9 @@ class CrawlPagesCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('url', null, InputOption::VALUE_OPTIONAL, 'Crawl a single URL path only (e.g. /gooseneck-horse-trailers/)')
-            ->addOption('limit', null, InputOption::VALUE_OPTIONAL, 'Max number of URLs to crawl', 200)
-            ->addOption('debug', null, InputOption::VALUE_NONE, 'Print extra debug output');
+            ->addOption('url', null, InputOption::VALUE_OPTIONAL, 'Crawl a single URL path (e.g. /gooseneck-horse-trailers/)')
+            ->addOption('limit', null, InputOption::VALUE_OPTIONAL, 'Max URLs to crawl', 200)
+            ->addOption('debug', null, InputOption::VALUE_NONE, 'Extra debug output');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -80,6 +80,9 @@ class CrawlPagesCommand extends Command
         $debug     = (bool) $input->getOption('debug');
 
         $this->ensureSchema();
+
+        // Load user overrides so crawl respects manual corrections
+        $overrides = $this->loadOverrides();
 
         if ($singleUrl) {
             $urls = [$singleUrl];
@@ -113,9 +116,16 @@ class CrawlPagesCommand extends Command
                 $output->writeln("  FAILED: {$fullUrl}");
                 $failed++;
             } else {
+                // Apply user overrides before saving
+                $result = $this->applyOverrides($result, $overrides);
+
+                // Upsert: delete existing row for this URL then insert fresh
+                $this->db->executeStatement('DELETE FROM page_crawl_snapshots WHERE url = ?', [$path]);
                 $this->db->insert('page_crawl_snapshots', $result);
+
+                $overrideNote = isset($overrides[$path]) ? ' [OVERRIDE]' : '';
                 $output->writeln(
-                    "  OK | H1: " . ($result['h1'] ?? '(none)') .
+                    "  OK{$overrideNote} | H1: " . ($result['h1'] ?? '(none)') .
                     " | Words: {$result['word_count']}" .
                     " | Entity: " . ($result['has_central_entity'] ? 'YES' : 'NO') .
                     " | Core link: " . ($result['has_core_link'] ? 'YES' : 'NO') .
@@ -124,10 +134,10 @@ class CrawlPagesCommand extends Command
                 $crawled++;
             }
 
-            usleep(1500000);
+            usleep(1500000); // 1.5 second polite delay
         }
 
-        $output->writeln("Done. Crawled: {$crawled} | Failed: {$failed}");
+        $output->writeln("Done. Crawled: {$crawled} | Failed: {$failed} | Total: {$total}");
         return Command::SUCCESS;
     }
 
@@ -145,11 +155,10 @@ class CrawlPagesCommand extends Command
         ]);
 
         $html = @file_get_contents($fullUrl, false, $context);
-        if ($html === false || empty($html)) {
-            return null;
-        }
+        if ($html === false || empty($html)) return null;
 
         $httpStatus = $this->parseHttpStatus($http_response_header ?? []);
+        if ($debug) $output->writeln("  [DEBUG] HTTP {$httpStatus}");
 
         $dom = new \DOMDocument();
         libxml_use_internal_errors(true);
@@ -204,7 +213,7 @@ class CrawlPagesCommand extends Command
         }
         $wordCount = $bodyText ? str_word_count(trim($bodyText)) : 0;
 
-        // Central entity
+        // Central entity check
         $bodyLower          = strtolower($bodyText);
         $centralEntityCount = substr_count($bodyLower, 'horse trailer');
         $hasCentralEntity   = $centralEntityCount > 0;
@@ -232,7 +241,7 @@ class CrawlPagesCommand extends Command
         $internalLinks  = array_values(array_unique($internalLinks));
         $coreLinksFound = array_values(array_unique($coreLinksFound));
 
-        // H1 vs title alignment (fuzzy — 60% word overlap)
+        // H1 vs title alignment (60% word overlap threshold)
         $h1MatchesTitle = false;
         if ($h1 && $titleTag) {
             $h1Words    = array_filter(explode(' ', strtolower(preg_replace('/[^a-z0-9 ]/i', '', $h1))), fn($w) => strlen($w) > 3);
@@ -261,6 +270,38 @@ class CrawlPagesCommand extends Command
             'page_type'            => $this->classifyPageType($path),
             'crawled_at'           => date('Y-m-d H:i:s'),
         ];
+    }
+
+    private function loadOverrides(): array
+    {
+        try {
+            $tables = $this->db->fetchFirstColumn(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_overrides'"
+            );
+            if (empty($tables)) return [];
+
+            $rows = $this->db->fetchAllAssociative('SELECT url, field, override_value FROM user_overrides');
+            $overrides = [];
+            foreach ($rows as $row) {
+                $overrides[$row['url']][$row['field']] = $row['override_value'];
+            }
+            return $overrides;
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    private function applyOverrides(array $result, array $overrides): array
+    {
+        $url = $result['url'];
+        if (!isset($overrides[$url])) return $result;
+
+        foreach ($overrides[$url] as $field => $value) {
+            if (array_key_exists($field, $result)) {
+                $result[$field] = $value;
+            }
+        }
+        return $result;
     }
 
     private function getUrlsFromGsc(int $limit): array
@@ -350,3 +391,5 @@ class CrawlPagesCommand extends Command
         }
     }
 }
+
+    
