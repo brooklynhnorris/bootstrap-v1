@@ -130,6 +130,9 @@ class HomeController extends AbstractController
             "SELECT id, title, assigned_to, recheck_date, recheck_type FROM tasks WHERE status = 'done' AND recheck_date IS NOT NULL AND recheck_verified = false AND recheck_date <= CURRENT_DATE + INTERVAL '3 days' ORDER BY recheck_date ASC LIMIT 5"
         );
 
+        // ── Load crawl data for rules engine ──
+        $crawlData = $this->loadCrawlData();
+
         // ── Load recent rule reviews and overrides for context ──
         $recentReviews = $this->loadRecentReviews();
         $overrideCount = $this->loadOverrideCount();
@@ -174,7 +177,7 @@ class HomeController extends AbstractController
             $activeTasks, $pendingRechecks, $topQueries90d, $pageAggregates,
             $brandedQueries, $cannibalizationCandidates, $previousPages, $landingPages,
             $adsCampaigns, $adsKeywords, $adsSearchTerms, $adsDailySpend,
-            $recentReviews, $overrideCount
+            $recentReviews, $overrideCount, $crawlData
         );
 
         // ── Call Claude API ──
@@ -518,6 +521,26 @@ class HomeController extends AbstractController
         return strlen($clean) > 60 ? substr($clean, 0, 57) . '...' : $clean;
     }
 
+    private function loadCrawlData(): array
+    {
+        try {
+            $tables = $this->db->fetchFirstColumn(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'page_crawl_snapshots'"
+            );
+            if (empty($tables)) return [];
+
+            return $this->db->fetchAllAssociative(
+                "SELECT url, page_type, has_central_entity, central_entity_count, has_core_link,
+                        core_links_found, word_count, h1, title_tag, h1_matches_title, h2s,
+                        schema_types, is_noindex, crawled_at
+                 FROM page_crawl_snapshots
+                 WHERE crawled_at = (SELECT MAX(crawled_at) FROM page_crawl_snapshots)
+                 ORDER BY page_type, word_count DESC
+                 LIMIT 150"
+            );
+        } catch (\Exception $e) { return []; }
+    }
+
     private function loadRecentReviews(): array
     {
         try {
@@ -555,7 +578,7 @@ class HomeController extends AbstractController
         array $previousPages = [], array $landingPages = [],
         array $adsCampaigns = [], array $adsKeywords = [],
         array $adsSearchTerms = [], array $adsDailySpend = [],
-        array $recentReviews = [], int $overrideCount = 0
+        array $recentReviews = [], int $overrideCount = 0, array $crawlData = []
     ): string {
         $date = date('l, F j, Y');
 
@@ -721,9 +744,44 @@ class HomeController extends AbstractController
         $intro .= $taskContext;
         $intro .= $recheckContext;
         $intro .= $reviewContext;
+
+        // ── Crawl data summary ──
+        if (!empty($crawlData)) {
+            $crawledAt = $crawlData[0]['crawled_at'] ?? 'unknown';
+            $intro .= "\n\nPAGE CRAWL DATA (last crawl: {$crawledAt}):\n";
+            $intro .= "Format: URL | Type | Words | Entity(count) | CoreLink | H1Match | Schema | Noindex | H1\n";
+            foreach ($crawlData as $row) {
+                $entity   = $row['has_central_entity'] ? "YES({$row['central_entity_count']})" : 'NO';
+                $coreLink = $row['has_core_link'] ? 'YES' : 'NO';
+                $h1match  = $row['h1_matches_title'] ? 'YES' : 'NO';
+                $schema   = $row['schema_types'] && $row['schema_types'] !== '[]' ? implode(',', json_decode($row['schema_types'], true)) : 'none';
+                $noindex  = $row['is_noindex'] ? 'NOINDEX' : 'indexed';
+                $h1       = substr($row['h1'] ?? '(no h1)', 0, 60);
+                $intro .= "- {$row['url']} | {$row['page_type']} | {$row['word_count']}w | entity:{$entity} | corelink:{$coreLink} | h1match:{$h1match} | schema:{$schema} | {$noindex} | \"{$h1}\"\n";
+            }
+
+            // Rule violation summaries for quick Logiri parsing
+            $noEntity   = array_filter($crawlData, fn($r) => !$r['has_central_entity'] && !$r['is_noindex']);
+            $noCoreLink = array_filter($crawlData, fn($r) => $r['page_type'] === 'outer' && !$r['has_core_link'] && !$r['is_noindex']);
+            $thinCore   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && $r['word_count'] < 500 && !$r['is_noindex']);
+            $noH2Core   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && ($r['h2s'] === '[]' || !$r['h2s']) && !$r['is_noindex']);
+            $h1Mismatch = array_filter($crawlData, fn($r) => !$r['h1_matches_title'] && !$r['is_noindex']);
+            $noSchema   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && ($r['schema_types'] === '[]' || !$r['schema_types']) && !$r['is_noindex']);
+
+            $intro .= "\nCRAWL RULE VIOLATION SUMMARY:\n";
+            $intro .= "FC-R1 (no central entity): " . count($noEntity) . " pages — " . implode(', ', array_column(array_slice($noEntity, 0, 5), 'url')) . "\n";
+            $intro .= "FC-R5 (outer missing core link): " . count($noCoreLink) . " pages — " . implode(', ', array_column(array_slice($noCoreLink, 0, 5), 'url')) . "\n";
+            $intro .= "FC-R3/R6 (thin core <500w): " . count($thinCore) . " pages — " . implode(', ', array_column(array_slice($thinCore, 0, 5), 'url')) . "\n";
+            $intro .= "FC-R8 (core missing H2s): " . count($noH2Core) . " pages — " . implode(', ', array_column(array_slice($noH2Core, 0, 5), 'url')) . "\n";
+            $intro .= "FC-R7 (H1/title mismatch): " . count($h1Mismatch) . " pages — " . implode(', ', array_column(array_slice($h1Mismatch, 0, 5), 'url')) . "\n";
+            $intro .= "FC-R9 (core missing schema): " . count($noSchema) . " pages — " . implode(', ', array_column(array_slice($noSchema, 0, 5), 'url')) . "\n";
+        } else {
+            $intro .= "\n\nPAGE CRAWL DATA: No crawl data available. Run php bin/console app:crawl-pages to populate.\n";
+        }
+
         $intro .= "\n\n" . $staticRules;
 
         return $intro;
     }
 }
-    
+
