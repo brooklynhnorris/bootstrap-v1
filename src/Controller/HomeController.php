@@ -127,46 +127,39 @@ class HomeController extends AbstractController
             $previousPages, $landingPages, $adsCampaigns, $adsKeywords, $adsSearchTerms, $adsDailySpend
         );
 
-        // Gemini expects system prompt prepended to messages
-        $geminiMessages = [];
-        foreach ($messages as $msg) {
-            $geminiMessages[] = [
-                'role'  => $msg['role'] === 'assistant' ? 'model' : 'user',
-                'parts' => [['text' => $msg['content']]],
-            ];
-        }
+       // Claude API
+       $claudeMessages = [];
+       foreach ($messages as $msg) {
+           $claudeMessages[] = [
+               'role'    => $msg['role'],
+               'content' => $msg['content'],
+           ];
+       }
 
-        // Prepend system prompt as first user message
-        array_unshift($geminiMessages, [
-            'role'  => 'user',
-            'parts' => [['text' => $systemPrompt]],
-        ]);
-        array_splice($geminiMessages, 1, 0, [[
-            'role'  => 'model',
-            'parts' => [['text' => 'Understood. I am Logiri, ready to assist.']],
-        ]]);
+       $claudeModel = $_ENV['ANTHROPIC_MODEL'] ?? 'claude-sonnet-4-5';
+       $claudeKey   = $_ENV['ANTHROPIC_API_KEY'] ?? '';
 
-        $geminiModel = $_ENV['GEMINI_MODEL'] ?? 'gemini-2.0-flash-001';
-        $geminiKey   = $_ENV['GEMINI_API_KEY'] ?? '';
-
-        $response = file_get_contents(
-            "https://generativelanguage.googleapis.com/v1beta/models/{$geminiModel}:generateContent?key={$geminiKey}",
-            false,
-            stream_context_create([
-                'http' => [
-                    'method'        => 'POST',
-                    'header'        => 'Content-Type: application/json',
-                    'content'       => json_encode([
-                        'contents'         => $geminiMessages,
-                        'generationConfig' => [
-                            'maxOutputTokens' => 8192,
-                            'temperature'     => 0.7,
-                        ],
-                    ]),
-                    'ignore_errors' => true,
-                ],
-            ])
-        );
+       $response = file_get_contents(
+           'https://api.anthropic.com/v1/messages',
+           false,
+           stream_context_create([
+               'http' => [
+                   'method'        => 'POST',
+                   'header'        => implode("\r\n", [
+                       'Content-Type: application/json',
+                       'x-api-key: ' . $claudeKey,
+                       'anthropic-version: 2023-06-01',
+                   ]),
+                   'content'       => json_encode([
+                       'model'      => $claudeModel,
+                       'max_tokens' => 8192,
+                       'system'     => $systemPrompt,
+                       'messages'   => $claudeMessages,
+                   ]),
+                   'ignore_errors' => true,
+               ],
+           ])
+       );
 
         $data = json_decode($response, true);
 
@@ -174,14 +167,7 @@ class HomeController extends AbstractController
             return new JsonResponse(['error' => $data['error']['message']], 500);
         }
 
-      // Gemini 2.5 may return multiple parts (thinking + response), get the last text part
-$text = 'No response from Gemini.';
-$parts = $data['candidates'][0]['content']['parts'] ?? [];
-foreach ($parts as $part) {
-    if (isset($part['text'])) {
-        $text = $part['text'];
-    }
-} 
+        $text = $data['content'][0]['text'] ?? 'No response from Claude.';
 
         // ── Parse and auto-create tasks from AI response ──
         $tasksCreated = [];
