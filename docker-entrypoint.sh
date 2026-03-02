@@ -26,8 +26,14 @@ php -r "
 \$url = parse_url(getenv('DATABASE_URL'));
 \$pdo = new PDO('pgsql:host='.\$url['host'].';port='.(\$url['port']??5432).';dbname='.ltrim(\$url['path'],'/'), \$url['user'], \$url['pass']);
 \$pdo->exec('CREATE TABLE IF NOT EXISTS semrush_snapshots (id SERIAL PRIMARY KEY, domain VARCHAR(255) NOT NULL, organic_keywords INT DEFAULT 0, organic_traffic INT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
-\$pdo->exec('CREATE TABLE IF NOT EXISTS gsc_snapshots (id SERIAL PRIMARY KEY, query VARCHAR(500) NOT NULL, page TEXT NOT NULL, clicks INT DEFAULT 0, impressions INT DEFAULT 0, ctr FLOAT DEFAULT 0, position FLOAT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
-\$pdo->exec('CREATE TABLE IF NOT EXISTS ga4_snapshots (id SERIAL PRIMARY KEY, page_path TEXT NOT NULL, sessions INT DEFAULT 0, pageviews INT DEFAULT 0, bounce_rate FLOAT DEFAULT 0, conversions INT DEFAULT 0, fetched_at TIMESTAMP NOT NULL)');
+\$pdo->exec('CREATE TABLE IF NOT EXISTS gsc_snapshots (id SERIAL PRIMARY KEY, query VARCHAR(500) NOT NULL, page TEXT NOT NULL, clicks INT DEFAULT 0, impressions INT DEFAULT 0, ctr FLOAT DEFAULT 0, position FLOAT DEFAULT 0, date_range VARCHAR(50) DEFAULT NULL, fetched_at TIMESTAMP NOT NULL)');
+\$gscCols = \$pdo->query("SELECT column_name FROM information_schema.columns WHERE table_name = 'gsc_snapshots'")->fetchAll(PDO::FETCH_COLUMN);
+if (!in_array('date_range', \$gscCols)) { \$pdo->exec('ALTER TABLE gsc_snapshots ADD COLUMN date_range VARCHAR(50) DEFAULT NULL'); }
+\$pdo->exec('CREATE TABLE IF NOT EXISTS ga4_snapshots (id SERIAL PRIMARY KEY, page_path TEXT NOT NULL, sessions INT DEFAULT 0, pageviews INT DEFAULT 0, bounce_rate FLOAT DEFAULT 0, conversions INT DEFAULT 0, avg_engagement_time FLOAT DEFAULT 0, engaged_sessions INT DEFAULT 0, date_range VARCHAR(50) DEFAULT NULL, fetched_at TIMESTAMP NOT NULL)');
+\$ga4Cols = \$pdo->query("SELECT column_name FROM information_schema.columns WHERE table_name = 'ga4_snapshots'")->fetchAll(PDO::FETCH_COLUMN);
+if (!in_array('date_range', \$ga4Cols)) { \$pdo->exec('ALTER TABLE ga4_snapshots ADD COLUMN date_range VARCHAR(50) DEFAULT NULL'); }
+if (!in_array('avg_engagement_time', \$ga4Cols)) { \$pdo->exec('ALTER TABLE ga4_snapshots ADD COLUMN avg_engagement_time FLOAT DEFAULT 0'); }
+if (!in_array('engaged_sessions', \$ga4Cols)) { \$pdo->exec('ALTER TABLE ga4_snapshots ADD COLUMN engaged_sessions INT DEFAULT 0'); }
 \$pdo->exec('CREATE TABLE IF NOT EXISTS team_members (id SERIAL PRIMARY KEY, name VARCHAR(100) NOT NULL, role VARCHAR(50) NOT NULL, email VARCHAR(255), max_hours_per_week INT DEFAULT 40, is_active BOOLEAN DEFAULT true)');
 \$pdo->exec(\"CREATE TABLE IF NOT EXISTS tasks (
     id SERIAL PRIMARY KEY,
