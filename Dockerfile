@@ -41,6 +41,9 @@ RUN COMPOSER_ALLOW_SUPERUSER=1 \
       --no-scripts \
       --optimize-autoloader
 
+# Make scripts executable
+RUN chmod +x /var/www/html/crawl.sh
+
 # Ensure writable directories for Symfony (cache, sessions, logs)
 RUN mkdir -p var/cache var/log var/sessions \
  && chown -R www-data:www-data var \
