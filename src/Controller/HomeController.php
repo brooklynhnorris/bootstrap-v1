@@ -204,27 +204,32 @@ class HomeController extends AbstractController
         $claudeKey   = $_ENV['ANTHROPIC_API_KEY'] ?? '';
         $claudeModel = $_ENV['ANTHROPIC_MODEL'] ?? 'claude-sonnet-4-5';
 
-        $response = file_get_contents(
-            'https://api.anthropic.com/v1/messages',
-            false,
-            stream_context_create([
-                'http' => [
-                    'method'        => 'POST',
-                    'header'        => implode("\r\n", [
-                        'Content-Type: application/json',
-                        'x-api-key: ' . $claudeKey,
-                        'anthropic-version: 2023-06-01',
-                    ]),
-                    'content'       => json_encode([
-                        'model'      => $claudeModel,
-                        'max_tokens' => 8192,
-                        'system'     => $systemPrompt,
-                        'messages'   => $claudeMessages,
-                    ]),
-                    'ignore_errors' => true,
-                ],
-            ])
-        );
+        $payload = json_encode([
+            'model'      => $claudeModel,
+            'max_tokens' => 8192,
+            'system'     => $systemPrompt,
+            'messages'   => $claudeMessages,
+        ]);
+
+        $ch = curl_init('https://api.anthropic.com/v1/messages');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'x-api-key: ' . $claudeKey,
+                'anthropic-version: 2023-06-01',
+            ],
+            CURLOPT_TIMEOUT        => 120,
+        ]);
+        $response = curl_exec($ch);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if ($curlError) {
+            return new JsonResponse(['error' => 'API connection failed: ' . $curlError], 500);
+        }
 
         $data = json_decode($response, true);
 
