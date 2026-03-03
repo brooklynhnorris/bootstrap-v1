@@ -321,6 +321,29 @@ class HomeController extends AbstractController
         return new JsonResponse(['ok' => true]);
     }
 
+    #[Route('/api/conversations/{id}/delete', name: 'api_conversation_delete', methods: ['POST'])]
+    public function deleteConversation(int $id): JsonResponse
+    {
+        $this->db->executeStatement('DELETE FROM messages WHERE conversation_id = ?', [$id]);
+        $this->db->executeStatement('DELETE FROM conversations WHERE id = ?', [$id]);
+        return new JsonResponse(['ok' => true]);
+    }
+
+    #[Route('/api/conversations/{id}/rename', name: 'api_conversation_rename', methods: ['POST'])]
+    public function renameConversation(int $id, Request $request): JsonResponse
+    {
+        $body  = json_decode($request->getContent(), true);
+        $title = trim($body['title'] ?? '');
+        if (!$title) {
+            return new JsonResponse(['error' => 'title required'], 400);
+        }
+        $this->db->executeStatement(
+            'UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?',
+            [$title, date('Y-m-d H:i:s'), $id]
+        );
+        return new JsonResponse(['ok' => true]);
+    }
+
     // ─────────────────────────────────────────────
     //  RULE REVIEW API
     // ─────────────────────────────────────────────
@@ -698,11 +721,15 @@ class HomeController extends AbstractController
         $intro .= "\nFC-R9: Core pages must have schema markup. Flag Core pages where schema_types is empty.";
         $intro .= "\nFC-R10: High-traffic Outer pages (100+ GSC impressions) must link to a Core page. Cross-reference GSC impressions with has_core_link = FALSE.";
         $intro .= "\n\nREVIEW CARD FORMAT:";
-        $intro .= "\nAfter presenting findings for each rule, ALWAYS append a review card in this exact format:";
+        $intro .= "\nAfter presenting findings for each rule, ALWAYS append a review card. The review card must contain the ACTUAL PAGES YOU FLAGGED so the user can confirm or correct each one — NOT a description of your methodology.";
+        $intro .= "\nUse this exact format:";
         $intro .= "\n<!-- REVIEW_CARD rule_id=\"FC-RX\" -->";
-        $intro .= "\nClassification criteria used: [explain how you identified violations for this rule]";
+        $intro .= "\nI flagged these pages as violations:";
+        $intro .= "\n- /example-url/ | Core | Issue: no H1 tag";
+        $intro .= "\n- /another-url/ | Outer | Issue: missing core link";
+        $intro .= "\nAre these correct? Use the form below to approve, correct any misclassifications, or flag pages I missed.";
         $intro .= "\n<!-- /REVIEW_CARD -->";
-        $intro .= "\nThe UI renders this as an interactive form where Brook can approve, dispute, or correct your findings. This is how you learn. Always include it.";
+        $intro .= "\nKEY RULE: The review card is for the USER to verify YOUR specific findings. Show them the actual URLs and issues you found. Do not explain your logic — show your work. Keep it plain language, no technical jargon like 'has_core_link = FALSE'. Say 'missing link to a product page' instead.";
         $intro .= "\n\nTEAM ROSTER:";
         $intro .= "\n- Brook | SEO + Content | 40h/week";
         $intro .= "\n- Kalib | Sales | 40h/week";
