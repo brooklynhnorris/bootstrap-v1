@@ -20,5 +20,8 @@ services:
             - '../src/Entity/'
             - '../src/Kernel.php'
 
-    # add more service definitions when explicit configuration is needed
-    # please note that last definitions always *replace* previous ones
+    # PDO session handler — stores sessions in Postgres so they survive redeploys
+    Symfony\Component\HttpFoundation\Session\Storage\Handler\PdoSessionHandler:
+        arguments:
+            - '%env(DATABASE_URL)%'
+            - { db_table: 'sessions', db_id_col: 'sess_id', db_data_col: 'sess_data', db_lifetime_col: 'sess_lifetime', db_time_col: 'sess_time' }

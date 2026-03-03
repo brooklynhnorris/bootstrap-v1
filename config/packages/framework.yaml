@@ -1,23 +1,15 @@
-# see https://symfony.com/doc/current/reference/configuration/framework.html
 framework:
     secret: '%env(APP_SECRET)%'
     annotations: false
     http_method_override: false
     handle_all_throwables: true
     session:
-        handler_id: 'session.handler.pdo'
+        handler_id: 'Symfony\Component\HttpFoundation\Session\Storage\Handler\PdoSessionHandler'
         cookie_secure: auto
         cookie_samesite: lax
         cookie_lifetime: 604800
     php_errors:
         log: true
-
-services:
-    session.handler.pdo:
-        class: Symfony\Component\HttpFoundation\Session\Storage\Handler\PdoSessionHandler
-        arguments:
-            - '%env(DATABASE_URL)%'
-            - { db_table: sessions, db_id_col: sess_id, db_data_col: sess_data, db_lifetime_col: sess_lifetime, db_time_col: sess_time }
 
 when@test:
     framework:
