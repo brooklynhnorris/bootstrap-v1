@@ -18,9 +18,6 @@ done
 
 echo "Database ready. Running migrations..."
 
-# Create/update core tables
-php bin/console doctrine:schema:update --force --no-interaction 2>/dev/null || true
-
 # Create and migrate all data tables
 php /var/www/html/bin/console app:ensure-schema 2>/dev/null || php -r "
 \$url = parse_url(getenv('DATABASE_URL'));
