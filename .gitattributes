@@ -1,0 +1,4 @@
+# Force LF line endings for PHP files, treat index.php as binary to preserve exact bytes
+* text=auto
+public/index.php binary
+src/Controller/HomeController.php text eol=lf
