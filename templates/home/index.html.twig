@@ -473,7 +473,7 @@
 </div>
 
 <script>
-    marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
+    try { marked.setOptions({ breaks: true, gfm: true }); } catch(e) {}
 
     const USER_NAME = '{{ userName }}';
     const USER_ROLE = '{{ userRole }}';
