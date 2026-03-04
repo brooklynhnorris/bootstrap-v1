@@ -246,23 +246,22 @@ class HomeController extends AbstractController
         $tasksCreated = [];
         if (preg_match('/<!-- TASKS_JSON -->\s*(.*?)\s*<!-- \/TASKS_JSON -->/s', $text, $matches)) {
             $aiTasks = json_decode(trim($matches[1]), true);
-            // Hard cap: never exceed 30 active tasks total
-            $activeCount = $this->db->fetchOne("SELECT COUNT(*) FROM tasks WHERE status != 'done'");
+            $activeCount = (int)$this->db->fetchOne("SELECT COUNT(*) FROM tasks WHERE status != 'done'");
             if (is_array($aiTasks) && $activeCount < 30) {
                 foreach ($aiTasks as $aiTask) {
                     $title = $aiTask['title'] ?? '';
                     if (!$title) continue;
-                    // Dedup: skip if same title exists, OR if same URL+rule combo exists
                     $existing = $this->db->fetchAssociative(
                         "SELECT id FROM tasks WHERE title = ? AND status != 'done' LIMIT 1", [$title]
                     );
                     if ($existing) continue;
-                    // Also skip near-duplicates by checking if title contains same URL and rule
-                    $urlMatch = preg_match('|(/[^/]+/)|u', $title, $urlParts) ? $urlParts[1] : null;
-                    if ($urlMatch) {
+                    // Also skip if same URL appears in an active task with same rule prefix
+                    if (preg_match('|(/[^/ ]+/)|u', $title, $urlParts)) {
+                        $urlFrag = $urlParts[1];
+                        $rulePrefix = substr($title, 0, 10);
                         $nearDup = $this->db->fetchAssociative(
                             "SELECT id FROM tasks WHERE title LIKE ? AND title LIKE ? AND status != 'done' LIMIT 1",
-                            ['%' . $urlMatch . '%', '%' . substr($title, 0, 15) . '%']
+                            ['%' . $urlFrag . '%', $rulePrefix . '%']
                         );
                         if ($nearDup) continue;
                     }
@@ -631,7 +630,6 @@ class HomeController extends AbstractController
     private function generateTitle(string $firstMessage): string
     {
         if (!$firstMessage) return 'New conversation';
-        // Detect briefing requests and use a consistent dated title
         $lower = strtolower($firstMessage);
         if (str_contains($lower, 'briefing') || str_contains($lower, 'seo brief') || str_contains($lower, 'what should i start')) {
             return 'Daily Briefing — ' . date('M j');
@@ -809,20 +807,160 @@ class HomeController extends AbstractController
         $intro .= "\n- Correct: `php bin/console app:crawl-pages`";
         $intro .= "\n- Wrong: `php artisan app:crawl-pages`";
         $intro .= "\n\nH1 NOTE: Some Core pages (e.g. /bumper-pull-horse-trailers/, /gooseneck-horse-trailers/) have no H1 tag. This is a confirmed on-page issue, not a crawl data error. Flag these as FC-R7 violations and assign fixes to Brook.";
-        $intro .= "\n\nTASK GENERATION RULES — READ CAREFULLY:";
-        $intro .= "\n- ONE TASK = ONE URL. Never batch multiple URLs into one task. If 10 pages need H1 fixes, create 10 separate tasks.";
-        $intro .= "\n- Task title format: \"Fix [issue] on [url]\" — e.g. \"Add H1 tag to /bumper-pull-horse-trailers/\"";
-        $intro .= "\n- Task description: be direct and surgical. Tell the person exactly: (1) what to change, (2) what value to use. No fluff.";
-        $intro .= "\n  Example good description: \"H1 is missing. Add: <h1>Bumper Pull Horse Trailers</h1> in the page hero section.\"";
-        $intro .= "\n  Example bad description: \"This page has an H1/title mismatch that needs to be resolved to improve SEO signals.\"";
-        $intro .= "\n- DEDUPLICATION: Before generating a task, check ACTIVE TASKS below. If a task for that exact URL already exists with the same rule, skip it. Do not recreate it.";
-        $intro .= "\n- Only generate tasks for FC rules FC-R1 through FC-R10.";
-        $intro .= "\n- Each task must have: title, assigned_to, priority (critical/high/medium/low), estimated_hours (max 0.5h per URL fix), recheck_type, recheck_days, recheck_criteria, description.";
-        $intro .= "\n- TASK ASSIGNMENT: On-page fixes → Brook. Rule review tasks → Jeanne.";
-        $intro .= "\n- RECHECK DAYS: H1/H2 fixes = 7 days. Internal links = 7 days. Schema = 14 days. Default = 14 days.";
-        $intro .= "\n- RECHECK CRITERIA: Plain English. Example: 'H1 tag present and matches title on /url/'";
+        $intro .= "\n\nTASK GENERATION RULES:";
+        $intro .= "\n- Generate tasks ONLY for the FC rules listed below (FC-R1 through FC-R10). Do NOT generate tasks for cannibalization, keyword research, or other topics not covered by the FC rules.";
+        $intro .= "\n- Each task: title, assigned_to, priority (critical/high/medium/low), estimated_hours, recheck_type, recheck_days, recheck_criteria, description.";
+        $intro .= "\n- TASK ASSIGNMENT: On-page fix tasks (H1, H2, schema, internal links) → assigned_to: Brook. Rule review/classification tasks → assigned_to: Jeanne.";
+        $intro .= "\n- RECHECK DAYS: Every task must have recheck_days set. H1/H2 fixes = 7 days. Internal link fixes = 7 days. Schema = 14 days. Default = 14 days.";
+        $intro .= "\n- RECHECK CRITERIA: Every task must have recheck_criteria — a plain-English description of what the next crawl must confirm to pass. Example: 'h1_matches_title = TRUE for /url/' or 'has_core_link = TRUE for /url/'";
+        $intro .= "\n- JEANNE RULE REVIEW TASKS: After every briefing, generate one task per FC rule that had violations, assigned to Jeanne, asking her to review and confirm the flagged pages are correctly classified. Priority = high. These are the classification accuracy tasks.";
+        $intro .= "\n- Do NOT duplicate tasks already in ACTIVE TASKS.";
+        $intro .= "\n- ONE TASK = ONE URL. Never batch multiple URLs into one task.";
+        $intro .= "\n- Task title format: Action + URL. Example: \"Add H1 tag to /bumper-pull-horse-trailers/\"";
+        $intro .= "\n- Task description: be surgical. State exactly what to change and what value to use. No fluff.";
+        $intro .= "\n  Good: \"H1 is missing. Add: <h1>Bumper Pull Horse Trailers</h1> in the hero section.\"";
+        $intro .= "\n  Bad: \"This page needs an H1 to fix the SEO signal mismatch.\"";
         $intro .= "\n- At the END of every response include:";
         $intro .= "\n<!-- TASKS_JSON -->";
-        $intro .= "\n[{\"title\":\"Add H1 tag to /example/\",\"assigned_to\":\"Brook\",\"priority\":\"critical\",\"estimated_hours\":0.25,\"recheck_type\":\"h1_fix\",\"recheck_days\":7,\"recheck_criteria\":\"H1 tag present and matches title on /example/\",\"description\":\"H1 is missing. Add: <h1>Example Page Title</h1> in the hero section.\"}]";
+        $intro .= "\n[{\"title\":\"Example\",\"assigned_to\":\"Brook\",\"priority\":\"high\",\"estimated_hours\":2,\"recheck_type\":\"h1_fix\",\"recheck_days\":7,\"recheck_criteria\":\"h1_matches_title = TRUE for /example/\",\"description\":\"Example\"}]";
         $intro .= "\n<!-- /TASKS_JSON -->";
-        $intro .= "\n- CRITICAL: Include <!-- TASKS_JSON --> in EVERY response. Use [] if no tasks needed.";
+        $intro .= "\n\nCRITICAL: Include <!-- TASKS_JSON --> in EVERY response. Use [] if no tasks needed.";
+        $intro .= "\n\nFOUNDATIONAL CONTENT RULES — RUN AUTOMATICALLY ON EVERY BRIEFING:";
+        $intro .= "\nYou MUST evaluate ALL of the following rules on every briefing if crawl data is available. Do not wait for the user to ask. For each rule that has violations, output the findings AND a review card so the user can verify your classification logic.";
+        $intro .= "\n\nFC-R1: Every indexed page must contain the central entity 'horse trailer' in the body text. Flag pages where has_central_entity = FALSE.";
+        $intro .= "\nFC-R2: Every page must be classified as Core or Outer. Flag unclassified pages.";
+        $intro .= "\nFC-R3: Core pages must have at least 500 words. Flag Core pages where word_count < 500.";
+        $intro .= "\nFC-R5: Every Outer page must link to at least one Core page. Flag Outer pages where has_core_link = FALSE.";
+        $intro .= "\nFC-R6: Core pages must have at least 800 words. Flag Core pages where word_count < 800.";
+        $intro .= "\nFC-R7: Every indexed page must have an H1 tag that matches or closely reflects the title tag. Flag pages where h1_matches_title = FALSE or h1 is empty.";
+        $intro .= "\nFC-R8: Core pages must have at least one H2 tag. Flag Core pages where h2s is empty.";
+        $intro .= "\nFC-R9: Core pages must have schema markup. Flag Core pages where schema_types is empty.";
+        $intro .= "\nFC-R10: High-traffic Outer pages (100+ GSC impressions) must link to a Core page. Cross-reference GSC impressions with has_core_link = FALSE.";
+        $intro .= "\n\nREVIEW CARD FORMAT:";
+        $intro .= "\nAfter presenting findings for each rule, ALWAYS append a review card. The review card must contain the ACTUAL PAGES YOU FLAGGED so the user can confirm or correct each one — NOT a description of your methodology.";
+        $intro .= "\nUse this exact format:";
+        $intro .= "\n<!-- REVIEW_CARD rule_id=\"FC-RX\" -->";
+        $intro .= "\nI flagged these pages as violations:";
+        $intro .= "\n- /example-url/ | Core | Issue: no H1 tag";
+        $intro .= "\n- /another-url/ | Outer | Issue: missing core link";
+        $intro .= "\nAre these correct? Use the form below to approve, correct any misclassifications, or flag pages I missed.";
+        $intro .= "\n<!-- /REVIEW_CARD -->";
+        $intro .= "\nKEY RULE: The review card is for the USER to verify YOUR specific findings. Show them the actual URLs and issues you found. Do not explain your logic — show your work. Keep it plain language, no technical jargon like 'has_core_link = FALSE'. Say 'missing link to a product page' instead.";
+        $intro .= "\n\nTEAM ROSTER:";
+        $intro .= "\n- Brook | SEO + Content | 40h/week | Handles all on-page fixes, content tasks, FC rule violations";
+        $intro .= "\n- Jeanne | Content Director | 40h/week | Reviews and approves FC rule classifications — Rule Review tasks go to Jeanne";
+        $intro .= "\n- Kalib | Sales | 40h/week";
+        $intro .= "\n- Brad | Marketing | 40h/week";
+        $intro .= "\n\nToday: " . $date;
+        $intro .= "\nCurrent user: " . $userName . " | Role: " . $userRole;
+        $intro .= "\n\nSEMrush: Keywords=" . ($semrush['organic_keywords'] ?? 'N/A') . " | Traffic=" . ($semrush['organic_traffic'] ?? 'N/A') . " | Updated=" . ($semrush['fetched_at'] ?? 'N/A');
+        $intro .= "\n\nTop GSC Queries (28d):\n" . $querySummary;
+        $intro .= "\nTop GA4 Pages (28d):\n" . $pageSummary;
+
+        if (!empty($topQueries90d)) {
+            $intro .= "\n\n90-DAY GSC TRENDS:\n";
+            foreach (array_slice($topQueries90d, 0, 5) as $row) {
+                $intro .= '- "' . $row['query'] . '" | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | Position: ' . round($row['position'], 1) . "\n";
+            }
+        }
+        if (!empty($pageAggregates)) {
+            $intro .= "\n\nGSC PAGE AGGREGATES:\n";
+            foreach (array_slice($pageAggregates, 0, 5) as $row) {
+                $intro .= '- ' . $row['page'] . ' | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | CTR: ' . round($row['ctr'] * 100, 1) . '% | Position: ' . round($row['position'], 1) . "\n";
+            }
+        }
+        if (!empty($brandedQueries)) {
+            $intro .= "\n\nBRANDED QUERIES:\n";
+            foreach (array_slice($brandedQueries, 0, 5) as $row) {
+                $intro .= '- "' . $row['query'] . '" | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . "\n";
+            }
+        }
+
+        if (!empty($previousPages)) {
+            $intro .= "\n\nGA4 PERIOD COMPARISON (28d vs previous):\n";
+            $prevLookup = [];
+            foreach ($previousPages as $p) { $prevLookup[$p['page_path']] = $p; }
+            foreach (array_slice($topPages, 0, 10) as $current) {
+                $prev         = $prevLookup[$current['page_path']] ?? null;
+                $sessionDelta = $prev ? ($current['sessions'] - $prev['sessions']) : 'N/A';
+                $convDelta    = $prev ? ($current['conversions'] - ($prev['conversions'] ?? 0)) : 'N/A';
+                $intro .= '- ' . $current['page_path'] . ' | Sessions: ' . $current['sessions'] . ' (Δ' . $sessionDelta . ') | Conversions: ' . $current['conversions'] . ' (Δ' . $convDelta . ")\n";
+            }
+        }
+        if (!empty($landingPages)) {
+            $intro .= "\n\nTOP LANDING PAGES:\n";
+            foreach (array_slice($landingPages, 0, 8) as $row) {
+                $intro .= '- ' . $row['page_path'] . ' | Sessions: ' . $row['sessions'] . ' | Bounce: ' . round($row['bounce_rate'] * 100, 1) . '% | Engagement: ' . round($row['avg_engagement_time'], 0) . 's | Conversions: ' . $row['conversions'] . "\n";
+            }
+        }
+        if (!empty($adsCampaigns)) {
+            $intro .= "\n\nGOOGLE ADS CAMPAIGNS (30d):\n";
+            foreach ($adsCampaigns as $row) {
+                $intro .= '- ' . $row['campaign_name'] . ' | Spend: $' . number_format($row['cost_micros'] / 1000000, 2) . ' | Clicks: ' . $row['clicks'] . ' | CPC: $' . number_format($row['average_cpc'] / 1000000, 2) . ' | Conv: ' . $row['conversions'] . "\n";
+            }
+        }
+        if (!empty($adsKeywords)) {
+            $intro .= "\n\nTOP ADS KEYWORDS (30d):\n";
+            foreach (array_slice($adsKeywords, 0, 8) as $row) {
+                $intro .= '- "' . $row['keyword'] . '" [' . $row['match_type'] . '] | Spend: $' . number_format($row['cost_micros'] / 1000000, 2) . ' | CPC: $' . number_format($row['average_cpc'] / 1000000, 2) . ' | Conv: ' . $row['conversions'] . "\n";
+            }
+        }
+        if (!empty($adsSearchTerms)) {
+            $intro .= "\n\nTOP SEARCH TERMS TRIGGERING ADS:\n";
+            foreach (array_slice($adsSearchTerms, 0, 8) as $row) {
+                $intro .= '- "' . $row['search_term'] . '" | Clicks: ' . $row['clicks'] . ' | Spend: $' . number_format($row['cost_micros'] / 1000000, 2) . "\n";
+            }
+        }
+        if (!empty($adsDailySpend)) {
+            $totalSpend = array_sum(array_column($adsDailySpend, 'cost_micros')) / 1000000;
+            $intro .= "\n\nGOOGLE ADS TOTAL SPEND (last 14d): $" . number_format($totalSpend, 2) . "\n";
+        }
+
+        $intro .= $taskContext;
+        $intro .= $recheckContext;
+        $intro .= $reviewContext;
+
+        // ── Crawl data summary ──
+        if (!empty($crawlData)) {
+            $crawledAt = $crawlData[0]['crawled_at'] ?? 'unknown';
+            $intro .= "\n\nPAGE SIGNALS (last crawl: {$crawledAt}) — violations only:\n";
+            foreach ($crawlData as $row) {
+                $flags = [];
+                if (!$row['has_central_entity'])                                       $flags[] = 'FC-R1:no-entity';
+                if (!$row['has_core_link'] && strtolower($row['page_type']) === 'outer') $flags[] = 'FC-R5:no-core-link';
+                if ($row['h1_matches_title'] === false || $row['h1_matches_title'] === '0' || $row['h1_matches_title'] === 0) $flags[] = 'FC-R7:h1-mismatch';
+                if (strtolower($row['page_type']) === 'core') {
+                    if (($row['word_count'] ?? 0) < 500)                               $flags[] = 'FC-R3:thin';
+                    if (($row['word_count'] ?? 0) < 800)                               $flags[] = 'FC-R6:thin';
+                    if (empty($row['h2s']) || $row['h2s'] === '[]')                    $flags[] = 'FC-R8:no-h2';
+                    if (empty($row['schema_types']) || $row['schema_types'] === '[]')  $flags[] = 'FC-R9:no-schema';
+                }
+                if (empty($flags)) continue;
+                $h1short = substr($row['h1'] ?? '(none)', 0, 50);
+                $intro .= "- {$row['url']} [{$row['page_type']}] " . implode(', ', $flags) . " | H1: \"{$h1short}\"\n";
+            }
+
+                        // Rule violation summaries for quick Logiri parsing
+            $noEntity   = array_filter($crawlData, fn($r) => !$r['has_central_entity'] && !$r['is_noindex']);
+            $noCoreLink = array_filter($crawlData, fn($r) => $r['page_type'] === 'outer' && !$r['has_core_link'] && !$r['is_noindex']);
+            $thinCore   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && $r['word_count'] < 500 && !$r['is_noindex']);
+            $noH2Core   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && ($r['h2s'] === '[]' || !$r['h2s']) && !$r['is_noindex']);
+            $h1Mismatch = array_filter($crawlData, fn($r) => !$r['h1_matches_title'] && !$r['is_noindex']);
+            $noSchema   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && ($r['schema_types'] === '[]' || !$r['schema_types']) && !$r['is_noindex']);
+
+            $intro .= "\nCRAWL RULE VIOLATION SUMMARY:\n";
+            $intro .= "FC-R1 (no central entity): " . count($noEntity) . " pages — " . implode(', ', array_column(array_slice($noEntity, 0, 5), 'url')) . "\n";
+            $intro .= "FC-R5 (outer missing core link): " . count($noCoreLink) . " pages — " . implode(', ', array_column(array_slice($noCoreLink, 0, 5), 'url')) . "\n";
+            $intro .= "FC-R3/R6 (thin core <500w): " . count($thinCore) . " pages — " . implode(', ', array_column(array_slice($thinCore, 0, 5), 'url')) . "\n";
+            $intro .= "FC-R8 (core missing H2s): " . count($noH2Core) . " pages — " . implode(', ', array_column(array_slice($noH2Core, 0, 5), 'url')) . "\n";
+            $intro .= "FC-R7 (H1/title mismatch): " . count($h1Mismatch) . " pages — " . implode(', ', array_column(array_slice($h1Mismatch, 0, 5), 'url')) . "\n";
+            $intro .= "FC-R9 (core missing schema): " . count($noSchema) . " pages — " . implode(', ', array_column(array_slice($noSchema, 0, 5), 'url')) . "\n";
+        } else {
+            $intro .= "\n\nPAGE CRAWL DATA: No crawl data available. Run php bin/console app:crawl-pages to populate.\n";
+        }
+
+        $intro .= "\n\n" . $staticRules;
+
+        return $intro;
+    }
+}
