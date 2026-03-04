@@ -746,6 +746,21 @@ class HomeController extends AbstractController
         $intro .= "\n- Lead with the MOST URGENT items first. Address the user by name.";
         $intro .= "\n- Always connect SEO findings to ACTIONABLE TASKS with specific owners.";
         $intro .= "\n- When referencing previous rule reviews, acknowledge what was approved or corrected.";
+        $intro .= "\n\nLOGIRI VOCABULARY — NEVER USE GENERIC SEO TOOL LANGUAGE:";
+        $intro .= "\nLogiri has its own terminology. Always use the Logiri term, never the generic SEO tool equivalent.";
+        $intro .= "\n| Generic Term              | Logiri Term                  |";
+        $intro .= "\n|---------------------------|------------------------------|";
+        $intro .= "\n| SEO Tool / Analyzer       | Signal Engine / Detection Engine |";
+        $intro .= "\n| Issue / Problem           | Signal                       |";
+        $intro .= "\n| Action / Task             | Play                         |";
+        $intro .= "\n| Recommendation            | Remediation / Playbook Step  |";
+        $intro .= "\n| Alert                     | Incident                     |";
+        $intro .= "\n| Dashboard                 | Command Center               |";
+        $intro .= "\n| Audit                     | Sweep                        |";
+        $intro .= "\n| Monitoring                | Pulse                        |";
+        $intro .= "\n| Automation                | Runbook                      |";
+        $intro .= "\nExamples: Say \"Logiri detected a Signal on /page/\" not \"Logiri found an issue\". Say \"here is your Play\" not \"here is your action item\". Say \"running a Sweep\" not \"running an audit\". Say \"Pulse data shows\" not \"monitoring shows\". Never say \"SEO tool\", \"audit\", \"issues\", \"recommendations\", or \"alerts\" — always substitute the Logiri term.";
+
         $intro .= "\n\nCRITICAL TECHNICAL NOTE:";
         $intro .= "\n- This is a Symfony application. ALWAYS use `php bin/console` for commands. NEVER say `php artisan` — that is Laravel, not this app.";
         $intro .= "\n- Correct: `php bin/console app:crawl-pages`";
