@@ -268,7 +268,8 @@ class HomeController extends AbstractController
                         'recheck_criteria' => $aiTask['recheck_criteria'] ?? null,
                         'created_at'       => date('Y-m-d H:i:s'),
                     ]);
-                    $tasksCreated[] = $title;
+                    $newTask = $this->db->fetchAssociative('SELECT id, title, priority, assigned_to, estimated_hours, recheck_type FROM tasks WHERE title = ? AND status != ? LIMIT 1', [$title, 'done']);
+                    $tasksCreated[] = $newTask ?: ['title' => $title];
                 }
             }
             $text = preg_replace('/<!-- TASKS_JSON -->.*?<!-- \/TASKS_JSON -->/s', '', $text);
@@ -501,6 +502,14 @@ class HomeController extends AbstractController
         $id   = $this->db->lastInsertId();
         $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
         return new JsonResponse($task, 201);
+    }
+
+    #[Route('/api/tasks/{id}', name: 'api_task_single', methods: ['GET'])]
+    public function getTask(int $id): JsonResponse
+    {
+        $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
+        if (!$task) return new JsonResponse(['error' => 'Not found'], 404);
+        return new JsonResponse($task);
     }
 
     #[Route('/api/tasks/{id}/complete', name: 'api_tasks_complete', methods: ['POST'])]

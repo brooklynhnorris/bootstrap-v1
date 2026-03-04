@@ -111,6 +111,16 @@
         .bubble td { padding: 7px 11px; border: 1px solid var(--border-subtle); color: var(--text-secondary); }
         .bubble tr:hover td { background: var(--bg-secondary); }
         .chat-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 13px; padding-top: 13px; border-top: 1px solid var(--border-subtle); }
+        .chat-task-card { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-left: 3px solid #eab308; border-radius: 6px; padding: 10px 14px 12px; margin: 4px 0 10px; }
+        .chat-task-card.priority-critical { border-left-color: #ef4444; }
+        .chat-task-card.priority-high { border-left-color: #f59e0b; }
+        .chat-task-card.priority-medium { border-left-color: #3b82f6; }
+        .chat-task-card .ctc-meta { font-size: 10px; color: var(--text-muted); margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+        .chat-task-card .ctc-title { font-size: 13px; font-weight: 600; color: var(--text-primary); line-height: 1.4; margin-bottom: 8px; }
+        .chat-start-task-btn { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; background: #16a34a; border: none; color: #fff; border-radius: 6px; font-size: 11px; font-family: 'DM Sans', sans-serif; font-weight: 700; cursor: pointer; transition: all 0.15s; box-shadow: 0 1px 4px rgba(22,163,74,0.3); letter-spacing: 0.01em; }
+        .chat-start-task-btn:hover { background: #15803d; box-shadow: 0 2px 8px rgba(22,163,74,0.4); transform: translateY(-1px); }
+        .chat-start-task-btn.started { background: #6b7280; cursor: default; box-shadow: none; transform: none; }
+        .chat-task-inline-block { margin: 12px 0 4px; }
         .chat-btn { background: var(--bg-secondary); border: 1px solid var(--border-medium); color: var(--text-secondary); padding: 5px 11px; border-radius: var(--radius-sm); font-size: 11px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s; }
         .chat-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-accent); }
         .typing-indicator { display: none; align-self: flex-start; padding: 6px 16px 10px; max-width: 480px; }
@@ -881,41 +891,72 @@
         showNotification('Recheck updated: ' + data.recheck_date, 'green');
     }
 
-    function appendTaskCards(taskTitles) {
-        if (!taskTitles || taskTitles.length === 0) return;
-        // Find the tasks from cache that match these titles
-        const cache  = window._taskCache || {};
-        const matched = Object.values(cache).filter(t => taskTitles.includes(t.title) && t.status !== 'done');
-        if (matched.length === 0) {
-            // No cache yet — just show a plain summary card
-            const div = document.createElement('div');
-            div.className = 'message assistant';
-            div.innerHTML = '<div class="bubble" style="padding:10px 14px;">' +
-                '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">&#10003; ' + taskTitles.length + ' task' + (taskTitles.length > 1 ? 's' : '') + ' added to your queue</div>' +
-                taskTitles.map(t => '<div class="chat-task-card"><div class="ctc-title">' + escapeHtml(t) + '</div></div>').join('') +
-                '</div>';
-            messagesEl.appendChild(div);
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-            return;
+    function appendTaskCards(tasksData) {
+        if (!tasksData || tasksData.length === 0) return;
+
+        // Build a map of title → task object (controller now returns full objects)
+        const taskMap = {};
+        tasksData.forEach(t => {
+            if (t && t.title) taskMap[t.title.trim().toLowerCase()] = t;
+        });
+
+        // Find the last assistant bubble and inject task buttons inline after matching sections
+        const bubbles = messagesEl.querySelectorAll('.message.assistant .bubble');
+        const lastBubble = bubbles[bubbles.length - 1];
+        if (!lastBubble) return;
+
+        // Walk through headings (h2, h3, strong blocks) and inject a task card after relevant ones
+        let injected = 0;
+        const headings = lastBubble.querySelectorAll('h1, h2, h3, h4, strong');
+        headings.forEach(heading => {
+            const headingText = heading.textContent.trim().toLowerCase();
+            // Find any task whose title shares keywords with this heading
+            Object.entries(taskMap).forEach(([titleKey, task]) => {
+                if (!task.id) return;
+                const taskWords = titleKey.split(/\s+/).filter(w => w.length > 4);
+                const matches   = taskWords.filter(w => headingText.includes(w));
+                if (matches.length >= 2) {
+                    // Check not already injected for this task
+                    if (lastBubble.querySelector('[data-task-id="' + task.id + '"]')) return;
+                    const card = buildInlineTaskCard(task);
+                    // Insert after the parent paragraph/li of this heading
+                    const parent = heading.closest('li, p') || heading;
+                    parent.insertAdjacentElement('afterend', card);
+                    injected++;
+                }
+            });
+        });
+
+        // For any tasks that weren't matched to a heading, append at the bottom
+        const unmatched = tasksData.filter(t => {
+            if (!t || !t.id) return false;
+            return !lastBubble.querySelector('[data-task-id="' + t.id + '"]');
+        });
+        if (unmatched.length > 0) {
+            const block = document.createElement('div');
+            block.className = 'chat-task-inline-block';
+            block.innerHTML = '<div style="font-size:11px;color:var(--text-muted);margin-bottom:6px;font-weight:600;padding-top:10px;border-top:1px solid var(--border-subtle);">Tasks added to your queue:</div>';
+            unmatched.forEach(t => block.appendChild(buildInlineTaskCard(t)));
+            lastBubble.appendChild(block);
         }
-        const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
-        matched.sort((a, b) => (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9));
 
-        const div = document.createElement('div');
-        div.className = 'message assistant';
-        const cards = matched.map(t =>
-            '<div class="chat-task-card priority-' + t.priority + '">' +
-            '<div class="ctc-meta"><span class="task-priority ' + t.priority + '">' + t.priority + '</span> &nbsp;' + (t.estimated_hours || '?') + 'h &nbsp;&bull;&nbsp; ' + (t.assigned_to || 'Unassigned') + '</div>' +
-            '<div class="ctc-title">' + escapeHtml(t.title) + '</div>' +
-            '<button class="chat-start-task-btn" onclick="startTaskFromChat(' + t.id + ')">&#9654; Start Task Now</button>' +
-            '</div>'
-        ).join('');
-
-        div.innerHTML = '<div class="bubble" style="padding:10px 14px;">' +
-            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">&#10003; ' + matched.length + ' task' + (matched.length > 1 ? 's' : '') + ' added to your queue</div>' +
-            cards + '</div>';
-        messagesEl.appendChild(div);
         messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function buildInlineTaskCard(task) {
+        const card = document.createElement('div');
+        card.className = 'chat-task-card priority-' + (task.priority || 'medium');
+        card.setAttribute('data-task-id', task.id || '');
+        const meta = '<div class="ctc-meta">' +
+            '<span class="task-priority ' + (task.priority || 'medium') + '">' + (task.priority || 'medium') + '</span>' +
+            (task.estimated_hours ? '<span>' + task.estimated_hours + 'h</span>' : '') +
+            (task.assigned_to ? '<span>• ' + escapeHtml(task.assigned_to) + '</span>' : '') +
+            '</div>';
+        const title = '<div class="ctc-title">' + escapeHtml(task.title || '') + '</div>';
+        const btnId = 'stbtn-' + (task.id || Math.random());
+        const btn   = '<button id="' + btnId + '" class="chat-start-task-btn" onclick="startTaskFromChat(' + task.id + ', '' + btnId + '')">▶️ Start Task Now</button>';
+        card.innerHTML = meta + title + btn;
+        return card;
     }
 
     function toggleTasksPanel() {
@@ -926,7 +967,13 @@
         if (isOpen) refreshTasksPanel();
     }
 
-    async function startTaskFromChat(taskId) {
+    async function startTaskFromChat(taskId, btnId) {
+        // Disable the button immediately
+        if (btnId) {
+            const btn = document.getElementById(btnId);
+            if (btn) { btn.disabled = true; btn.classList.add('started'); btn.textContent = '✓ Starting…'; }
+        }
+
         // Mark task as in_progress
         await fetch('/api/tasks/' + taskId + '/status', {
             method: 'POST',
@@ -934,16 +981,30 @@
             body: JSON.stringify({ status: 'in_progress' })
         });
 
-        // Open tasks panel and highlight task
+        // Fetch task details for the briefing prompt
+        const taskRes  = await fetch('/api/tasks/' + taskId);
+        const taskData = await taskRes.json();
+
+        // Open tasks panel so it reflects in_progress
         const panel = document.getElementById('right-panel');
         if (!panel.classList.contains('open')) toggleTasksPanel();
-        else refreshTasksPanel();
-
-        // After refresh, open the task detail
         await refreshTasksPanel();
-        setTimeout(() => openTaskDetail(taskId), 300);
 
-        showNotification('Task started — now in progress', 'green');
+        // Start a fresh chat for this task
+        newChat();
+        showNotification('Task started — opening task chat…', 'green');
+
+        // Small delay so newChat() clears the screen, then auto-send a detailed briefing prompt
+        setTimeout(() => {
+            const taskTitle = taskData.title || 'Task #' + taskId;
+            const priority  = taskData.priority || 'high';
+            const hours     = taskData.estimated_hours || '?';
+            const desc      = taskData.description || '';
+            const prompt    = 'I am starting this task now: "' + taskTitle + '" (Priority: ' + priority + ', Est: ' + hours + 'h).' +
+                (desc ? ' Context: ' + desc : '') +
+                ' Walk me through exactly how to execute this step by step. Be specific — give me the exact changes to make, the files or pages to edit, and what to check when I'm done.';
+            sendMessage(prompt);
+        }, 400);
     }
 
     async function openTaskDetail(id) {
@@ -1086,7 +1147,7 @@
                         '</div></div></div>';
                 }).join('');
             }
-                } catch (e) { console.error('Refresh failed:', e); }
+        } catch (e) { console.error('Refresh failed:', e); }
     }
 
     // Briefing
