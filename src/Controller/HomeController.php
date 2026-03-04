@@ -631,6 +631,11 @@ class HomeController extends AbstractController
     private function generateTitle(string $firstMessage): string
     {
         if (!$firstMessage) return 'New conversation';
+        // Detect briefing requests and use a consistent dated title
+        $lower = strtolower($firstMessage);
+        if (str_contains($lower, 'briefing') || str_contains($lower, 'seo brief') || str_contains($lower, 'what should i start')) {
+            return 'Daily Briefing — ' . date('M j');
+        }
         $clean = preg_replace('/\s+/', ' ', trim($firstMessage));
         return strlen($clean) > 60 ? substr($clean, 0, 57) . '...' : $clean;
     }
@@ -820,4 +825,4 @@ class HomeController extends AbstractController
         $intro .= "\n<!-- TASKS_JSON -->";
         $intro .= "\n[{\"title\":\"Add H1 tag to /example/\",\"assigned_to\":\"Brook\",\"priority\":\"critical\",\"estimated_hours\":0.25,\"recheck_type\":\"h1_fix\",\"recheck_days\":7,\"recheck_criteria\":\"H1 tag present and matches title on /example/\",\"description\":\"H1 is missing. Add: <h1>Example Page Title</h1> in the hero section.\"}]";
         $intro .= "\n<!-- /TASKS_JSON -->";
-        $intro .= "\n- CRITICAL: Include <!-- TASKS_JSON --> in EVERY response.
+        $intro .= "\n- CRITICAL: Include <!-- TASKS_JSON --> in EVERY response. Use [] if no tasks needed.";
