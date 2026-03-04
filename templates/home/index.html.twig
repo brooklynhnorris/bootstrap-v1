@@ -999,6 +999,40 @@
         return card;
     }
 
+    function makeCollapsible(bubble) {
+        try {
+            const headings = Array.from(bubble.querySelectorAll('h2, h3'));
+            headings.forEach(heading => {
+                const siblings = [];
+                let next = heading.nextElementSibling;
+                while (next && !['H2','H3'].includes(next.tagName)) {
+                    siblings.push(next);
+                    next = next.nextElementSibling;
+                }
+                if (siblings.length === 0) return;
+                const wrapper = document.createElement('div');
+                wrapper.className = 'collapsible-section collapsed';
+                const toggle = document.createElement('button');
+                toggle.className = 'collapsible-toggle';
+                const firstText = siblings[0] ? siblings[0].textContent.trim().slice(0, 90) : '';
+                toggle.innerHTML =
+                    '<span class="collapsible-heading">' + heading.innerHTML + '</span>' +
+                    '<span class="collapsible-preview">' + escapeHtml(firstText) + (firstText.length >= 90 ? '…' : '') + '</span>' +
+                    '<span class="collapsible-arrow">▼</span>';
+                const body = document.createElement('div');
+                body.className = 'collapsible-body';
+                siblings.forEach(s => body.appendChild(s));
+                toggle.onclick = () => {
+                    const isNowCollapsed = wrapper.classList.toggle('collapsed');
+                    toggle.querySelector('.collapsible-arrow').textContent = isNowCollapsed ? '▼' : '▲';
+                };
+                wrapper.appendChild(toggle);
+                wrapper.appendChild(body);
+                heading.replaceWith(wrapper);
+            });
+        } catch(e) { /* collapsible failed silently, content still shows */ }
+    }
+
     function toggleTasksPanel() {
         const panel = document.getElementById('right-panel');
         const btn   = document.getElementById('tasks-toggle-btn');
