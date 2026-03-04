@@ -71,6 +71,8 @@ if (!in_array('recheck_date', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD 
 if (!in_array('recheck_verified', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_verified BOOLEAN DEFAULT false'); }
 if (!in_array('recheck_result', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_result VARCHAR(20)'); }
 if (!in_array('logged_hours', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN logged_hours FLOAT DEFAULT 0'); }
+if (!in_array('recheck_days', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_days INT DEFAULT NULL'); }
+if (!in_array('recheck_criteria', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_criteria TEXT DEFAULT NULL'); }
 
 echo 'Tables ready.' . PHP_EOL;
 "
@@ -101,6 +103,10 @@ if (in_array('user', \$tables)) {
 echo 'User table updated.' . PHP_EOL;
 "
 
+# Clear and rebuild Symfony cache on every deploy
+rm -rf /var/www/html/var/cache/*
+php /var/www/html/bin/console cache:clear --env=prod --no-warmup 2>/dev/null || true
+php /var/www/html/bin/console cache:warmup --env=prod 2>/dev/null || true
 chmod -R 777 /var/www/html/var/cache
 chmod -R 777 /var/www/html/var/log
 chmod +x /var/www/html/crawl.sh 2>/dev/null || true
