@@ -3,8 +3,17 @@ set -e
 
 echo "Running startup tasks..."
 
-# Strip BOM from index.php
-sed -i '1s/^\xEF\xBB\xBF//' /var/www/html/public/index.php 2>/dev/null || true
+# Strip BOM from index.php using Python (more reliable than sed hex escapes)
+python3 -c "
+import sys
+f = '/var/www/html/public/index.php'
+data = open(f,'rb').read()
+if data[:3] == b'\xef\xbb\xbf':
+    open(f,'wb').write(data[3:])
+    print('BOM stripped from index.php')
+else:
+    print('No BOM found in index.php')
+" 2>/dev/null || true
 find /var/www/html/src -name "*.php" -exec sed -i 's/\r//' {} \;
 
 # Wait for database to be ready
