@@ -76,13 +76,7 @@
         .convo-rename-input:focus { outline: none; }
         .sidebar-section { padding: 12px 14px; border-bottom: 1px solid var(--border-subtle); }
         .sidebar-section-title { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 9px; display: flex; align-items: center; justify-content: space-between; }
-        .recheck-item { display: flex; align-items: center; justify-content: space-between; padding: 7px 9px; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); margin-bottom: 4px; }
-        .recheck-info { font-size: 11px; color: var(--text-secondary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .recheck-date { font-size: 10px; font-family: 'JetBrains Mono', monospace; padding: 2px 5px; border-radius: 3px; flex-shrink: 0; margin-left: 5px; }
-        .recheck-date.overdue { background: var(--accent-red-dim); color: var(--accent-red); }
-        .recheck-date.upcoming { background: var(--accent-yellow-dim); color: var(--accent-yellow); }
-        .recheck-verify-btn { font-size: 9px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--accent-green-border); background: var(--accent-green-dim); color: var(--accent-green); cursor: pointer; font-family: 'DM Sans', sans-serif; margin-left: 4px; transition: all 0.15s; }
-        .recheck-verify-btn:hover { background: var(--accent-green); color: #fff; }
+
 
         /* Main Area */
         #main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
@@ -235,6 +229,20 @@
         .panel-chat-msg.ai { color: var(--text-secondary); background: var(--bg-secondary); padding: 7px 9px; border-radius: 5px; border: 1px solid var(--border-subtle); }
         .panel-chat-msg.user-msg { color: var(--accent-blue); text-align: right; }
 
+        /* Recheck item layout */
+        .recheck-item { padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); margin-bottom: 5px; }
+        .recheck-item-main { display: flex; flex-direction: column; gap: 3px; }
+        .recheck-info { font-size: 11px; color: var(--text-secondary); font-weight: 500; line-height: 1.4; }
+        .recheck-criteria-text { font-size: 10px; color: var(--text-muted); font-style: italic; line-height: 1.4; }
+        .recheck-controls { display: flex; align-items: center; gap: 4px; margin-top: 3px; flex-wrap: wrap; }
+        .recheck-date { font-size: 10px; font-family: 'JetBrains Mono', monospace; padding: 2px 5px; border-radius: 3px; flex-shrink: 0; }
+        .recheck-date.overdue { background: var(--accent-red-dim); color: var(--accent-red); }
+        .recheck-date.upcoming { background: var(--accent-yellow-dim); color: var(--accent-yellow); }
+        .recheck-edit-btn { background: none; border: 1px solid var(--border-medium); border-radius: 3px; font-size: 10px; color: var(--text-muted); cursor: pointer; padding: 1px 5px; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
+        .recheck-edit-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+        .recheck-verify-btn { font-size: 9px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--accent-green-border); background: var(--accent-green-dim); color: var(--accent-green); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; margin-left: auto; }
+        .recheck-verify-btn:hover { background: var(--accent-green); color: #fff; }
+
         /* Modal */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.3); z-index: 100; align-items: center; justify-content: center; }
         .modal-overlay.active { display: flex; }
@@ -311,9 +319,15 @@
                     {% else %}
                         {% for r in rechecks %}
                         <div class="recheck-item">
-                            <span class="recheck-info">{{ r.title }}</span>
-                            <span class="recheck-date upcoming">{{ r.recheck_date }}</span>
-                            <button class="recheck-verify-btn" onclick="verifyRecheck({{ r.id }})">Verify</button>
+                            <div class="recheck-item-main">
+                                <div class="recheck-info">{{ r.title }}</div>
+                                {% if r.recheck_criteria %}<div class="recheck-criteria-text">&#10003; {{ r.recheck_criteria }}</div>{% endif %}
+                                <div class="recheck-controls">
+                                    <span class="recheck-date upcoming" id="rdate-{{ r.id }}">{{ r.recheck_date }}</span>
+                                    <button class="recheck-edit-btn" onclick="editRecheckDate({{ r.id }}, '{{ r.recheck_date }}')">&#x270E;</button>
+                                    <button class="recheck-verify-btn" onclick="verifyRecheck({{ r.id }})">Verify</button>
+                                </div>
+                            </div>
                         </div>
                         {% endfor %}
                     {% endif %}
@@ -328,7 +342,7 @@
     <div class="modal">
         <h3>Add Task</h3>
         <div class="modal-field"><label>Title</label><input type="text" id="new-task-title" placeholder="Task description..."></div>
-        <div class="modal-field"><label>Assigned To</label><select id="new-task-assignee"><option value="Brook">Brook (SEO + Content)</option><option value="Kalib">Kalib (Sales)</option><option value="Brad">Brad (Marketing)</option></select></div>
+        <div class="modal-field"><label>Assigned To</label><select id="new-task-assignee"><option value="Brook">Brook (SEO + Content)</option><option value="Jeanne">Jeanne (Content Director)</option><option value="Kalib">Kalib (Sales)</option><option value="Brad">Brad (Marketing)</option></select></div>
         <div class="modal-field"><label>Priority</label><select id="new-task-priority"><option value="high">High</option><option value="medium" selected>Medium</option><option value="urgent">Urgent</option><option value="low">Low</option></select></div>
         <div class="modal-field"><label>Est. Hours</label><input type="number" id="new-task-hours" value="1" min="0.5" step="0.5"></div>
         <div class="modal-field"><label>Recheck Type</label><select id="new-task-recheck"><option value="">None</option><option value="cannibalization_fix">Cannibalization (14d)</option><option value="intent_mismatch">Intent Mismatch (14d)</option><option value="ranking_drop">Ranking Drop (28d)</option><option value="404_fix">404 Fix (7d)</option><option value="sitemap_fix">Sitemap Fix (7d)</option></select></div>
@@ -363,7 +377,7 @@
     </div>
     <div id="right-panel-body">
         <div class="right-stats">
-            <div class="task-stat"><div class="task-stat-number urgent" id="count-urgent">{{ taskCounts.urgent }}</div><div class="task-stat-label">Urgent</div></div>
+            <div class="task-stat"><div class="task-stat-number urgent" id="count-urgent">{{ taskCounts.urgent }}</div><div class="task-stat-label">High+</div></div>
             <div class="task-stat"><div class="task-stat-number active" id="count-active">{{ taskCounts.active }}</div><div class="task-stat-label">Active</div></div>
             <div class="task-stat"><div class="task-stat-number done" id="count-done">{{ taskCounts.done }}</div><div class="task-stat-label">Done</div></div>
         </div>
@@ -398,6 +412,27 @@
                 </div>
                 {% endfor %}
             {% endif %}
+        </div>
+    </div>
+</div>
+
+<!-- Recheck Confirmation Modal -->
+<div class="modal-overlay" id="recheck-confirm-modal">
+    <div class="modal">
+        <h3>&#10003; Mark Task Complete</h3>
+        <input type="hidden" id="recheck-modal-taskid">
+        <p style="font-size:12px;color:var(--text-secondary);margin-bottom:14px;" id="recheck-modal-title"></p>
+        <div class="modal-field">
+            <label>Recheck in how many days?</label>
+            <input type="number" id="recheck-modal-days" value="14" min="1" max="90" step="1">
+        </div>
+        <div class="modal-field">
+            <label>What must pass on next crawl?</label>
+            <textarea id="recheck-modal-criteria" placeholder="e.g. h1_matches_title = TRUE for /url/ — or leave blank to auto-detect from task description" style="height:70px;resize:vertical;"></textarea>
+        </div>
+        <div class="modal-btns">
+            <button class="modal-btn cancel" onclick="document.getElementById('recheck-confirm-modal').classList.remove('active')">Cancel</button>
+            <button class="modal-btn save" onclick="confirmComplete()">Done &#8594; Set Recheck</button>
         </div>
     </div>
 </div>
@@ -799,6 +834,23 @@
         refreshTasksPanel();
     }
 
+    async function editRecheckDate(id, currentDate) {
+        const days = prompt('Recheck in how many days from today?\n(Current date: ' + currentDate + ')', '14');
+        if (!days || isNaN(days) || parseInt(days) <= 0) return;
+        const criteria = prompt('Pass criteria (what must be true on next crawl?)\nLeave blank to keep existing.', '');
+        const body = { days: parseInt(days) };
+        if (criteria !== null && criteria.trim()) body.criteria = criteria.trim();
+        const res  = await fetch('/api/tasks/' + id + '/recheck-date', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        const dateEl = document.getElementById('rdate-' + id);
+        if (dateEl) dateEl.textContent = data.recheck_date;
+        showNotification('Recheck updated: ' + data.recheck_date, 'green');
+    }
+
     async function openTaskDetail(id) {
         currentTaskId    = id;
         taskChatMessages = [];
@@ -890,11 +942,15 @@
             tasks.forEach(t => {
                 if (t.status === 'done') done++;
                 else if (t.status === 'in_progress') active++;
-                if (t.priority === 'urgent' || t.priority === 'high') urgent++;
+                else if (t.priority === 'urgent' || t.priority === 'high') urgent++;
             });
             document.getElementById('count-urgent').textContent = urgent;
             document.getElementById('count-active').textContent = active;
             document.getElementById('count-done').textContent   = done;
+
+            // Cache task data for recheck modal defaults
+            window._taskCache = {};
+            tasks.forEach(t => { window._taskCache[t.id] = t; });
 
             const taskList    = document.getElementById('right-task-list');
             const activeTasks = tasks.filter(t => t.status !== 'done');
@@ -918,11 +974,18 @@
             const recheckList = document.getElementById('recheck-list');
             recheckList.innerHTML = rechecks.length === 0
                 ? '<div class="task-empty">No rechecks pending</div>'
-                : rechecks.map(r =>
-                    '<div class="recheck-item"><span class="recheck-info">' + escapeHtml(r.title) + '</span>' +
-                    '<span class="recheck-date upcoming">' + r.recheck_date + '</span>' +
-                    '<button class="recheck-verify-btn" onclick="verifyRecheck(' + r.id + ')">Verify</button></div>'
-                ).join('');
+                : rechecks.map(r => {
+                    const overdue = r.recheck_date && r.recheck_date < new Date().toISOString().slice(0,10);
+                    return '<div class="recheck-item">' +
+                        '<div class="recheck-item-main">' +
+                        '<div class="recheck-info">' + escapeHtml(r.title) + '</div>' +
+                        (r.recheck_criteria ? '<div class="recheck-criteria-text">&#10003; ' + escapeHtml(r.recheck_criteria) + '</div>' : '') +
+                        '<div class="recheck-controls">' +
+                        '<span class="recheck-date ' + (overdue ? 'overdue' : 'upcoming') + '" id="rdate-' + r.id + '">' + (r.recheck_date || 'No date') + '</span>' +
+                        '<button class="recheck-edit-btn" onclick="editRecheckDate(' + r.id + ', '' + (r.recheck_date || '') + '')">&#x270E;</button>' +
+                        '<button class="recheck-verify-btn" onclick="verifyRecheck(' + r.id + ')">Verify</button>' +
+                        '</div></div></div>';
+                }).join('');
         } catch (e) { console.error('Refresh failed:', e); }
     }
 

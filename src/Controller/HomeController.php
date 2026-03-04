@@ -25,6 +25,8 @@ class HomeController extends AbstractController
             $this->db->executeStatement('CREATE TABLE IF NOT EXISTS user_overrides (id SERIAL PRIMARY KEY, url TEXT NOT NULL, field VARCHAR(50) NOT NULL, original_value TEXT DEFAULT NULL, override_value TEXT NOT NULL, reason TEXT DEFAULT NULL, overridden_by VARCHAR(100) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(url, field))');
             $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages (conversation_id)');
             $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_overrides_url ON user_overrides (url)');
+            $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_days INT DEFAULT NULL');
+            $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_criteria TEXT DEFAULT NULL');
         } catch (\Exception $e) {
             // Tables already exist or DB not ready — fail silently
         }
@@ -253,16 +255,18 @@ class HomeController extends AbstractController
                     if ($existing) continue;
                     $priority = in_array($aiTask['priority'] ?? '', ['critical','high','medium','low']) ? $aiTask['priority'] : 'medium';
                     $this->db->insert('tasks', [
-                        'title'           => $title,
-                        'description'     => $aiTask['description'] ?? null,
-                        'assigned_to'     => $aiTask['assigned_to'] ?? null,
-                        'assigned_role'   => $aiTask['role'] ?? null,
-                        'status'          => 'pending',
-                        'priority'        => $priority,
-                        'estimated_hours' => floatval($aiTask['estimated_hours'] ?? 1),
-                        'logged_hours'    => 0,
-                        'recheck_type'    => $aiTask['recheck_type'] ?? null,
-                        'created_at'      => date('Y-m-d H:i:s'),
+                        'title'            => $title,
+                        'description'      => $aiTask['description'] ?? null,
+                        'assigned_to'      => $aiTask['assigned_to'] ?? null,
+                        'assigned_role'    => $aiTask['role'] ?? null,
+                        'status'           => 'pending',
+                        'priority'         => $priority,
+                        'estimated_hours'  => floatval($aiTask['estimated_hours'] ?? 1),
+                        'logged_hours'     => 0,
+                        'recheck_type'     => $aiTask['recheck_type'] ?? null,
+                        'recheck_days'     => isset($aiTask['recheck_days']) ? intval($aiTask['recheck_days']) : null,
+                        'recheck_criteria' => $aiTask['recheck_criteria'] ?? null,
+                        'created_at'       => date('Y-m-d H:i:s'),
                     ]);
                     $tasksCreated[] = $title;
                 }
@@ -500,20 +504,58 @@ class HomeController extends AbstractController
     }
 
     #[Route('/api/tasks/{id}/complete', name: 'api_tasks_complete', methods: ['POST'])]
-    public function completeTask(int $id): JsonResponse
+    public function completeTask(int $id, Request $request): JsonResponse
     {
         $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
         if (!$task) return new JsonResponse(['error' => 'Task not found'], 404);
-        $recheckDays = match($task['recheck_type']) {
-            '404_fix', 'sitemap_fix'                     => 7,
-            'cannibalization_fix', 'homepage_cannibalization',
-            'intent_mismatch', 'weak_page', 'zero_click' => 14,
-            'ranking_drop'                               => 28,
-            default                                      => 14,
-        };
-        $recheckDate = date('Y-m-d', strtotime("+{$recheckDays} days"));
-        $this->db->update('tasks', ['status' => 'done', 'completed_at' => date('Y-m-d H:i:s'), 'recheck_date' => $recheckDate], ['id' => $id]);
-        return new JsonResponse(['task' => $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]), 'recheck_date' => $recheckDate, 'recheck_days' => $recheckDays]);
+
+        $body = json_decode($request->getContent(), true) ?: [];
+
+        // Allow caller to override recheck days; otherwise derive from type
+        if (isset($body['recheck_days']) && intval($body['recheck_days']) > 0) {
+            $recheckDays = intval($body['recheck_days']);
+        } else {
+            $recheckDays = match($task['recheck_type']) {
+                '404_fix', 'sitemap_fix'                  => 7,
+                'h1_fix', 'h2_fix', 'schema_fix',
+                'core_link_fix', 'on_page_fix'            => 14,
+                'ranking_drop'                            => 28,
+                default                                   => 14,
+            };
+        }
+
+        $recheckCriteria = $body['recheck_criteria'] ?? $task['recheck_criteria'] ?? null;
+        $recheckDate     = date('Y-m-d', strtotime("+{$recheckDays} days"));
+
+        $this->db->update('tasks', [
+            'status'           => 'done',
+            'completed_at'     => date('Y-m-d H:i:s'),
+            'recheck_date'     => $recheckDate,
+            'recheck_days'     => $recheckDays,
+            'recheck_criteria' => $recheckCriteria,
+        ], ['id' => $id]);
+
+        return new JsonResponse([
+            'task'             => $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]),
+            'recheck_date'     => $recheckDate,
+            'recheck_days'     => $recheckDays,
+            'recheck_criteria' => $recheckCriteria,
+        ]);
+    }
+
+    #[Route('/api/tasks/{id}/recheck-date', name: 'api_tasks_recheck_date', methods: ['POST'])]
+    public function updateRecheckDate(int $id, Request $request): JsonResponse
+    {
+        $body = json_decode($request->getContent(), true) ?: [];
+        $days = intval($body['days'] ?? 0);
+        if ($days <= 0) return new JsonResponse(['error' => 'days must be positive'], 400);
+        $recheckDate = date('Y-m-d', strtotime("+{$days} days"));
+        $this->db->update('tasks', [
+            'recheck_date'     => $recheckDate,
+            'recheck_days'     => $days,
+            'recheck_criteria' => $body['criteria'] ?? null,
+        ], ['id' => $id]);
+        return new JsonResponse(['recheck_date' => $recheckDate, 'recheck_days' => $days]);
     }
 
     #[Route('/api/tasks/{id}/status', name: 'api_tasks_status', methods: ['POST'])]
@@ -701,12 +743,16 @@ class HomeController extends AbstractController
         $intro .= "\n- Wrong: `php artisan app:crawl-pages`";
         $intro .= "\n\nH1 NOTE: Some Core pages (e.g. /bumper-pull-horse-trailers/, /gooseneck-horse-trailers/) have no H1 tag. This is a confirmed on-page issue, not a crawl data error. Flag these as FC-R7 violations and assign fixes to Brook.";
         $intro .= "\n\nTASK GENERATION RULES:";
-        $intro .= "\n- Generate tasks for every SEO issue you identify.";
-        $intro .= "\n- Each task: title, assigned_to, priority (critical/high/medium/low), estimated_hours, recheck_type, description.";
+        $intro .= "\n- Generate tasks ONLY for the FC rules listed below (FC-R1 through FC-R10). Do NOT generate tasks for cannibalization, keyword research, or other topics not covered by the FC rules.";
+        $intro .= "\n- Each task: title, assigned_to, priority (critical/high/medium/low), estimated_hours, recheck_type, recheck_days, recheck_criteria, description.";
+        $intro .= "\n- TASK ASSIGNMENT: On-page fix tasks (H1, H2, schema, internal links) → assigned_to: Brook. Rule review/classification tasks → assigned_to: Jeanne.";
+        $intro .= "\n- RECHECK DAYS: Every task must have recheck_days set. H1/H2 fixes = 7 days. Internal link fixes = 7 days. Schema = 14 days. Default = 14 days.";
+        $intro .= "\n- RECHECK CRITERIA: Every task must have recheck_criteria — a plain-English description of what the next crawl must confirm to pass. Example: 'h1_matches_title = TRUE for /url/' or 'has_core_link = TRUE for /url/'";
+        $intro .= "\n- JEANNE RULE REVIEW TASKS: After every briefing, generate one task per FC rule that had violations, assigned to Jeanne, asking her to review and confirm the flagged pages are correctly classified. Priority = high. These are the classification accuracy tasks.";
         $intro .= "\n- Do NOT duplicate tasks already in ACTIVE TASKS.";
         $intro .= "\n- At the END of every response include:";
         $intro .= "\n<!-- TASKS_JSON -->";
-        $intro .= "\n[{\"title\":\"Example\",\"assigned_to\":\"Brook\",\"priority\":\"high\",\"estimated_hours\":2,\"recheck_type\":null,\"description\":\"Example\"}]";
+        $intro .= "\n[{\"title\":\"Example\",\"assigned_to\":\"Brook\",\"priority\":\"high\",\"estimated_hours\":2,\"recheck_type\":\"h1_fix\",\"recheck_days\":7,\"recheck_criteria\":\"h1_matches_title = TRUE for /example/\",\"description\":\"Example\"}]";
         $intro .= "\n<!-- /TASKS_JSON -->";
         $intro .= "\n\nCRITICAL: Include <!-- TASKS_JSON --> in EVERY response. Use [] if no tasks needed.";
         $intro .= "\n\nFOUNDATIONAL CONTENT RULES — RUN AUTOMATICALLY ON EVERY BRIEFING:";
@@ -731,7 +777,8 @@ class HomeController extends AbstractController
         $intro .= "\n<!-- /REVIEW_CARD -->";
         $intro .= "\nKEY RULE: The review card is for the USER to verify YOUR specific findings. Show them the actual URLs and issues you found. Do not explain your logic — show your work. Keep it plain language, no technical jargon like 'has_core_link = FALSE'. Say 'missing link to a product page' instead.";
         $intro .= "\n\nTEAM ROSTER:";
-        $intro .= "\n- Brook | SEO + Content | 40h/week";
+        $intro .= "\n- Brook | SEO + Content | 40h/week | Handles all on-page fixes, content tasks, FC rule violations";
+        $intro .= "\n- Jeanne | Content Director | 40h/week | Reviews and approves FC rule classifications — Rule Review tasks go to Jeanne";
         $intro .= "\n- Kalib | Sales | 40h/week";
         $intro .= "\n- Brad | Marketing | 40h/week";
         $intro .= "\n\nToday: " . $date;
