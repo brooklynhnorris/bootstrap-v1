@@ -657,11 +657,15 @@
         typingEl.style.display = 'block';
         messagesEl.scrollTop   = messagesEl.scrollHeight;
         try {
+            const controller = new AbortController();
+            const timeoutId  = setTimeout(() => controller.abort(), 90000);
             const res  = await fetch('/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages, conversation_id: conversationId })
+                body: JSON.stringify({ messages, conversation_id: conversationId }),
+                signal: controller.signal
             });
+            clearTimeout(timeoutId);
             const data  = await res.json();
             const reply = data.response || data.error || 'No response.';
             if (data.conversation_id) {
@@ -1173,11 +1177,15 @@
         const briefingPrompt = 'Give me my SEO briefing for today. Address me as ' + USER_NAME + '. Focus on my role: ' + USER_ROLE + '. Generate tasks for any issues you find.';
         messages.push({ role: 'user', content: briefingPrompt });
         try {
+            const controller2 = new AbortController();
+            const timeoutId2  = setTimeout(() => controller2.abort(), 90000);
             const res  = await fetch('/chat', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages, conversation_id: conversationId })
+                body: JSON.stringify({ messages, conversation_id: conversationId }),
+                signal: controller2.signal
             });
+            clearTimeout(timeoutId2);
             const data  = await res.json();
             const reply = data.response || data.error || 'No response.';
             if (data.conversation_id) {

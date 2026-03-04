@@ -41,7 +41,7 @@ class HomeController extends AbstractController
     {
         $user = $this->getUser();
         $tasks = $this->db->fetchAllAssociative(
-            "SELECT * FROM tasks WHERE status != 'done' ORDER BY CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC LIMIT 20"
+            "SELECT * FROM tasks WHERE status != 'done' ORDER BY CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC LIMIT 10"
         );
         $rechecks = $this->db->fetchAllAssociative(
             "SELECT * FROM tasks WHERE status = 'done' AND recheck_date IS NOT NULL AND recheck_verified = false ORDER BY recheck_date ASC LIMIT 10"
@@ -59,7 +59,7 @@ class HomeController extends AbstractController
         $conversations = $this->db->fetchAllAssociative(
             "SELECT id, title, created_at, updated_at FROM conversations
              WHERE user_id = ? AND is_archived = FALSE
-             ORDER BY updated_at DESC LIMIT 20",
+             ORDER BY updated_at DESC LIMIT 10",
             [$userId]
         );
 
@@ -95,7 +95,7 @@ class HomeController extends AbstractController
             'SELECT organic_keywords, organic_traffic, fetched_at FROM semrush_snapshots ORDER BY fetched_at DESC LIMIT 1'
         );
         $topQueries28d = $this->db->fetchAllAssociative(
-            "SELECT query, page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE date_range = '28d' ORDER BY impressions DESC LIMIT 20"
+            "SELECT query, page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE date_range = '28d' ORDER BY impressions DESC LIMIT 10"
         );
         $topQueries90d = $this->db->fetchAllAssociative(
             "SELECT query, page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE date_range = '90d' ORDER BY impressions DESC LIMIT 15"
@@ -208,7 +208,7 @@ class HomeController extends AbstractController
 
         $payload = json_encode([
             'model'      => $claudeModel,
-            'max_tokens' => 8192,
+            'max_tokens' => 4096,
             'system'     => $systemPrompt,
             'messages'   => $claudeMessages,
         ]);
@@ -223,7 +223,8 @@ class HomeController extends AbstractController
                 'x-api-key: ' . $claudeKey,
                 'anthropic-version: 2023-06-01',
             ],
-            CURLOPT_TIMEOUT        => 120,
+            CURLOPT_TIMEOUT        => 90,
+            CURLOPT_CONNECTTIMEOUT => 10,
         ]);
         $response = curl_exec($ch);
         $curlError = curl_error($ch);
@@ -623,14 +624,23 @@ class HomeController extends AbstractController
             );
             if (empty($tables)) return [];
 
+            // Only send pages that have at least one FC rule violation — keeps prompt small
             return $this->db->fetchAllAssociative(
-                "SELECT url, page_type, has_central_entity, central_entity_count, has_core_link,
-                        core_links_found, word_count, h1, title_tag, h1_matches_title, h2s,
-                        schema_types, is_noindex, crawled_at
+                "SELECT url, page_type, has_central_entity, has_core_link,
+                        word_count, h1, title_tag, h1_matches_title, h2s,
+                        schema_types, is_noindex
                  FROM page_crawl_snapshots
                  WHERE crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
-                 ORDER BY page_type, word_count DESC
-                 LIMIT 150"
+                   AND (
+                     has_central_entity = FALSE
+                     OR (page_type = 'Core' AND word_count < 800)
+                     OR h1_matches_title = FALSE
+                     OR (page_type = 'Core' AND (h2s IS NULL OR h2s = '' OR h2s = '[]'))
+                     OR (page_type = 'Core' AND (schema_types IS NULL OR schema_types = '' OR schema_types = '[]'))
+                     OR (page_type = 'Outer' AND has_core_link = FALSE)
+                   )
+                 ORDER BY page_type, url
+                 LIMIT 50"
             );
         } catch (\Exception $e) { return []; }
     }
@@ -822,28 +832,23 @@ class HomeController extends AbstractController
 
         if (!empty($topQueries90d)) {
             $intro .= "\n\n90-DAY GSC TRENDS:\n";
-            foreach (array_slice($topQueries90d, 0, 10) as $row) {
+            foreach (array_slice($topQueries90d, 0, 5) as $row) {
                 $intro .= '- "' . $row['query'] . '" | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | Position: ' . round($row['position'], 1) . "\n";
             }
         }
         if (!empty($pageAggregates)) {
             $intro .= "\n\nGSC PAGE AGGREGATES:\n";
-            foreach (array_slice($pageAggregates, 0, 10) as $row) {
+            foreach (array_slice($pageAggregates, 0, 5) as $row) {
                 $intro .= '- ' . $row['page'] . ' | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | CTR: ' . round($row['ctr'] * 100, 1) . '% | Position: ' . round($row['position'], 1) . "\n";
             }
         }
         if (!empty($brandedQueries)) {
             $intro .= "\n\nBRANDED QUERIES:\n";
-            foreach (array_slice($brandedQueries, 0, 8) as $row) {
+            foreach (array_slice($brandedQueries, 0, 5) as $row) {
                 $intro .= '- "' . $row['query'] . '" | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . "\n";
             }
         }
-        if (!empty($cannibalizationCandidates)) {
-            $intro .= "\n\nCANNIBALIZATION CANDIDATES:\n";
-            foreach (array_slice($cannibalizationCandidates, 0, 10) as $row) {
-                $intro .= '- "' . $row['query'] . '" → ' . $row['page_count'] . ' pages | Impressions: ' . $row['total_impressions'] . "\n";
-            }
-        }
+
         if (!empty($previousPages)) {
             $intro .= "\n\nGA4 PERIOD COMPARISON (28d vs previous):\n";
             $prevLookup = [];
@@ -891,19 +896,24 @@ class HomeController extends AbstractController
         // ── Crawl data summary ──
         if (!empty($crawlData)) {
             $crawledAt = $crawlData[0]['crawled_at'] ?? 'unknown';
-            $intro .= "\n\nPAGE CRAWL DATA (last crawl: {$crawledAt}):\n";
-            $intro .= "Format: URL | Type | Words | Entity(count) | CoreLink | H1Match | Schema | Noindex | H1\n";
+            $intro .= "\n\nPAGE SIGNALS (last crawl: {$crawledAt}) — violations only:\n";
             foreach ($crawlData as $row) {
-                $entity   = $row['has_central_entity'] ? "YES({$row['central_entity_count']})" : 'NO';
-                $coreLink = $row['has_core_link'] ? 'YES' : 'NO';
-                $h1match  = $row['h1_matches_title'] ? 'YES' : 'NO';
-                $schema   = $row['schema_types'] && $row['schema_types'] !== '[]' ? implode(',', json_decode($row['schema_types'], true)) : 'none';
-                $noindex  = $row['is_noindex'] ? 'NOINDEX' : 'indexed';
-                $h1       = substr($row['h1'] ?? '(no h1)', 0, 60);
-                $intro .= "- {$row['url']} | {$row['page_type']} | {$row['word_count']}w | entity:{$entity} | corelink:{$coreLink} | h1match:{$h1match} | schema:{$schema} | {$noindex} | \"{$h1}\"\n";
+                $flags = [];
+                if (!$row['has_central_entity'])                                       $flags[] = 'FC-R1:no-entity';
+                if (!$row['has_core_link'] && strtolower($row['page_type']) === 'outer') $flags[] = 'FC-R5:no-core-link';
+                if ($row['h1_matches_title'] === false || $row['h1_matches_title'] === '0' || $row['h1_matches_title'] === 0) $flags[] = 'FC-R7:h1-mismatch';
+                if (strtolower($row['page_type']) === 'core') {
+                    if (($row['word_count'] ?? 0) < 500)                               $flags[] = 'FC-R3:thin';
+                    if (($row['word_count'] ?? 0) < 800)                               $flags[] = 'FC-R6:thin';
+                    if (empty($row['h2s']) || $row['h2s'] === '[]')                    $flags[] = 'FC-R8:no-h2';
+                    if (empty($row['schema_types']) || $row['schema_types'] === '[]')  $flags[] = 'FC-R9:no-schema';
+                }
+                if (empty($flags)) continue;
+                $h1short = substr($row['h1'] ?? '(none)', 0, 50);
+                $intro .= "- {$row['url']} [{$row['page_type']}] " . implode(', ', $flags) . " | H1: \"{$h1short}\"\n";
             }
 
-            // Rule violation summaries for quick Logiri parsing
+                        // Rule violation summaries for quick Logiri parsing
             $noEntity   = array_filter($crawlData, fn($r) => !$r['has_central_entity'] && !$r['is_noindex']);
             $noCoreLink = array_filter($crawlData, fn($r) => $r['page_type'] === 'outer' && !$r['has_core_link'] && !$r['is_noindex']);
             $thinCore   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && $r['word_count'] < 500 && !$r['is_noindex']);
