@@ -121,6 +121,26 @@
         .chat-start-task-btn:hover { background: #15803d; box-shadow: 0 2px 8px rgba(22,163,74,0.4); transform: translateY(-1px); }
         .chat-start-task-btn.started { background: #6b7280; cursor: default; box-shadow: none; transform: none; }
         .chat-task-inline-block { margin: 12px 0 4px; }
+
+        /* ── Collapsible sections ── */
+        .collapsible-section { margin: 10px 0; border: 1px solid var(--border-subtle); border-radius: 8px; overflow: hidden; }
+        .collapsible-toggle { width: 100%; background: var(--bg-secondary); border: none; padding: 10px 14px; cursor: pointer; display: flex; align-items: center; gap: 8px; text-align: left; font-family: 'DM Sans', sans-serif; }
+        .collapsible-toggle:hover { background: var(--bg-tertiary); }
+        .collapsible-heading { font-size: 13px; font-weight: 700; color: var(--text-primary); flex-shrink: 0; }
+        .collapsible-preview { font-size: 11px; color: var(--text-muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .collapsible-arrow { font-size: 9px; color: var(--text-muted); flex-shrink: 0; transition: transform 0.2s; }
+        .collapsible-body { padding: 12px 14px; background: var(--bg-primary); border-top: 1px solid var(--border-subtle); }
+        .collapsible-section.collapsed .collapsible-body { display: none; }
+        .collapsible-section.collapsed .collapsible-preview { display: inline; }
+        .collapsible-section:not(.collapsed) .collapsible-preview { display: none; }
+
+        /* ── Play header card ── */
+        .play-header-bubble { background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--accent-blue-dim) 100%) !important; border-color: var(--accent-blue-border) !important; }
+        .play-header-meta { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+        .play-header-hours { font-size: 11px; color: var(--text-muted); background: var(--bg-tertiary); padding: 2px 7px; border-radius: 4px; }
+        .play-header-assigned { font-size: 11px; color: var(--text-secondary); }
+        .play-header-title { font-size: 16px; font-weight: 700; color: var(--text-primary); margin-bottom: 8px; line-height: 1.3; }
+        .play-header-hint { font-size: 12px; color: var(--text-muted); font-style: italic; padding-top: 8px; border-top: 1px solid var(--border-subtle); }
         .chat-btn { background: var(--bg-secondary); border: 1px solid var(--border-medium); color: var(--text-secondary); padding: 5px 11px; border-radius: var(--radius-sm); font-size: 11px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s; }
         .chat-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-accent); }
         .typing-indicator { display: none; align-self: flex-start; padding: 6px 16px 10px; max-width: 480px; }
@@ -677,6 +697,7 @@
             const processed   = processReviewCards(text, bubble);
             bubble.innerHTML  = marked.parse(processed);
             renderPendingReviewCards(bubble);
+            makeCollapsible(bubble);
             div.appendChild(bubble);
             if (text.length > 200) {
                 const actions = document.createElement('div');
@@ -972,9 +993,52 @@
             '</div>';
         const title = '<div class="ctc-title">' + escapeHtml(task.title || '') + '</div>';
         const btnId = 'stbtn-' + (task.id || Math.random());
-        const btn   = '<button id="' + btnId + '" class="chat-start-task-btn" onclick="startTaskFromChat(' + task.id + ', &quot;' + btnId + '&quot;)">&#9654; Start Task Now</button>';
+        const btn   = '<button id="' + btnId + '" class="chat-start-task-btn" onclick="startTaskFromChat(' + task.id + ', &quot;' + btnId + '&quot;)">&#9654; Run this Play</button>';
         card.innerHTML = meta + title + btn;
         return card;
+    }
+
+    function makeCollapsible(bubble) {
+        // Find all h2/h3 headings and wrap their following content in collapsible sections
+        const headings = Array.from(bubble.querySelectorAll('h2, h3'));
+        headings.forEach(heading => {
+            // Collect all sibling elements until the next heading
+            const siblings = [];
+            let next = heading.nextElementSibling;
+            while (next && !['H2','H3'].includes(next.tagName)) {
+                siblings.push(next);
+                next = next.nextElementSibling;
+            }
+            if (siblings.length === 0) return;
+
+            // Build collapsible wrapper
+            const wrapper   = document.createElement('div');
+            wrapper.className = 'collapsible-section collapsed';
+
+            const toggle    = document.createElement('button');
+            toggle.className = 'collapsible-toggle';
+
+            // Extract first line as summary
+            const firstSibling = siblings[0];
+            const summary = firstSibling ? firstSibling.textContent.trim().slice(0, 90) : '';
+            toggle.innerHTML =
+                '<span class="collapsible-heading">' + heading.innerHTML + '</span>' +
+                '<span class="collapsible-preview">' + escapeHtml(summary) + (summary.length >= 90 ? '\u2026' : '') + '</span>' +
+                '<span class="collapsible-arrow">\u25BC</span>';
+
+            const body = document.createElement('div');
+            body.className = 'collapsible-body';
+            siblings.forEach(s => body.appendChild(s));
+
+            toggle.onclick = () => {
+                const collapsed = wrapper.classList.toggle('collapsed');
+                toggle.querySelector('.collapsible-arrow').textContent = collapsed ? '\u25BC' : '\u25B2';
+            };
+
+            wrapper.appendChild(toggle);
+            wrapper.appendChild(body);
+            heading.replaceWith(wrapper);
+        });
     }
 
     function toggleTasksPanel() {
@@ -986,290 +1050,53 @@
     }
 
     async function startTaskFromChat(taskId, btnId) {
-        // Disable the button immediately
         if (btnId) {
             const btn = document.getElementById(btnId);
-            if (btn) { btn.disabled = true; btn.classList.add('started'); btn.textContent = '✓ Starting…'; }
+            if (btn) { btn.disabled = true; btn.classList.add('started'); btn.textContent = '\u2713 Starting\u2026'; }
         }
 
-        // Mark task as in_progress
         await fetch('/api/tasks/' + taskId + '/status', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ status: 'in_progress' })
         });
 
-        // Fetch task details for the briefing prompt
         const taskRes  = await fetch('/api/tasks/' + taskId);
         const taskData = await taskRes.json();
 
-        // Open tasks panel so it reflects in_progress
         const panel = document.getElementById('right-panel');
         if (!panel.classList.contains('open')) toggleTasksPanel();
         await refreshTasksPanel();
 
-        // Highlight the task in the sidebar
+        // Highlight task in sidebar
         currentTaskId = taskId;
         document.querySelectorAll('.task-item').forEach(el => el.classList.remove('selected'));
         const taskEl = document.getElementById('task-' + taskId);
-        if (taskEl) {
-            taskEl.classList.add('selected');
-            taskEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-        }
+        if (taskEl) { taskEl.classList.add('selected'); taskEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
 
-        // Start a fresh chat for this task
+        // Start fresh chat
         newChat();
-        showNotification('Task started — now in progress', 'green');
 
-        // Small delay so newChat() clears the screen, then auto-send a detailed briefing prompt
-        setTimeout(() => {
-            const taskTitle = taskData.title || 'Task #' + taskId;
-            const priority  = taskData.priority || 'high';
-            const hours     = taskData.estimated_hours || '?';
-            const desc      = taskData.description || '';
-            const prompt    = 'I am starting this task now: ' + taskTitle +
-                ' (Priority: ' + priority + ', Est: ' + hours + 'h).' +
-                (desc ? ' Context: ' + desc : '') +
-                ' Walk me through how to execute this step by step.' +
-                ' Give me the exact changes to make, files or pages to edit, and what to verify when done.';
-            sendMessage(prompt);
-        }, 400);
+        // Show a clean task header card in chat — no wall of text
+        const taskTitle = taskData.title || 'Play #' + taskId;
+        const priority  = taskData.priority || 'high';
+        const hours     = taskData.estimated_hours || '?';
+        const assigned  = taskData.assigned_to || '';
+
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'message assistant';
+        headerDiv.innerHTML =
+            '<div class="bubble play-header-bubble">' +
+            '<div class="play-header-meta"><span class="task-priority ' + priority + '">' + priority + '</span>' +
+            (hours ? '<span class="play-header-hours">' + hours + 'h</span>' : '') +
+            (assigned ? '<span class="play-header-assigned">\u2192 ' + escapeHtml(assigned) + '</span>' : '') +
+            '</div>' +
+            '<div class="play-header-title">' + escapeHtml(taskTitle) + '</div>' +
+            '<div class="play-header-hint">Ask me anything about this Play, or type <strong>brief me</strong> for a full step-by-step breakdown.</div>' +
+            '</div>';
+        messagesEl.appendChild(headerDiv);
+        messagesEl.scrollTop = 0;
+
+        showNotification('Play started \u2014 chat is ready', 'green');
     }
 
-    async function openTaskDetail(id) {
-        currentTaskId    = id;
-        taskChatMessages = [];
-        document.getElementById('panel-chat-messages').innerHTML = '';
-        document.querySelectorAll('.task-item').forEach(el => el.classList.remove('selected'));
-        const el = document.getElementById('task-' + id);
-        if (el) el.classList.add('selected');
-        const res   = await fetch('/api/tasks');
-        const tasks = await res.json();
-        const task  = tasks.find(t => t.id == id);
-        if (!task) return;
-        document.getElementById('panel-title').textContent = 'Task #' + task.id;
-        document.getElementById('panel-body').innerHTML =
-            '<div class="panel-field"><div class="panel-label">Title</div><div class="panel-value">' + escapeHtml(task.title) + '</div></div>' +
-            '<div class="panel-field"><div class="panel-label">Assigned To</div><div class="panel-value">' + (task.assigned_to || 'Unassigned') + '</div></div>' +
-            '<div class="panel-field"><div class="panel-label">Priority</div><div class="panel-value"><span class="task-priority ' + task.priority + '">' + task.priority + '</span></div></div>' +
-            '<div class="panel-field"><div class="panel-label">Status</div><div class="panel-value"><span class="task-status-badge ' + task.status + '">' + task.status + '</span></div></div>' +
-            '<div class="panel-field"><div class="panel-label">Estimated Hours</div><div class="panel-value">' + (task.estimated_hours || '?') + 'h</div></div>' +
-            '<div class="panel-field"><div class="panel-label">Log Time</div><div class="time-log-row"><input type="number" class="time-log-input" id="log-hours-input" value="0.5" min="0.5" step="0.5"><span style="font-size:11px;color:var(--text-muted)">hrs</span><button class="time-log-btn" onclick="logTimeTask(' + task.id + ')">Log</button></div></div>' +
-            (task.description ? '<div class="panel-field"><div class="panel-label">Description</div><div class="panel-value">' + escapeHtml(task.description) + '</div></div>' : '') +
-            (task.recheck_date ? '<div class="panel-field"><div class="panel-label">Recheck Date</div><div class="panel-value">' + task.recheck_date + '</div></div>' : '');
-        document.getElementById('task-detail-panel').classList.add('open');
-    }
-
-    function closeTaskDetail() {
-        document.getElementById('task-detail-panel').classList.remove('open');
-        document.querySelectorAll('.task-item').forEach(el => el.classList.remove('selected'));
-        currentTaskId = null;
-    }
-
-    async function logTimeTask(taskId) {
-        const hours = parseFloat(document.getElementById('log-hours-input').value);
-        if (!hours || hours <= 0) return;
-        await fetch('/api/tasks/' + taskId + '/log-time', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hours }) });
-        showNotification('Logged ' + hours + 'h on task #' + taskId, 'green');
-    }
-
-    async function sendTaskChat() {
-        const input = document.getElementById('panel-chat-input');
-        const text  = input.value.trim();
-        if (!text || !currentTaskId) return;
-        input.value = '';
-        const msgContainer = document.getElementById('panel-chat-messages');
-        msgContainer.innerHTML += '<div class="panel-chat-msg user-msg">' + escapeHtml(text) + '</div>';
-        const taskEl    = document.getElementById('task-' + currentTaskId);
-        const taskTitle = taskEl ? taskEl.querySelector('.task-title').textContent : '';
-        const taskMessages = [...taskChatMessages, { role: 'user', content: 'Regarding task #' + currentTaskId + ' "' + taskTitle + '": ' + text }];
-        try {
-            const res  = await fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: taskMessages, conversation_id: conversationId }) });
-            const data = await res.json();
-            const reply = data.response || 'No response.';
-            taskChatMessages.push({ role: 'user', content: text });
-            taskChatMessages.push({ role: 'assistant', content: reply });
-            msgContainer.innerHTML += '<div class="panel-chat-msg ai">' + marked.parse(reply) + '</div>';
-            msgContainer.scrollTop = msgContainer.scrollHeight;
-        } catch (e) {
-            msgContainer.innerHTML += '<div class="panel-chat-msg ai">Error connecting to AI.</div>';
-        }
-    }
-
-    document.getElementById('panel-chat-input').addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); sendTaskChat(); }
-    });
-
-    // Add Task Modal
-    function openAddTask()  { document.getElementById('add-task-modal').classList.add('active'); }
-    function closeAddTask() { document.getElementById('add-task-modal').classList.remove('active'); }
-    async function saveNewTask() {
-        const task = {
-            title:           document.getElementById('new-task-title').value,
-            assigned_to:     document.getElementById('new-task-assignee').value,
-            priority:        document.getElementById('new-task-priority').value,
-            estimated_hours: parseFloat(document.getElementById('new-task-hours').value),
-            recheck_type:    document.getElementById('new-task-recheck').value || null,
-        };
-        if (!task.title) return alert('Enter a task title');
-        await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
-        closeAddTask();
-        document.getElementById('new-task-title').value = '';
-        refreshTasksPanel();
-    }
-
-    // Refresh Right Tasks Panel
-    async function refreshTasksPanel() {
-        try {
-            const res   = await fetch('/api/tasks');
-            const tasks = await res.json();
-            let urgent = 0, active = 0, done = 0;
-            tasks.forEach(t => {
-                if (t.status === 'done') done++;
-                else if (t.status === 'in_progress') active++;
-                else if (t.priority === 'urgent' || t.priority === 'high') urgent++;
-            });
-            document.getElementById('count-urgent').textContent = urgent;
-            document.getElementById('count-active').textContent = active;
-            document.getElementById('count-done').textContent   = done;
-
-            // Cache task data for recheck modal defaults
-            window._taskCache = {};
-            tasks.forEach(t => { window._taskCache[t.id] = t; });
-
-            const taskList    = document.getElementById('right-task-list');
-            const activeTasks = tasks.filter(t => t.status !== 'done');
-            taskList.innerHTML = activeTasks.length === 0
-                ? '<div class="task-empty">No active tasks.</div>'
-                : activeTasks.slice(0, 20).map(t =>
-                    '<div class="task-item' + (currentTaskId == t.id ? ' selected' : '') + '" id="task-' + t.id + '" data-assignee="' + escapeHtml(t.assigned_to || '') + '" data-hours="' + (t.estimated_hours || 99) + '" onclick="openTaskDetail(' + t.id + ')">' +
-                    '<div class="task-item-header"><span class="task-priority ' + t.priority + '">' + t.priority + '</span><span class="task-assignee">' + (t.assigned_to || 'Unassigned') + '</span></div>' +
-                    '<div class="task-title">' + escapeHtml(t.title) + '</div>' +
-                    '<div class="task-meta"><span class="task-hours">' + (t.estimated_hours || '?') + 'h</span><span class="task-status-badge ' + t.status + '">' + t.status + '</span></div>' +
-                    '<div class="task-actions-row">' +
-                    (t.status === 'pending' ? '<button class="task-action-btn start" onclick="event.stopPropagation();startTask(' + t.id + ')">&#9654; Start</button>' : '') +
-                    (t.status !== 'done' ? '<button class="task-action-btn complete" onclick="event.stopPropagation();completeTask(' + t.id + ')">&#10003; Done</button>' : '') +
-                    '</div></div>'
-                ).join('');
-
-            setTaskFilter(activeTaskFilter);
-
-            const recheckRes  = await fetch('/api/rechecks');
-            const rechecks    = await recheckRes.json();
-            const recheckList = document.getElementById('recheck-list');
-            if (rechecks.length === 0) {
-                recheckList.innerHTML = '<div class="task-empty">No rechecks pending</div>';
-            } else {
-                recheckList.innerHTML = rechecks.map(r => {
-                    const overdue  = r.recheck_date && r.recheck_date < new Date().toISOString().slice(0,10);
-                    const dateStr  = r.recheck_date || 'No date';
-                    const criteria = r.recheck_criteria ? '<div class="recheck-criteria-text">&#10003; ' + escapeHtml(r.recheck_criteria) + '</div>' : '';
-                    const editFn   = 'editRecheckDate(' + r.id + ', &quot;' + dateStr + '&quot;)';
-                    return '<div class="recheck-item">' +
-                        '<div class="recheck-item-main">' +
-                        '<div class="recheck-info">' + escapeHtml(r.title) + '</div>' +
-                        criteria +
-                        '<div class="recheck-controls">' +
-                        '<span class="recheck-date ' + (overdue ? 'overdue' : 'upcoming') + '" id="rdate-' + r.id + '">' + dateStr + '</span>' +
-                        '<button class="recheck-edit-btn" onclick="' + editFn + '">&#x270E;</button>' +
-                        '<button class="recheck-verify-btn" onclick="verifyRecheck(' + r.id + ')">Verify</button>' +
-                        '</div></div></div>';
-                }).join('');
-            }
-        } catch (e) { console.error('Refresh failed:', e); }
-    }
-
-    // Briefing
-    async function requestBriefing() {
-        const loadingDiv = document.createElement('div');
-        loadingDiv.className = 'message assistant';
-        loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Hello ' + USER_NAME + ', preparing your briefing...</div>';
-        loadingDiv.id = 'briefing-loading';
-        messagesEl.appendChild(loadingDiv);
-        typingEl.style.display = 'block';
-        messagesEl.scrollTop   = messagesEl.scrollHeight;
-        sendEl.disabled        = true;
-        const briefingPrompt = 'Give me my SEO briefing for today. Address me as ' + USER_NAME + '. Focus on my role: ' + USER_ROLE + '. Generate tasks for any issues you find.';
-        messages.push({ role: 'user', content: briefingPrompt });
-        try {
-            const res  = await fetch('/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages, conversation_id: conversationId })
-            });
-            const data  = await res.json();
-            const reply = data.response || data.error || 'No response.';
-            if (data.conversation_id) {
-                const isNew = !conversationId;
-                conversationId = data.conversation_id;
-                if (isNew) addConvoToSidebar(conversationId, 'Briefing \u2014 ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-            }
-            const loadEl = document.getElementById('briefing-loading');
-            if (loadEl) loadEl.remove();
-            messages.push({ role: 'assistant', content: reply });
-            appendMessage('assistant', reply);
-            if (data.tasks_created && data.tasks_created.length > 0) {
-                await refreshTasksPanel();
-                showNotification('&#10003; ' + data.tasks_created.length + ' task' + (data.tasks_created.length > 1 ? 's' : '') + ' created', 'green');
-                appendTaskCards(data.tasks_created);
-            }
-        } catch (e) {
-            // Retry once after 3s (handles Render cold start)
-            try {
-                await new Promise(r => setTimeout(r, 3000));
-                const res2  = await fetch('/chat', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ messages, conversation_id: conversationId })
-                });
-                const data2  = await res2.json();
-                const reply2 = data2.response || data2.error || 'No response.';
-                if (data2.conversation_id) {
-                    const isNew2 = !conversationId;
-                    conversationId = data2.conversation_id;
-                    if (isNew2) addConvoToSidebar(conversationId, 'Briefing \u2014 ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
-                }
-                const loadEl2 = document.getElementById('briefing-loading');
-                if (loadEl2) loadEl2.remove();
-                messages.push({ role: 'assistant', content: reply2 });
-                appendMessage('assistant', reply2);
-                if (data2.tasks_created && data2.tasks_created.length > 0) {
-                    await refreshTasksPanel();
-                    appendTaskCards(data2.tasks_created);
-                }
-            } catch (e2) {
-                const loadEl = document.getElementById('briefing-loading');
-                if (loadEl) loadEl.remove();
-                appendMessage('assistant', 'Logiri is warming up. Type a message to get your briefing.');
-            }
-        }
-        typingEl.style.display = 'none';
-        sendEl.disabled        = false;
-        inputEl.focus();
-    }
-
-    // Utility
-    function showNotification(msg, color) {
-        const colors = { green: { bg: 'var(--accent-green)', text: '#fff' }, red: { bg: 'var(--accent-red)', text: '#fff' } };
-        const c     = colors[color] || colors.green;
-        const notif = document.createElement('div');
-        notif.style.cssText = 'position:fixed;top:16px;right:16px;background:' + c.bg + ';color:' + c.text + ';padding:10px 17px;border-radius:8px;font-size:13px;font-weight:600;z-index:200;animation:fadeIn 0.3s ease;box-shadow:0 4px 12px rgba(0,0,0,0.15);max-width:340px;';
-        notif.textContent = msg;
-        document.body.appendChild(notif);
-        setTimeout(() => { notif.style.opacity = '0'; notif.style.transition = 'opacity 0.5s'; setTimeout(() => notif.remove(), 500); }, 4000);
-    }
-
-    function escapeHtml(str) {
-        if (!str) return '';
-        return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
-
-    // Init
-    window.addEventListener('load', () => { requestBriefing(); setTaskFilter('mine'); });
-    sendEl.addEventListener('click', () => { const t = inputEl.value.trim(); if (t) sendMessage(t); });
-    inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const t = inputEl.value.trim(); if (t) sendMessage(t); } });
-    inputEl.addEventListener('input', () => { inputEl.style.height = '46px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px'; });
-    setInterval(refreshTasksPanel, 60000);
-</script>
-</body>
-</html>
