@@ -863,6 +863,13 @@
         await fetch('/api/tasks/' + id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'in_progress' }) });
         refreshTasksPanel();
     }
+    async function clearDoneTasks() {
+        if (!confirm('Remove all completed Plays from the list?')) return;
+        await fetch('/api/tasks/clear-done', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+        refreshTasksPanel();
+        showNotification('Completed Plays cleared', 'green');
+    }
+
     function completeTask(id) {
         const taskEl       = document.getElementById('task-' + id);
         const title        = taskEl ? taskEl.querySelector('.task-title').textContent.trim() : 'Task #' + id;
@@ -1079,6 +1086,37 @@
         messagesEl.scrollTop = 0;
         showNotification('Play started — chat is ready', 'green');
     }
+    function openTaskDetail(taskId) {
+        // Highlight in sidebar
+        document.querySelectorAll('.task-item').forEach(el => el.classList.remove('selected'));
+        const taskEl = document.getElementById('task-' + taskId);
+        if (taskEl) taskEl.classList.add('selected');
+        currentTaskId = taskId;
+
+        // Get cached task data
+        const t = window._taskCache && window._taskCache[taskId];
+        if (!t) return;
+
+        // Populate detail panel
+        const panel = document.getElementById('task-detail-panel');
+        document.getElementById('panel-title').textContent = t.title || 'Play';
+        const body = document.getElementById('panel-body');
+        const statusColor = t.status === 'in_progress' ? '#16a34a' : '#6b7280';
+        body.innerHTML =
+            '<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">' +
+            '<span class="task-priority ' + (t.priority||'medium') + '">' + (t.priority||'medium') + '</span>' +
+            '<span style="font-size:11px;color:var(--text-muted);background:var(--bg-tertiary);padding:2px 8px;border-radius:4px;">' + (t.estimated_hours||'?') + 'h</span>' +
+            '<span style="font-size:11px;color:' + statusColor + ';font-weight:600;">' + (t.status||'pending') + '</span>' +
+            (t.assigned_to ? '<span style="font-size:11px;color:var(--text-muted);">→ ' + escapeHtml(t.assigned_to) + '</span>' : '') +
+            '</div>' +
+            (t.description ? '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;margin-bottom:14px;">' + escapeHtml(t.description) + '</div>' : '') +
+            (t.recheck_criteria ? '<div style="font-size:12px;color:var(--text-muted);border-top:1px solid var(--border-subtle);padding-top:10px;margin-top:10px;">✓ Done when: ' + escapeHtml(t.recheck_criteria) + '</div>' : '');
+
+        // Show action buttons
+        document.getElementById('recheck-modal-taskid').value = taskId;
+        panel.classList.add('open');
+    }
+
     function closeTaskDetail() {
         document.getElementById('task-detail-panel').classList.remove('open');
         document.querySelectorAll('.task-item').forEach(el => el.classList.remove('selected'));
