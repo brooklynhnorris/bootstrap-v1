@@ -113,9 +113,12 @@
         .chat-actions { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 13px; padding-top: 13px; border-top: 1px solid var(--border-subtle); }
         .chat-btn { background: var(--bg-secondary); border: 1px solid var(--border-medium); color: var(--text-secondary); padding: 5px 11px; border-radius: var(--radius-sm); font-size: 11px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s; }
         .chat-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-accent); }
-        .typing-indicator { display: none; align-self: flex-start; padding: 7px 30px; }
-        .typing-dots { display: flex; gap: 4px; align-items: center; }
-        .typing-dots span { width: 5px; height: 5px; background: var(--text-muted); border-radius: 50%; animation: bounce 1.2s infinite; }
+        .typing-indicator { display: none; align-self: flex-start; padding: 6px 16px 10px; max-width: 480px; }
+        .thinking-bubble { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 0 12px 12px 12px; padding: 10px 16px; display: flex; align-items: center; gap: 10px; }
+        .thinking-text { font-size: 12px; color: var(--text-muted); font-style: italic; font-family: 'DM Sans', sans-serif; }
+        .thinking-bar { width: 80px; height: 3px; background: var(--border-medium); border-radius: 2px; overflow: hidden; }
+        .thinking-bar-fill { height: 100%; width: 40%; background: var(--accent-blue); border-radius: 2px; animation: thinking-slide 1.4s ease-in-out infinite; }
+        @keyframes thinking-slide { 0% { transform: translateX(-100%); } 50% { transform: translateX(150%); } 100% { transform: translateX(-100%); } }
         .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
         .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
         @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
@@ -164,7 +167,11 @@
         .review-submitted { font-size: 12px; color: var(--accent-green); font-weight: 600; margin-top: 10px; }
 
         /* Right Tasks Panel */
-        #right-panel { width: 280px; min-width: 280px; background: var(--bg-primary); border-left: 1px solid var(--border-subtle); display: flex; flex-direction: column; overflow: hidden; }
+        #right-panel { width: 280px; min-width: 280px; background: var(--bg-primary); border-left: 1px solid var(--border-subtle); display: none; flex-direction: column; overflow: hidden; transition: all 0.2s ease; }
+        #right-panel.open { display: flex; }
+        #tasks-toggle-btn { background: var(--bg-secondary); border: 1px solid var(--border-medium); border-radius: var(--radius-sm); padding: 5px 10px; font-size: 11px; color: var(--text-secondary); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; display: flex; align-items: center; gap: 5px; }
+        #tasks-toggle-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+        #tasks-toggle-btn.active { background: var(--accent-blue-dim); border-color: var(--accent-blue-border); color: var(--accent-blue); }
         #right-panel-header { padding: 11px 14px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; justify-content: space-between; background: var(--bg-primary); }
         #right-panel-header span { font-size: 13px; font-weight: 600; color: var(--text-primary); }
         #right-panel-body { display: flex; flex-direction: column; flex: 1; overflow: hidden; }
@@ -358,11 +365,12 @@
             <span id="chat-header-label">Logiri is online</span>
         </div>
         <div class="header-btns">
+            <button id="tasks-toggle-btn" onclick="toggleTasksPanel()">&#9776; Tasks</button>
             <button class="header-btn" onclick="newChat()">+ New Chat</button>
         </div>
     </div>
     <div id="messages"></div>
-    <div class="typing-indicator" id="typing"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+    <div class="typing-indicator" id="typing"><div class="thinking-bubble"><div class="thinking-bar"><div class="thinking-bar-fill"></div></div><span class="thinking-text">Logiri is thinking…</span></div></div>
     <div id="input-area">
         <textarea id="input" placeholder="Ask Logiri about your SEO, tasks, or priorities..." rows="1"></textarea>
         <button id="send">Send</button>
@@ -639,6 +647,7 @@
             if (data.tasks_created && data.tasks_created.length > 0) {
                 await refreshTasksPanel();
                 showNotification('&#10003; ' + data.tasks_created.length + ' task' + (data.tasks_created.length > 1 ? 's' : '') + ' created', 'green');
+                appendTaskCards(data.tasks_created);
             }
         } catch (e) {
             appendMessage('assistant', 'Error reaching Logiri. Please try again.');
@@ -872,6 +881,71 @@
         showNotification('Recheck updated: ' + data.recheck_date, 'green');
     }
 
+    function appendTaskCards(taskTitles) {
+        if (!taskTitles || taskTitles.length === 0) return;
+        // Find the tasks from cache that match these titles
+        const cache  = window._taskCache || {};
+        const matched = Object.values(cache).filter(t => taskTitles.includes(t.title) && t.status !== 'done');
+        if (matched.length === 0) {
+            // No cache yet — just show a plain summary card
+            const div = document.createElement('div');
+            div.className = 'message assistant';
+            div.innerHTML = '<div class="bubble" style="padding:10px 14px;">' +
+                '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">&#10003; ' + taskTitles.length + ' task' + (taskTitles.length > 1 ? 's' : '') + ' added to your queue</div>' +
+                taskTitles.map(t => '<div class="chat-task-card"><div class="ctc-title">' + escapeHtml(t) + '</div></div>').join('') +
+                '</div>';
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            return;
+        }
+        const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+        matched.sort((a, b) => (priorityOrder[a.priority] ?? 9) - (priorityOrder[b.priority] ?? 9));
+
+        const div = document.createElement('div');
+        div.className = 'message assistant';
+        const cards = matched.map(t =>
+            '<div class="chat-task-card priority-' + t.priority + '">' +
+            '<div class="ctc-meta"><span class="task-priority ' + t.priority + '">' + t.priority + '</span> &nbsp;' + (t.estimated_hours || '?') + 'h &nbsp;&bull;&nbsp; ' + (t.assigned_to || 'Unassigned') + '</div>' +
+            '<div class="ctc-title">' + escapeHtml(t.title) + '</div>' +
+            '<button class="chat-start-task-btn" onclick="startTaskFromChat(' + t.id + ')">&#9654; Start Task Now</button>' +
+            '</div>'
+        ).join('');
+
+        div.innerHTML = '<div class="bubble" style="padding:10px 14px;">' +
+            '<div style="font-size:11px;color:var(--text-muted);margin-bottom:8px;font-weight:600;">&#10003; ' + matched.length + ' task' + (matched.length > 1 ? 's' : '') + ' added to your queue</div>' +
+            cards + '</div>';
+        messagesEl.appendChild(div);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function toggleTasksPanel() {
+        const panel = document.getElementById('right-panel');
+        const btn   = document.getElementById('tasks-toggle-btn');
+        const isOpen = panel.classList.toggle('open');
+        btn.classList.toggle('active', isOpen);
+        if (isOpen) refreshTasksPanel();
+    }
+
+    async function startTaskFromChat(taskId) {
+        // Mark task as in_progress
+        await fetch('/api/tasks/' + taskId + '/status', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'in_progress' })
+        });
+
+        // Open tasks panel and highlight task
+        const panel = document.getElementById('right-panel');
+        if (!panel.classList.contains('open')) toggleTasksPanel();
+        else refreshTasksPanel();
+
+        // After refresh, open the task detail
+        await refreshTasksPanel();
+        setTimeout(() => openTaskDetail(taskId), 300);
+
+        showNotification('Task started — now in progress', 'green');
+    }
+
     async function openTaskDetail(id) {
         currentTaskId    = id;
         taskChatMessages = [];
@@ -1047,6 +1121,7 @@
             if (data.tasks_created && data.tasks_created.length > 0) {
                 await refreshTasksPanel();
                 showNotification('&#10003; ' + data.tasks_created.length + ' task' + (data.tasks_created.length > 1 ? 's' : '') + ' created', 'green');
+                appendTaskCards(data.tasks_created);
             }
         } catch (e) {
             const loadEl = document.getElementById('briefing-loading');
