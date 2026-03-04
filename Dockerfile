@@ -23,6 +23,15 @@ WORKDIR /var/www/html
 # Copy app source
 COPY . /var/www/html
 
+# Strip UTF-8 BOM from index.php at build time (prevents "headers already sent" error)
+RUN python3 -c "
+f='/var/www/html/public/index.php'
+d=open(f,'rb').read()
+open(f,'wb').write(d[3:] if d[:3]==b'\xef\xbb\xbf' else d)
+print('index.php BOM stripped' if d[:3]==b'\xef\xbb\xbf' else 'index.php no BOM')
+"
+
+
 # App env defaults (Render should override DATABASE_URL in dashboard)
 ENV APP_ENV=prod
 ENV APP_DEBUG=0
