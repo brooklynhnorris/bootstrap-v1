@@ -821,10 +821,31 @@
         await fetch('/api/tasks/' + id + '/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'in_progress' }) });
         refreshTasksPanel();
     }
-    async function completeTask(id) {
-        const res  = await fetch('/api/tasks/' + id + '/complete', { method: 'POST' });
+    function completeTask(id) {
+        const taskEl       = document.getElementById('task-' + id);
+        const title        = taskEl ? taskEl.querySelector('.task-title').textContent.trim() : 'Task #' + id;
+        const cached       = window._taskCache && window._taskCache[id] ? window._taskCache[id] : {};
+        const defaultDays  = cached.recheck_days || 14;
+        const defaultCrit  = cached.recheck_criteria || '';
+        document.getElementById('recheck-modal-title').textContent = title;
+        document.getElementById('recheck-modal-days').value        = defaultDays;
+        document.getElementById('recheck-modal-criteria').value    = defaultCrit;
+        document.getElementById('recheck-modal-taskid').value      = id;
+        document.getElementById('recheck-confirm-modal').classList.add('active');
+    }
+
+    async function confirmComplete() {
+        const taskId   = parseInt(document.getElementById('recheck-modal-taskid').value);
+        const days     = parseInt(document.getElementById('recheck-modal-days').value) || 14;
+        const criteria = document.getElementById('recheck-modal-criteria').value.trim();
+        document.getElementById('recheck-confirm-modal').classList.remove('active');
+        const res  = await fetch('/api/tasks/' + taskId + '/complete', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ recheck_days: days, recheck_criteria: criteria })
+        });
         const data = await res.json();
-        if (data.recheck_date) sendMessage('I completed task #' + id + '. Recheck set for ' + data.recheck_date + '. What\'s next?');
+        showNotification('Task done — recheck in ' + days + 'd (' + data.recheck_date + ')', 'green');
         refreshTasksPanel();
     }
     async function verifyRecheck(id) {
@@ -972,21 +993,26 @@
             const recheckRes  = await fetch('/api/rechecks');
             const rechecks    = await recheckRes.json();
             const recheckList = document.getElementById('recheck-list');
-            recheckList.innerHTML = rechecks.length === 0
-                ? '<div class="task-empty">No rechecks pending</div>'
-                : rechecks.map(r => {
-                    const overdue = r.recheck_date && r.recheck_date < new Date().toISOString().slice(0,10);
+            if (rechecks.length === 0) {
+                recheckList.innerHTML = '<div class="task-empty">No rechecks pending</div>';
+            } else {
+                recheckList.innerHTML = rechecks.map(r => {
+                    const overdue  = r.recheck_date && r.recheck_date < new Date().toISOString().slice(0,10);
+                    const dateStr  = r.recheck_date || 'No date';
+                    const criteria = r.recheck_criteria ? '<div class="recheck-criteria-text">&#10003; ' + escapeHtml(r.recheck_criteria) + '</div>' : '';
+                    const editFn   = 'editRecheckDate(' + r.id + ', &quot;' + dateStr + '&quot;)';
                     return '<div class="recheck-item">' +
                         '<div class="recheck-item-main">' +
                         '<div class="recheck-info">' + escapeHtml(r.title) + '</div>' +
-                        (r.recheck_criteria ? '<div class="recheck-criteria-text">&#10003; ' + escapeHtml(r.recheck_criteria) + '</div>' : '') +
+                        criteria +
                         '<div class="recheck-controls">' +
-                        '<span class="recheck-date ' + (overdue ? 'overdue' : 'upcoming') + '" id="rdate-' + r.id + '">' + (r.recheck_date || 'No date') + '</span>' +
-                        '<button class="recheck-edit-btn" onclick="editRecheckDate(' + r.id + ', '' + (r.recheck_date || '') + '')">&#x270E;</button>' +
+                        '<span class="recheck-date ' + (overdue ? 'overdue' : 'upcoming') + '" id="rdate-' + r.id + '">' + dateStr + '</span>' +
+                        '<button class="recheck-edit-btn" onclick="' + editFn + '">&#x270E;</button>' +
                         '<button class="recheck-verify-btn" onclick="verifyRecheck(' + r.id + ')">Verify</button>' +
                         '</div></div></div>';
                 }).join('');
-        } catch (e) { console.error('Refresh failed:', e); }
+            }
+                } catch (e) { console.error('Refresh failed:', e); }
     }
 
     // Briefing
