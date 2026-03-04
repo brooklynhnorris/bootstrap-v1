@@ -1000,9 +1000,11 @@
             const priority  = taskData.priority || 'high';
             const hours     = taskData.estimated_hours || '?';
             const desc      = taskData.description || '';
-            const prompt    = 'I am starting this task now: "' + taskTitle + '" (Priority: ' + priority + ', Est: ' + hours + 'h).' +
+            const prompt    = 'I am starting this task now: ' + taskTitle +
+                ' (Priority: ' + priority + ', Est: ' + hours + 'h).' +
                 (desc ? ' Context: ' + desc : '') +
-                ' Walk me through exactly how to execute this step by step. Be specific — give me the exact changes to make, the files or pages to edit, and what to check when I'm done.';
+                ' Walk me through how to execute this step by step.' +
+                ' Give me the exact changes to make, files or pages to edit, and what to verify when done.';
             sendMessage(prompt);
         }, 400);
     }
