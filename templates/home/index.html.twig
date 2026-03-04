@@ -199,7 +199,8 @@
         #right-task-list { overflow-y: auto; flex: 1; padding: 8px 10px; scrollbar-width: thin; scrollbar-color: var(--border-medium) transparent; }
         .task-item { padding: 9px 11px; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); margin-bottom: 5px; cursor: pointer; transition: border-color 0.15s; }
         .task-item:hover { border-color: var(--accent-blue-border); }
-        .task-item.selected { border-color: var(--accent-blue); box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
+        .task-item.selected { border-color: var(--accent-blue) !important; background: var(--accent-blue-dim) !important; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
+        .task-item.selected::before { content: '\25B6  '; color: var(--accent-blue); font-size: 9px; }
         .task-item-header { display: flex; align-items: center; gap: 5px; margin-bottom: 3px; }
         .task-priority { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
         .task-priority.urgent { background: var(--accent-red-dim); color: var(--accent-red); border: 1px solid var(--accent-red-border); }
@@ -858,14 +859,31 @@
         const days     = parseInt(document.getElementById('recheck-modal-days').value) || 14;
         const criteria = document.getElementById('recheck-modal-criteria').value.trim();
         document.getElementById('recheck-confirm-modal').classList.remove('active');
+
         const res  = await fetch('/api/tasks/' + taskId + '/complete', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ recheck_days: days, recheck_criteria: criteria })
         });
         const data = await res.json();
-        showNotification('Task done — recheck in ' + days + 'd (' + data.recheck_date + ')', 'green');
-        refreshTasksPanel();
+
+        // Animate task out of the list immediately
+        const taskEl = document.getElementById('task-' + taskId);
+        if (taskEl) {
+            taskEl.style.transition = 'opacity 0.3s, transform 0.3s';
+            taskEl.style.opacity    = '0';
+            taskEl.style.transform  = 'translateX(20px)';
+            setTimeout(() => taskEl.remove(), 320);
+        }
+
+        // Clear active task highlight if this was the active one
+        if (currentTaskId === taskId) currentTaskId = null;
+
+        // Switch to Rechecks tab and refresh so it appears immediately
+        switchTab('rechecks');
+        await refreshTasksPanel();
+
+        showNotification('\u2713 Done \u2014 recheck set for ' + (data.recheck_date || days + 'd'), 'green');
     }
     async function verifyRecheck(id) {
         const passed = confirm('Did this task pass verification?\n\nOK = Pass\nCancel = Fail');
@@ -990,9 +1008,18 @@
         if (!panel.classList.contains('open')) toggleTasksPanel();
         await refreshTasksPanel();
 
+        // Highlight the task in the sidebar
+        currentTaskId = taskId;
+        document.querySelectorAll('.task-item').forEach(el => el.classList.remove('selected'));
+        const taskEl = document.getElementById('task-' + taskId);
+        if (taskEl) {
+            taskEl.classList.add('selected');
+            taskEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+
         // Start a fresh chat for this task
         newChat();
-        showNotification('Task started — opening task chat…', 'green');
+        showNotification('Task started — now in progress', 'green');
 
         // Small delay so newChat() clears the screen, then auto-send a detailed briefing prompt
         setTimeout(() => {
@@ -1187,9 +1214,34 @@
                 appendTaskCards(data.tasks_created);
             }
         } catch (e) {
-            const loadEl = document.getElementById('briefing-loading');
-            if (loadEl) loadEl.remove();
-            appendMessage('assistant', 'Error reaching Logiri. Please try again.');
+            // Retry once after 3s (handles Render cold start)
+            try {
+                await new Promise(r => setTimeout(r, 3000));
+                const res2  = await fetch('/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ messages, conversation_id: conversationId })
+                });
+                const data2  = await res2.json();
+                const reply2 = data2.response || data2.error || 'No response.';
+                if (data2.conversation_id) {
+                    const isNew2 = !conversationId;
+                    conversationId = data2.conversation_id;
+                    if (isNew2) addConvoToSidebar(conversationId, 'Briefing \u2014 ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                }
+                const loadEl2 = document.getElementById('briefing-loading');
+                if (loadEl2) loadEl2.remove();
+                messages.push({ role: 'assistant', content: reply2 });
+                appendMessage('assistant', reply2);
+                if (data2.tasks_created && data2.tasks_created.length > 0) {
+                    await refreshTasksPanel();
+                    appendTaskCards(data2.tasks_created);
+                }
+            } catch (e2) {
+                const loadEl = document.getElementById('briefing-loading');
+                if (loadEl) loadEl.remove();
+                appendMessage('assistant', 'Logiri is warming up. Type a message to get your briefing.');
+            }
         }
         typingEl.style.display = 'none';
         sendEl.disabled        = false;
