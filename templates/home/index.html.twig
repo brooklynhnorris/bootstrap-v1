@@ -954,7 +954,7 @@
             '</div>';
         const title = '<div class="ctc-title">' + escapeHtml(task.title || '') + '</div>';
         const btnId = 'stbtn-' + (task.id || Math.random());
-        const btn   = '<button id="' + btnId + '" class="chat-start-task-btn" onclick="startTaskFromChat(' + task.id + ', '' + btnId + '')">▶️ Start Task Now</button>';
+        const btn   = '<button id="' + btnId + '" class="chat-start-task-btn" onclick="startTaskFromChat(' + task.id + ', &quot;' + btnId + '&quot;)">&#9654; Start Task Now</button>';
         card.innerHTML = meta + title + btn;
         return card;
     }
