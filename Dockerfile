@@ -1,4 +1,4 @@
-﻿FROM php:8.4-apache
+FROM php:8.4-apache
 
 # System deps + PHP extensions Symfony commonly needs
 RUN apt-get update && apt-get install -y \
