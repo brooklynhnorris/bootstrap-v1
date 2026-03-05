@@ -9,10 +9,16 @@ RUN apt-get update && apt-get install -y \
 # Enable Apache modules Symfony typically needs
 RUN a2enmod rewrite headers env
 
-# Set Apache DocumentRoot to Symfony /public
-RUN sed -ri -e 's!/var/www/html!/var/www/html/public!g' /etc/apache2/sites-available/000-default.conf \
- && sed -ri -e 's!<Directory /var/www/html/>!<Directory /var/www/html/public/>!g' /etc/apache2/apache2.conf \
- && sed -ri -e 's/AllowOverride None/AllowOverride All/g' /etc/apache2/apache2.conf
+# Set Apache DocumentRoot to Symfony /public — write config directly, no sed guessing
+RUN echo '<VirtualHost *:80>\n\
+    DocumentRoot /var/www/html/public\n\
+    <Directory /var/www/html/public>\n\
+        AllowOverride All\n\
+        Require all granted\n\
+    </Directory>\n\
+    ErrorLog ${APACHE_LOG_DIR}/error.log\n\
+    CustomLog ${APACHE_LOG_DIR}/access.log combined\n\
+</VirtualHost>' > /etc/apache2/sites-available/000-default.conf
 
 # Install Composer
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
