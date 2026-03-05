@@ -1,966 +1,757 @@
-<?php
-
-namespace App\Controller;
-
-use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
-use Symfony\Component\HttpFoundation\Request;
-use Symfony\Component\HttpFoundation\Response;
-use Symfony\Component\HttpFoundation\JsonResponse;
-use Symfony\Component\Routing\Annotation\Route;
-use Doctrine\DBAL\Connection;
-
-class HomeController extends AbstractController
-{
-    public function __construct(private Connection $db)
-    {
-        $this->ensureSchema();
-    }
-
-    private function ensureSchema(): void
-    {
-        try {
-            $this->db->executeStatement('CREATE TABLE IF NOT EXISTS conversations (id SERIAL PRIMARY KEY, user_id INT DEFAULT NULL, title VARCHAR(255) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, is_archived BOOLEAN DEFAULT FALSE)');
-            $this->db->executeStatement('CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY, conversation_id INT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role VARCHAR(20) NOT NULL, content TEXT NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
-            $this->db->executeStatement('CREATE TABLE IF NOT EXISTS rule_reviews (id SERIAL PRIMARY KEY, conversation_id INT DEFAULT NULL REFERENCES conversations(id) ON DELETE SET NULL, rule_id VARCHAR(20) NOT NULL, verdict VARCHAR(30) NOT NULL, feedback TEXT DEFAULT NULL, reviewed_by VARCHAR(100) DEFAULT NULL, reviewed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
-            $this->db->executeStatement('CREATE TABLE IF NOT EXISTS user_overrides (id SERIAL PRIMARY KEY, url TEXT NOT NULL, field VARCHAR(50) NOT NULL, original_value TEXT DEFAULT NULL, override_value TEXT NOT NULL, reason TEXT DEFAULT NULL, overridden_by VARCHAR(100) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(url, field))');
-            $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages (conversation_id)');
-            $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_overrides_url ON user_overrides (url)');
-            $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_days INT DEFAULT NULL');
-            $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_criteria TEXT DEFAULT NULL');
-        } catch (\Exception $e) {
-            // Tables already exist or DB not ready — fail silently
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logiri — Double D Trailers</title>
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #ffffff;
+            --bg-secondary: #f8f8fa;
+            --bg-tertiary: #f0f0f3;
+            --bg-card: #ffffff;
+            --border-subtle: #e4e4e8;
+            --border-medium: #d0d0d6;
+            --border-accent: #b0b0ba;
+            --text-primary: #1a1a1f;
+            --text-secondary: #5c5c66;
+            --text-muted: #9898a0;
+            --accent-blue: #2563eb;
+            --accent-blue-dim: #eff4ff;
+            --accent-blue-border: #bfdbfe;
+            --accent-red: #dc2626;
+            --accent-red-dim: #fef2f2;
+            --accent-red-border: #fecaca;
+            --accent-yellow: #d97706;
+            --accent-yellow-dim: #fffbeb;
+            --accent-yellow-border: #fde68a;
+            --accent-green: #16a34a;
+            --accent-green-dim: #f0fdf4;
+            --accent-green-border: #bbf7d0;
+            --accent-purple: #7c3aed;
+            --accent-purple-dim: #f5f3ff;
+            --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+            --shadow-md: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
         }
-    }
-
-    // ─────────────────────────────────────────────
-    //  MAIN PAGE
-    // ─────────────────────────────────────────────
-
-    #[Route('/', name: 'home')]
-    public function index(): Response
-    {
-        $user = $this->getUser();
-        $tasks = $this->db->fetchAllAssociative(
-            "SELECT * FROM tasks WHERE status != 'done' ORDER BY CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC LIMIT 10"
-        );
-        $rechecks = $this->db->fetchAllAssociative(
-            "SELECT * FROM tasks WHERE status = 'done' AND recheck_date IS NOT NULL AND recheck_verified = false ORDER BY recheck_date ASC LIMIT 10"
-        );
-        $taskCounts = $this->db->fetchAssociative(
-            "SELECT
-                COUNT(*) FILTER (WHERE status != 'done' AND priority IN ('urgent','high')) as urgent,
-                COUNT(*) FILTER (WHERE status = 'in_progress') as active,
-                COUNT(*) FILTER (WHERE status = 'done') as done
-            FROM tasks"
-        );
-
-        // Load recent conversations for sidebar history
-        $userId = $user ? $user->getId() : null;
-        $conversations = $this->db->fetchAllAssociative(
-            "SELECT id, title, created_at, updated_at FROM conversations
-             WHERE user_id = ? AND is_archived = FALSE
-             ORDER BY updated_at DESC LIMIT 10",
-            [$userId]
-        );
-
-        return $this->render('home/index.html.twig', [
-            'userName'      => $user ? ($user->getName() ?? explode('@', $user->getEmail())[0]) : 'User',
-            'userRole'      => $user ? ($user->getTeamRole() ?? 'Owner') : 'Owner',
-            'userEmail'     => $user ? $user->getEmail() : '',
-            'tasks'         => $tasks,
-            'rechecks'      => $rechecks,
-            'taskCounts'    => $taskCounts ?: ['urgent' => 0, 'active' => 0, 'done' => 0],
-            'conversations' => $conversations,
-        ]);
-    }
-
-    // ─────────────────────────────────────────────
-    //  CHAT
-    // ─────────────────────────────────────────────
-
-    #[Route('/chat', name: 'chat', methods: ['POST'])]
-    public function chat(Request $request): JsonResponse
-    {
-        $body           = json_decode($request->getContent(), true);
-        $messages       = $body['messages'] ?? [];
-        $conversationId = $body['conversation_id'] ?? null;
-
-        $user     = $this->getUser();
-        $userName = $user ? ($user->getName() ?? explode('@', $user->getEmail())[0]) : 'User';
-        $userRole = $user ? ($user->getTeamRole() ?? 'Owner') : 'Owner';
-        $userId   = $user ? $user->getId() : null;
-
-        // ── Fetch data for system prompt ──
-        $semrush = $this->db->fetchAssociative(
-            'SELECT organic_keywords, organic_traffic, fetched_at FROM semrush_snapshots ORDER BY fetched_at DESC LIMIT 1'
-        );
-        $topQueries28d = $this->db->fetchAllAssociative(
-            "SELECT query, page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE date_range = '28d' ORDER BY impressions DESC LIMIT 10"
-        );
-        $topQueries90d = $this->db->fetchAllAssociative(
-            "SELECT query, page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE date_range = '90d' ORDER BY impressions DESC LIMIT 15"
-        );
-        $pageAggregates = $this->db->fetchAllAssociative(
-            "SELECT page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE query = '__PAGE_AGGREGATE__' ORDER BY impressions DESC LIMIT 15"
-        );
-        $brandedQueries = $this->db->fetchAllAssociative(
-            "SELECT query, page, clicks, impressions, position FROM gsc_snapshots WHERE date_range = '28d_branded' ORDER BY impressions DESC LIMIT 10"
-        );
-        $cannibalizationCandidates = $this->db->fetchAllAssociative(
-            "SELECT query, COUNT(DISTINCT page) as page_count, SUM(impressions) as total_impressions
-             FROM gsc_snapshots WHERE date_range = '28d' AND query != '__PAGE_AGGREGATE__'
-             GROUP BY query HAVING COUNT(DISTINCT page) > 1
-             ORDER BY total_impressions DESC LIMIT 15"
-        );
-        $topPages = $this->db->fetchAllAssociative(
-            "SELECT page_path, sessions, pageviews, bounce_rate, avg_engagement_time, engaged_sessions, conversions
-             FROM ga4_snapshots WHERE date_range = '28d' ORDER BY sessions DESC LIMIT 15"
-        );
-        $previousPages = $this->db->fetchAllAssociative(
-            "SELECT page_path, sessions, pageviews, bounce_rate, avg_engagement_time, conversions
-             FROM ga4_snapshots WHERE date_range = '28d_previous' ORDER BY sessions DESC LIMIT 15"
-        );
-        $landingPages = $this->db->fetchAllAssociative(
-            "SELECT page_path, sessions, bounce_rate, avg_engagement_time, conversions
-             FROM ga4_snapshots WHERE date_range = '28d_landing' ORDER BY sessions DESC LIMIT 10"
-        );
-        $adsCampaigns = $this->db->fetchAllAssociative(
-            "SELECT campaign_name, impressions, clicks, cost_micros, conversions, ctr, average_cpc, status
-             FROM google_ads_snapshots WHERE data_type = 'campaign' ORDER BY cost_micros DESC LIMIT 8"
-        );
-        $adsKeywords = $this->db->fetchAllAssociative(
-            "SELECT keyword, match_type, campaign_name, impressions, clicks, cost_micros, conversions, ctr, average_cpc
-             FROM google_ads_snapshots WHERE data_type = 'keyword' ORDER BY cost_micros DESC LIMIT 8"
-        );
-        $adsSearchTerms = $this->db->fetchAllAssociative(
-            "SELECT keyword as search_term, campaign_name, impressions, clicks, cost_micros, conversions, ctr
-             FROM google_ads_snapshots WHERE data_type = 'search_term' ORDER BY clicks DESC LIMIT 8"
-        );
-        $adsDailySpend = $this->db->fetchAllAssociative(
-            "SELECT date_range as date, cost_micros, clicks, impressions, conversions
-             FROM google_ads_snapshots WHERE data_type = 'daily_spend' ORDER BY date_range DESC LIMIT 7"
-        );
-        $activeTasks = $this->db->fetchAllAssociative(
-            "SELECT id, title, assigned_to, assigned_role, status, priority, estimated_hours, logged_hours, created_at FROM tasks WHERE status != 'done' ORDER BY created_at DESC LIMIT 10"
-        );
-        $pendingRechecks = $this->db->fetchAllAssociative(
-            "SELECT id, title, assigned_to, recheck_date, recheck_type FROM tasks WHERE status = 'done' AND recheck_date IS NOT NULL AND recheck_verified = false AND recheck_date <= CURRENT_DATE + INTERVAL '3 days' ORDER BY recheck_date ASC LIMIT 5"
-        );
-
-        // ── Load crawl data for rules engine ──
-        $crawlData = $this->loadCrawlData();
-
-        // ── Load recent rule reviews and overrides for context ──
-        $recentReviews = $this->loadRecentReviews();
-        $overrideCount = $this->loadOverrideCount();
-
-        // ── Persist conversation ──
-        if (!$conversationId) {
-            // New conversation — create it
-            $firstUserMsg = '';
-            foreach ($messages as $msg) {
-                if ($msg['role'] === 'user') { $firstUserMsg = $msg['content']; break; }
-            }
-            $title = $this->generateTitle($firstUserMsg);
-            $this->db->insert('conversations', [
-                'user_id'    => $userId,
-                'title'      => $title,
-                'created_at' => date('Y-m-d H:i:s'),
-                'updated_at' => date('Y-m-d H:i:s'),
-            ]);
-            $conversationId = $this->db->lastInsertId();
-        } else {
-            // Touch updated_at
-            $this->db->executeStatement(
-                'UPDATE conversations SET updated_at = ? WHERE id = ?',
-                [date('Y-m-d H:i:s'), $conversationId]
-            );
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            height: 100vh; display: flex; overflow: hidden;
         }
 
-        // Save the latest user message
-        $lastMsg = end($messages);
-        if ($lastMsg && $lastMsg['role'] === 'user') {
-            $this->db->insert('messages', [
-                'conversation_id' => $conversationId,
-                'role'            => 'user',
-                'content'         => $lastMsg['content'],
-                'created_at'      => date('Y-m-d H:i:s'),
-            ]);
+        /* ── Sidebar ── */
+        #sidebar {
+            width: 290px; min-width: 290px; background: var(--bg-primary);
+            border-right: 1px solid var(--border-subtle);
+            display: flex; flex-direction: column; overflow: hidden;
+        }
+        #sidebar-header { padding: 20px; border-bottom: 1px solid var(--border-subtle); }
+        #sidebar-header h1 { font-size: 20px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
+        #sidebar-header p { font-size: 11px; color: var(--text-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: 0.8px; }
+
+        .user-card {
+            padding: 14px 20px; border-bottom: 1px solid var(--border-subtle);
+            display: flex; align-items: center; gap: 10px;
+        }
+        .user-avatar {
+            width: 34px; height: 34px; border-radius: 50%;
+            background: var(--accent-blue-dim); color: var(--accent-blue);
+            display: flex; align-items: center; justify-content: center;
+            font-size: 13px; font-weight: 600; border: 1px solid var(--accent-blue-border);
+        }
+        .user-info { flex: 1; }
+        .user-name { font-size: 13px; font-weight: 600; }
+        .user-role { font-size: 11px; color: var(--text-muted); }
+        .user-logout { font-size: 11px; color: var(--text-muted); text-decoration: none; padding: 4px 8px; border-radius: 4px; transition: all 0.15s; }
+        .user-logout:hover { background: var(--bg-tertiary); color: var(--text-secondary); }
+
+        .sidebar-section { padding: 14px 20px; border-bottom: 1px solid var(--border-subtle); }
+        .sidebar-section-title {
+            font-size: 10px; font-weight: 600; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .task-summary { display: flex; gap: 6px; }
+        .task-stat {
+            flex: 1; background: var(--bg-secondary); border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm); padding: 8px; text-align: center;
+        }
+        .task-stat-number { font-size: 18px; font-weight: 700; font-family: 'JetBrains Mono', monospace; }
+        .task-stat-number.urgent { color: var(--accent-red); }
+        .task-stat-number.active { color: var(--accent-yellow); }
+        .task-stat-number.done { color: var(--accent-green); }
+        .task-stat-label { font-size: 9px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-top: 1px; }
+
+        #sidebar-scroll { flex: 1; overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--border-medium) transparent; }
+
+        /* Task items */
+        .task-item {
+            padding: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm); margin-bottom: 6px; cursor: pointer;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .task-item:hover { border-color: var(--accent-blue-border); box-shadow: var(--shadow-sm); }
+        .task-item.selected { border-color: var(--accent-blue); box-shadow: 0 0 0 2px rgba(37,99,235,0.1); }
+        .task-item-header { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
+        .task-priority {
+            font-size: 9px; font-weight: 600; padding: 2px 6px; border-radius: 3px;
+            text-transform: uppercase; letter-spacing: 0.5px;
+        }
+        .task-priority.urgent { background: var(--accent-red-dim); color: var(--accent-red); border: 1px solid var(--accent-red-border); }
+        .task-priority.high { background: var(--accent-yellow-dim); color: var(--accent-yellow); border: 1px solid var(--accent-yellow-border); }
+        .task-priority.medium { background: var(--accent-blue-dim); color: var(--accent-blue); border: 1px solid var(--accent-blue-border); }
+        .task-priority.low { background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border-subtle); }
+        .task-assignee { font-size: 10px; color: var(--text-muted); margin-left: auto; }
+        .task-title { font-size: 12px; color: var(--text-secondary); line-height: 1.4; }
+        .task-meta { display: flex; gap: 8px; margin-top: 6px; align-items: center; }
+        .task-hours { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+        .task-status-badge {
+            font-size: 9px; padding: 1px 5px; border-radius: 3px;
+            background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border-subtle);
+        }
+        .task-status-badge.in_progress { background: var(--accent-yellow-dim); color: var(--accent-yellow); border-color: var(--accent-yellow-border); }
+        .task-actions-row { display: flex; gap: 4px; margin-top: 6px; }
+        .task-action-btn {
+            font-size: 10px; padding: 3px 8px; border-radius: 3px; border: 1px solid var(--border-subtle);
+            background: var(--bg-secondary); color: var(--text-muted); cursor: pointer;
+            font-family: 'DM Sans', sans-serif; transition: all 0.15s;
+        }
+        .task-action-btn:hover { border-color: var(--border-accent); color: var(--text-secondary); }
+        .task-action-btn.complete:hover { border-color: var(--accent-green-border); color: var(--accent-green); background: var(--accent-green-dim); }
+        .task-action-btn.start:hover { border-color: var(--accent-yellow-border); color: var(--accent-yellow); background: var(--accent-yellow-dim); }
+        .task-empty { font-size: 12px; color: var(--text-muted); font-style: italic; padding: 4px 0; }
+
+        /* Rechecks */
+        .recheck-item {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 8px 10px; background: var(--bg-primary); border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm); margin-bottom: 5px;
+        }
+        .recheck-info { font-size: 11px; color: var(--text-secondary); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .recheck-date {
+            font-size: 10px; font-family: 'JetBrains Mono', monospace;
+            padding: 2px 6px; border-radius: 3px; flex-shrink: 0; margin-left: 6px;
+        }
+        .recheck-date.overdue { background: var(--accent-red-dim); color: var(--accent-red); }
+        .recheck-date.upcoming { background: var(--accent-yellow-dim); color: var(--accent-yellow); }
+        .recheck-verify-btn {
+            font-size: 9px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--accent-green-border);
+            background: var(--accent-green-dim); color: var(--accent-green); cursor: pointer;
+            font-family: 'DM Sans', sans-serif; margin-left: 4px; transition: all 0.15s;
+        }
+        .recheck-verify-btn:hover { background: var(--accent-green); color: #fff; }
+
+        /* ── Main Area ── */
+        #main { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        #chat-header {
+            padding: 12px 24px; border-bottom: 1px solid var(--border-subtle);
+            display: flex; align-items: center; justify-content: space-between;
+            background: var(--bg-primary);
+        }
+        #chat-header-left { display: flex; align-items: center; gap: 10px; }
+        .pulse-dot { width: 8px; height: 8px; background: var(--accent-green); border-radius: 50%; animation: pulse 2s infinite; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+        #chat-header-label { font-size: 13px; color: var(--text-secondary); }
+
+        /* Tab bar */
+        .tab-bar { display: flex; gap: 2px; }
+        .tab-btn {
+            padding: 6px 14px; border-radius: var(--radius-sm); border: 1px solid transparent;
+            background: transparent; color: var(--text-muted); font-size: 12px; font-weight: 500;
+            font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s;
+        }
+        .tab-btn:hover { background: var(--bg-secondary); color: var(--text-secondary); }
+        .tab-btn.active { background: var(--accent-blue-dim); color: var(--accent-blue); border-color: var(--accent-blue-border); }
+
+        .header-btns { display: flex; gap: 6px; }
+        .header-btn {
+            background: var(--bg-secondary); border: 1px solid var(--border-medium);
+            color: var(--text-secondary); padding: 6px 12px; border-radius: var(--radius-sm);
+            font-size: 12px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s;
+        }
+        .header-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+
+        /* Chat view */
+        #chat-view, #tasks-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+        #tasks-view { display: none; }
+
+        #messages {
+            flex: 1; overflow-y: auto; padding: 24px 32px; min-height: 0;
+            display: flex; flex-direction: column; gap: 20px;
+            scrollbar-width: thin; scrollbar-color: var(--border-medium) transparent;
+        }
+        .message { max-width: 820px; line-height: 1.7; font-size: 14px; animation: fadeIn 0.25s ease; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+        .message.user {
+            align-self: flex-end; background: var(--accent-blue); color: #fff;
+            padding: 10px 16px; border-radius: var(--radius-lg) var(--radius-lg) 3px var(--radius-lg);
+            font-size: 14px;
+        }
+        .message.assistant { align-self: flex-start; width: 100%; }
+        .message.assistant .bubble {
+            background: var(--bg-primary); border: 1px solid var(--border-subtle);
+            padding: 20px 24px; border-radius: 3px var(--radius-lg) var(--radius-lg) var(--radius-lg);
+            box-shadow: var(--shadow-sm);
         }
 
-        // ── Build system prompt ──
-        $systemPrompt = $this->buildSystemPrompt(
-            $semrush ?: [], $topQueries28d, $topPages, $userName, $userRole,
-            $activeTasks, $pendingRechecks, $topQueries90d, $pageAggregates,
-            $brandedQueries, $cannibalizationCandidates, $previousPages, $landingPages,
-            $adsCampaigns, $adsKeywords, $adsSearchTerms, $adsDailySpend,
-            $recentReviews, $overrideCount, $crawlData
-        );
-
-        // ── Call Claude API ──
-        $claudeMessages = [];
-        foreach ($messages as $msg) {
-            $claudeMessages[] = ['role' => $msg['role'], 'content' => $msg['content']];
+        /* Markdown in chat */
+        .bubble h1 { font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 20px 0 8px 0; letter-spacing: -0.3px; }
+        .bubble h1:first-child { margin-top: 0; }
+        .bubble h2 { font-size: 15px; font-weight: 600; color: var(--text-primary); margin: 18px 0 6px 0; padding-bottom: 6px; border-bottom: 1px solid var(--border-subtle); }
+        .bubble h3 { font-size: 14px; font-weight: 600; color: var(--text-primary); margin: 14px 0 4px 0; }
+        .bubble p { margin: 8px 0; color: var(--text-secondary); }
+        .bubble strong { color: var(--text-primary); font-weight: 600; }
+        .bubble ul, .bubble ol { margin: 8px 0; padding-left: 20px; color: var(--text-secondary); }
+        .bubble li { margin: 4px 0; }
+        .bubble code {
+            font-family: 'JetBrains Mono', monospace; font-size: 12px;
+            background: var(--bg-tertiary); border: 1px solid var(--border-subtle);
+            padding: 1px 5px; border-radius: 3px; color: var(--accent-blue);
         }
+        .bubble pre { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); padding: 12px 16px; margin: 10px 0; overflow-x: auto; }
+        .bubble pre code { background: none; border: none; padding: 0; color: var(--text-secondary); }
+        .bubble hr { border: none; border-top: 1px solid var(--border-subtle); margin: 16px 0; }
+        .bubble table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 13px; }
+        .bubble th { text-align: left; padding: 8px 12px; background: var(--bg-secondary); border: 1px solid var(--border-subtle); color: var(--text-primary); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+        .bubble td { padding: 8px 12px; border: 1px solid var(--border-subtle); color: var(--text-secondary); }
+        .bubble tr:hover td { background: var(--bg-secondary); }
 
-        $claudeKey   = $_ENV['ANTHROPIC_API_KEY'] ?? '';
-        $claudeModel = $_ENV['ANTHROPIC_MODEL'] ?? 'claude-sonnet-4-5';
-
-        $payload = json_encode([
-            'model'      => $claudeModel,
-            'max_tokens' => 4096,
-            'system'     => $systemPrompt,
-            'messages'   => $claudeMessages,
-        ]);
-
-        $ch = curl_init('https://api.anthropic.com/v1/messages');
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $payload,
-            CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'x-api-key: ' . $claudeKey,
-                'anthropic-version: 2023-06-01',
-            ],
-            CURLOPT_TIMEOUT        => 90,
-            CURLOPT_CONNECTTIMEOUT => 10,
-        ]);
-        $response = curl_exec($ch);
-        $curlError = curl_error($ch);
-        curl_close($ch);
-
-        if ($curlError) {
-            return new JsonResponse(['error' => 'API connection failed: ' . $curlError], 500);
+        /* Chat quick actions */
+        .chat-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border-subtle); }
+        .chat-btn {
+            background: var(--bg-secondary); border: 1px solid var(--border-medium);
+            color: var(--text-secondary); padding: 6px 12px; border-radius: var(--radius-sm);
+            font-size: 11px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s;
         }
+        .chat-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); border-color: var(--border-accent); }
 
-        $data = json_decode($response, true);
+        /* Typing */
+        .typing-indicator { display: none; align-self: flex-start; padding: 8px 32px; }
+        .typing-dots { display: flex; gap: 4px; align-items: center; }
+        .typing-dots span { width: 6px; height: 6px; background: var(--text-muted); border-radius: 50%; animation: bounce 1.2s infinite; }
+        .typing-dots span:nth-child(2) { animation-delay: 0.15s; }
+        .typing-dots span:nth-child(3) { animation-delay: 0.3s; }
+        @keyframes bounce { 0%, 60%, 100% { transform: translateY(0); opacity: 0.4; } 30% { transform: translateY(-4px); opacity: 1; } }
 
-        if (isset($data['error'])) {
-            return new JsonResponse(['error' => $data['error']['message']], 500);
+        /* Input */
+        #input-area { padding: 14px 32px 18px; border-top: 1px solid var(--border-subtle); display: flex; gap: 10px; background: var(--bg-primary); }
+        #input {
+            flex: 1; background: var(--bg-secondary); border: 1px solid var(--border-medium);
+            border-radius: var(--radius-md); padding: 12px 16px; color: var(--text-primary);
+            font-size: 14px; resize: none; height: 48px; line-height: 24px;
+            font-family: 'DM Sans', sans-serif; transition: border-color 0.15s;
         }
+        #input:focus { outline: none; border-color: var(--accent-blue); box-shadow: 0 0 0 3px rgba(37,99,235,0.1); }
+        #input::placeholder { color: var(--text-muted); }
+        #send {
+            background: var(--accent-blue); border: none; color: #fff;
+            padding: 0 20px; border-radius: var(--radius-md); cursor: pointer;
+            font-size: 13px; font-weight: 600; font-family: 'DM Sans', sans-serif; transition: background 0.15s;
+        }
+        #send:hover { background: #1d4ed8; }
+        #send:disabled { opacity: 0.4; cursor: not-allowed; }
 
-        $text = $data['content'][0]['text'] ?? 'No response from Claude.';
+        /* ── Task Detail Panel ── */
+        #task-detail-panel {
+            display: none; width: 380px; min-width: 380px; background: var(--bg-primary);
+            border-left: 1px solid var(--border-subtle); flex-direction: column; overflow: hidden;
+        }
+        #task-detail-panel.open { display: flex; }
+        .panel-header {
+            padding: 16px 20px; border-bottom: 1px solid var(--border-subtle);
+            display: flex; align-items: center; justify-content: space-between;
+        }
+        .panel-header h3 { font-size: 14px; font-weight: 600; }
+        .panel-close {
+            background: none; border: none; font-size: 18px; color: var(--text-muted);
+            cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: all 0.15s;
+        }
+        .panel-close:hover { background: var(--bg-tertiary); color: var(--text-primary); }
+        .panel-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+        .panel-field { margin-bottom: 14px; }
+        .panel-label { font-size: 10px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .panel-value { font-size: 13px; color: var(--text-secondary); line-height: 1.5; }
 
-        // ── Auto-create tasks ──
-        $tasksCreated = [];
-        if (preg_match('/<!-- TASKS_JSON -->\s*(.*?)\s*<!-- \/TASKS_JSON -->/s', $text, $matches)) {
-            $aiTasks = json_decode(trim($matches[1]), true);
-            $activeCount = (int)$this->db->fetchOne("SELECT COUNT(*) FROM tasks WHERE status != 'done'");
-            if (is_array($aiTasks) && $activeCount < 30) {
-                foreach ($aiTasks as $aiTask) {
-                    $title = $aiTask['title'] ?? '';
-                    if (!$title) continue;
-                    $existing = $this->db->fetchAssociative(
-                        "SELECT id FROM tasks WHERE title = ? AND status != 'done' LIMIT 1", [$title]
-                    );
-                    if ($existing) continue;
-                    // Also skip if same URL appears in an active task with same rule prefix
-                    if (preg_match('|(/[^/ ]+/)|u', $title, $urlParts)) {
-                        $urlFrag = $urlParts[1];
-                        $rulePrefix = substr($title, 0, 10);
-                        $nearDup = $this->db->fetchAssociative(
-                            "SELECT id FROM tasks WHERE title LIKE ? AND title LIKE ? AND status != 'done' LIMIT 1",
-                            ['%' . $urlFrag . '%', $rulePrefix . '%']
-                        );
-                        if ($nearDup) continue;
-                    }
-                    $priority = in_array($aiTask['priority'] ?? '', ['critical','high','medium','low']) ? $aiTask['priority'] : 'medium';
-                    $this->db->insert('tasks', [
-                        'title'            => $title,
-                        'description'      => $aiTask['description'] ?? null,
-                        'assigned_to'      => $aiTask['assigned_to'] ?? null,
-                        'assigned_role'    => $aiTask['role'] ?? null,
-                        'status'           => 'pending',
-                        'priority'         => $priority,
-                        'estimated_hours'  => floatval($aiTask['estimated_hours'] ?? 1),
-                        'logged_hours'     => 0,
-                        'recheck_type'     => $aiTask['recheck_type'] ?? null,
-                        'recheck_days'     => isset($aiTask['recheck_days']) ? intval($aiTask['recheck_days']) : null,
-                        'recheck_criteria' => $aiTask['recheck_criteria'] ?? null,
-                        'created_at'       => date('Y-m-d H:i:s'),
-                    ]);
-                    $newTask = $this->db->fetchAssociative('SELECT id, title, priority, assigned_to, estimated_hours, recheck_type FROM tasks WHERE title = ? AND status != ? LIMIT 1', [$title, 'done']);
-                    $tasksCreated[] = $newTask ?: ['title' => $title];
+        /* Time log in panel */
+        .time-log-row {
+            display: flex; gap: 6px; align-items: center; margin-top: 8px;
+        }
+        .time-log-input {
+            width: 60px; background: var(--bg-secondary); border: 1px solid var(--border-medium);
+            border-radius: 4px; padding: 4px 8px; font-size: 12px; color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace; text-align: center;
+        }
+        .time-log-input:focus { outline: none; border-color: var(--accent-blue); }
+        .time-log-btn {
+            font-size: 11px; padding: 4px 10px; border-radius: 4px;
+            background: var(--accent-blue-dim); border: 1px solid var(--accent-blue-border);
+            color: var(--accent-blue); cursor: pointer; font-family: 'DM Sans', sans-serif;
+            transition: all 0.15s;
+        }
+        .time-log-btn:hover { background: var(--accent-blue); color: #fff; }
+
+        /* Task AI chat in panel */
+        .panel-chat { border-top: 1px solid var(--border-subtle); padding: 12px 20px; }
+        .panel-chat-title { font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 8px; }
+        .panel-chat-input-row { display: flex; gap: 6px; }
+        .panel-chat-input {
+            flex: 1; background: var(--bg-secondary); border: 1px solid var(--border-medium);
+            border-radius: 6px; padding: 8px 12px; font-size: 12px; color: var(--text-primary);
+            font-family: 'DM Sans', sans-serif;
+        }
+        .panel-chat-input:focus { outline: none; border-color: var(--accent-blue); }
+        .panel-chat-send {
+            font-size: 11px; padding: 8px 12px; border-radius: 6px;
+            background: var(--accent-blue); border: none; color: #fff;
+            cursor: pointer; font-family: 'DM Sans', sans-serif;
+        }
+        .panel-chat-messages { max-height: 200px; overflow-y: auto; margin-bottom: 8px; }
+        .panel-chat-msg { font-size: 12px; margin-bottom: 6px; line-height: 1.5; }
+        .panel-chat-msg.ai { color: var(--text-secondary); background: var(--bg-secondary); padding: 8px 10px; border-radius: 6px; border: 1px solid var(--border-subtle); }
+        .panel-chat-msg.user-msg { color: var(--accent-blue); text-align: right; }
+
+        /* Modal */
+        .modal-overlay {
+            display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.3); z-index: 100; align-items: center; justify-content: center;
+        }
+        .modal-overlay.active { display: flex; }
+        .modal {
+            background: var(--bg-primary); border: 1px solid var(--border-subtle);
+            border-radius: 12px; padding: 24px; width: 420px; max-width: 90vw;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.12);
+        }
+        .modal h3 { font-size: 16px; font-weight: 600; margin-bottom: 16px; }
+        .modal-field { margin-bottom: 12px; }
+        .modal-field label { display: block; font-size: 11px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+        .modal-field input, .modal-field select, .modal-field textarea {
+            width: 100%; background: var(--bg-secondary); border: 1px solid var(--border-medium);
+            border-radius: 6px; padding: 8px 12px; color: var(--text-primary); font-size: 13px;
+            font-family: 'DM Sans', sans-serif;
+        }
+        .modal-field textarea { height: 60px; resize: vertical; }
+        .modal-field input:focus, .modal-field select:focus, .modal-field textarea:focus { outline: none; border-color: var(--accent-blue); }
+        .modal-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+        .modal-btn { padding: 8px 16px; border-radius: 6px; font-size: 13px; font-weight: 500; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: all 0.15s; }
+        .modal-btn.cancel { background: var(--bg-secondary); border: 1px solid var(--border-medium); color: var(--text-secondary); }
+        .modal-btn.cancel:hover { background: var(--bg-tertiary); }
+        .modal-btn.save { background: var(--accent-blue); border: none; color: #fff; }
+        .modal-btn.save:hover { background: #1d4ed8; }
+
+        @media (max-width: 768px) {
+            #sidebar { display: none; }
+            #task-detail-panel { display: none !important; }
+            #messages { padding: 16px; }
+            #input-area { padding: 12px 16px; }
+        }
+    </style>
+</head>
+<body>
+    <!-- Sidebar -->
+    <div id="sidebar">
+        <div id="sidebar-header">
+            <h1>Logiri</h1>
+            <p>SEO Intelligence · Double D Trailers</p>
+        </div>
+        <div class="user-card">
+            <div class="user-avatar">{{ userName[:2]|upper }}</div>
+            <div class="user-info">
+                <div class="user-name">{{ userName }}</div>
+                <div class="user-role">{{ userRole }}</div>
+            </div>
+            <a href="{{ logout_path() }}" class="user-logout">Logout</a>
+        </div>
+        <div id="sidebar-scroll">
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Overview</div>
+                <div class="task-summary">
+                    <div class="task-stat"><div class="task-stat-number urgent" id="count-urgent">{{ taskCounts.urgent }}</div><div class="task-stat-label">Urgent</div></div>
+                    <div class="task-stat"><div class="task-stat-number active" id="count-active">{{ taskCounts.active }}</div><div class="task-stat-label">Active</div></div>
+                    <div class="task-stat"><div class="task-stat-number done" id="count-done">{{ taskCounts.done }}</div><div class="task-stat-label">Done</div></div>
+                </div>
+            </div>
+            <div class="sidebar-section" style="border-bottom: none;">
+                <div class="sidebar-section-title">Tasks <button class="task-action-btn" onclick="openAddTask()">+ Add</button></div>
+                <div id="task-list">
+                    {% if tasks is empty %}
+                        <div class="task-empty">No active tasks. Ask Logiri for a briefing.</div>
+                    {% else %}
+                        {% for task in tasks %}
+                        <div class="task-item" id="task-{{ task.id }}" onclick="openTaskDetail({{ task.id }})">
+                            <div class="task-item-header">
+                                <span class="task-priority {{ task.priority }}">{{ task.priority }}</span>
+                                <span class="task-assignee">{{ task.assigned_to ?? 'Unassigned' }}</span>
+                            </div>
+                            <div class="task-title">{{ task.title }}</div>
+                            <div class="task-meta">
+                                <span class="task-hours">{{ task.estimated_hours ?? '?' }}h est</span>
+                                <span class="task-status-badge {{ task.status }}">{{ task.status }}</span>
+                            </div>
+                            <div class="task-actions-row">
+                                {% if task.status == 'pending' %}
+                                    <button class="task-action-btn start" onclick="event.stopPropagation(); startTask({{ task.id }})">▶ Start</button>
+                                {% endif %}
+                                {% if task.status != 'done' %}
+                                    <button class="task-action-btn complete" onclick="event.stopPropagation(); completeTask({{ task.id }})">✓ Done</button>
+                                {% endif %}
+                            </div>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+            <div class="sidebar-section">
+                <div class="sidebar-section-title">Rechecks</div>
+                <div id="recheck-list">
+                    {% if rechecks is empty %}
+                        <div class="task-empty">No rechecks pending</div>
+                    {% else %}
+                        {% for r in rechecks %}
+                        <div class="recheck-item">
+                            <span class="recheck-info">{{ r.title }}</span>
+                            <span class="recheck-date upcoming">{{ r.recheck_date }}</span>
+                            <button class="recheck-verify-btn" onclick="verifyRecheck({{ r.id }})">Verify</button>
+                        </div>
+                        {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Task Modal -->
+    <div class="modal-overlay" id="add-task-modal">
+        <div class="modal">
+            <h3>Add Task</h3>
+            <div class="modal-field"><label>Title</label><input type="text" id="new-task-title" placeholder="Task description..."></div>
+            <div class="modal-field"><label>Assigned To</label><select id="new-task-assignee"><option value="Brook">Brook (SEO + Content)</option><option value="Kalib">Kalib (Sales)</option><option value="Brad">Brad (Marketing)</option></select></div>
+            <div class="modal-field"><label>Priority</label><select id="new-task-priority"><option value="high">High</option><option value="medium" selected>Medium</option><option value="urgent">Urgent</option><option value="low">Low</option></select></div>
+            <div class="modal-field"><label>Est. Hours</label><input type="number" id="new-task-hours" value="1" min="0.5" step="0.5"></div>
+            <div class="modal-field"><label>Recheck Type</label><select id="new-task-recheck"><option value="">None</option><option value="cannibalization_fix">Cannibalization (14d)</option><option value="intent_mismatch">Intent Mismatch (14d)</option><option value="ranking_drop">Ranking Drop (28d)</option><option value="404_fix">404 Fix (7d)</option><option value="sitemap_fix">Sitemap Fix (7d)</option></select></div>
+            <div class="modal-btns"><button class="modal-btn cancel" onclick="closeAddTask()">Cancel</button><button class="modal-btn save" onclick="saveNewTask()">Add Task</button></div>
+        </div>
+    </div>
+
+    <!-- Main Chat -->
+    <div id="main">
+        <div id="chat-header">
+            <div id="chat-header-left">
+                <div class="pulse-dot"></div>
+                <span id="chat-header-label">Logiri is online</span>
+            </div>
+            <div class="header-btns">
+                <button class="header-btn" onclick="resetChat()">+ New Chat</button>
+            </div>
+        </div>
+        <div id="chat-view">
+            <div id="messages"></div>
+            <div class="typing-indicator" id="typing"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+            <div id="input-area">
+                <textarea id="input" placeholder="Ask Logiri about your SEO, tasks, or priorities..." rows="1"></textarea>
+                <button id="send">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Task Detail Panel -->
+    <div id="task-detail-panel">
+        <div class="panel-header">
+            <h3 id="panel-title">Task Detail</h3>
+            <button class="panel-close" onclick="closeTaskDetail()">✕</button>
+        </div>
+        <div class="panel-body" id="panel-body"></div>
+        <div class="panel-chat">
+            <div class="panel-chat-title">Ask AI about this task</div>
+            <div class="panel-chat-messages" id="panel-chat-messages"></div>
+            <div class="panel-chat-input-row">
+                <input type="text" class="panel-chat-input" id="panel-chat-input" placeholder="Ask about this task...">
+                <button class="panel-chat-send" onclick="sendTaskChat()">Ask</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        marked.setOptions({ breaks: true, gfm: true, headerIds: false, mangle: false });
+        const USER_NAME = '{{ userName }}';
+        const USER_ROLE = '{{ userRole }}';
+        let messages = [];
+        let currentTaskId = null;
+        let taskChatMessages = [];
+        const messagesEl = document.getElementById('messages');
+        const inputEl = document.getElementById('input');
+        const sendEl = document.getElementById('send');
+        const typingEl = document.getElementById('typing');
+
+        // ── Main Chat ──
+        async function sendMessage(text) {
+            messages.push({ role: 'user', content: text });
+            appendMessage('user', text);
+            inputEl.value = '';
+            sendEl.disabled = true;
+            typingEl.style.display = 'block';
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            try {
+                const res = await fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }) });
+                const data = await res.json();
+                const reply = data.response || data.error || 'No response.';
+                messages.push({ role: 'assistant', content: reply });
+                appendMessage('assistant', reply);
+
+                // Auto-refresh sidebar if tasks were created
+                if (data.tasks_created && data.tasks_created.length > 0) {
+                    await refreshSidebar();
+                    showTaskNotification(data.tasks_created.length);
                 }
-            }
-            $text = preg_replace('/<!-- TASKS_JSON -->.*?<!-- \/TASKS_JSON -->/s', '', $text);
-            $text = rtrim($text);
+            } catch (e) { appendMessage('assistant', 'Error reaching Logiri. Please try again.'); }
+            typingEl.style.display = 'none';
+            sendEl.disabled = false;
+            inputEl.focus();
         }
 
-        // ── Save assistant response ──
-        $this->db->insert('messages', [
-            'conversation_id' => $conversationId,
-            'role'            => 'assistant',
-            'content'         => $text,
-            'created_at'      => date('Y-m-d H:i:s'),
-        ]);
-
-        return new JsonResponse([
-            'response'        => $text,
-            'tasks_created'   => $tasksCreated,
-            'conversation_id' => $conversationId,
-        ]);
-    }
-
-    // ─────────────────────────────────────────────
-    //  CONVERSATION API
-    // ─────────────────────────────────────────────
-
-    #[Route('/api/conversations', name: 'api_conversations_list', methods: ['GET'])]
-    public function listConversations(): JsonResponse
-    {
-        $user   = $this->getUser();
-        $userId = $user ? $user->getId() : null;
-        $convos = $this->db->fetchAllAssociative(
-            "SELECT id, title, created_at, updated_at FROM conversations
-             WHERE user_id = ? AND is_archived = FALSE
-             ORDER BY updated_at DESC LIMIT 30",
-            [$userId]
-        );
-        return new JsonResponse($convos);
-    }
-
-    #[Route('/api/conversations/{id}/messages', name: 'api_conversation_messages', methods: ['GET'])]
-    public function getConversationMessages(int $id): JsonResponse
-    {
-        $msgs = $this->db->fetchAllAssociative(
-            'SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
-            [$id]
-        );
-        return new JsonResponse($msgs);
-    }
-
-    #[Route('/api/conversations/{id}/archive', name: 'api_conversation_archive', methods: ['POST'])]
-    public function archiveConversation(int $id): JsonResponse
-    {
-        $this->db->executeStatement('UPDATE conversations SET is_archived = TRUE WHERE id = ?', [$id]);
-        return new JsonResponse(['ok' => true]);
-    }
-
-    #[Route('/api/conversations/{id}/delete', name: 'api_conversation_delete', methods: ['POST'])]
-    public function deleteConversation(int $id): JsonResponse
-    {
-        $this->db->executeStatement('DELETE FROM messages WHERE conversation_id = ?', [$id]);
-        $this->db->executeStatement('DELETE FROM conversations WHERE id = ?', [$id]);
-        return new JsonResponse(['ok' => true]);
-    }
-
-    #[Route('/api/conversations/{id}/rename', name: 'api_conversation_rename', methods: ['POST'])]
-    public function renameConversation(int $id, Request $request): JsonResponse
-    {
-        $body  = json_decode($request->getContent(), true);
-        $title = trim($body['title'] ?? '');
-        if (!$title) {
-            return new JsonResponse(['error' => 'title required'], 400);
-        }
-        $this->db->executeStatement(
-            'UPDATE conversations SET title = ?, updated_at = ? WHERE id = ?',
-            [$title, date('Y-m-d H:i:s'), $id]
-        );
-        return new JsonResponse(['ok' => true]);
-    }
-
-    // ─────────────────────────────────────────────
-    //  RULE REVIEW API
-    // ─────────────────────────────────────────────
-
-    #[Route('/api/rule-review', name: 'api_rule_review', methods: ['POST'])]
-    public function saveRuleReview(Request $request): JsonResponse
-    {
-        $body           = json_decode($request->getContent(), true);
-        $user           = $this->getUser();
-        $userName       = $user ? ($user->getName() ?? explode('@', $user->getEmail())[0]) : 'User';
-        $conversationId = $body['conversation_id'] ?? null;
-        $ruleId         = $body['rule_id'] ?? '';
-        $verdict        = $body['verdict'] ?? '';
-        $feedback       = $body['feedback'] ?? null;
-        $corrections    = $body['corrections'] ?? [];   // array of {url, field, original, override, reason}
-
-        if (!$ruleId || !$verdict) {
-            return new JsonResponse(['error' => 'rule_id and verdict required'], 400);
+        function showTaskNotification(count) {
+            const notif = document.createElement('div');
+            notif.style.cssText = 'position:fixed;top:16px;right:16px;background:var(--accent-green);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:200;animation:fadeIn 0.3s ease;box-shadow:0 4px 12px rgba(0,0,0,0.15);';
+            notif.textContent = `✓ ${count} task${count > 1 ? 's' : ''} created from Logiri's analysis`;
+            document.body.appendChild(notif);
+            setTimeout(() => { notif.style.opacity = '0'; notif.style.transition = 'opacity 0.5s'; setTimeout(() => notif.remove(), 500); }, 4000);
         }
 
-        // Save the review
-        $this->db->insert('rule_reviews', [
-            'conversation_id' => $conversationId,
-            'rule_id'         => $ruleId,
-            'verdict'         => $verdict,
-            'feedback'        => $feedback,
-            'reviewed_by'     => $userName,
-            'reviewed_at'     => date('Y-m-d H:i:s'),
-        ]);
-
-        // Save URL corrections as overrides
-        $overridesApplied = 0;
-        foreach ($corrections as $c) {
-            if (empty($c['url']) || empty($c['field']) || empty($c['override'])) continue;
-
-            // Upsert: update if exists, insert if not
-            $existing = $this->db->fetchAssociative(
-                'SELECT id FROM user_overrides WHERE url = ? AND field = ?',
-                [$c['url'], $c['field']]
-            );
-            if ($existing) {
-                $this->db->update('user_overrides', [
-                    'original_value' => $c['original'] ?? null,
-                    'override_value' => $c['override'],
-                    'reason'         => $c['reason'] ?? null,
-                    'overridden_by'  => $userName,
-                    'created_at'     => date('Y-m-d H:i:s'),
-                ], ['id' => $existing['id']]);
-            } else {
-                $this->db->insert('user_overrides', [
-                    'url'            => $c['url'],
-                    'field'          => $c['field'],
-                    'original_value' => $c['original'] ?? null,
-                    'override_value' => $c['override'],
-                    'reason'         => $c['reason'] ?? null,
-                    'overridden_by'  => $userName,
-                    'created_at'     => date('Y-m-d H:i:s'),
-                ]);
-            }
-
-            // Also update the live page_crawl_snapshots row immediately
-            $tables = $this->db->fetchFirstColumn(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'page_crawl_snapshots'"
-            );
-            if (!empty($tables)) {
-                $allowedFields = ['page_type', 'has_central_entity', 'has_core_link', 'word_count'];
-                if (in_array($c['field'], $allowedFields)) {
-                    $this->db->executeStatement(
-                        "UPDATE page_crawl_snapshots SET {$c['field']} = ? WHERE url = ?",
-                        [$c['override'], $c['url']]
-                    );
+        function appendMessage(role, text) {
+            const div = document.createElement('div');
+            div.className = 'message ' + role;
+            if (role === 'assistant') {
+                const bubble = document.createElement('div');
+                bubble.className = 'bubble';
+                bubble.innerHTML = marked.parse(text);
+                div.appendChild(bubble);
+                if (text.length > 200) {
+                    const actions = document.createElement('div');
+                    actions.className = 'chat-actions';
+                    actions.innerHTML = `
+                        <button class="chat-btn" onclick="sendMessage('What should ${USER_NAME} work on today?')">📋 My Tasks</button>
+                        <button class="chat-btn" onclick="sendMessage('Show team status and blockers')">👥 Team Status</button>
+                        <button class="chat-btn" onclick="sendMessage('Quick wins under 2 hours')">⚡ Quick Wins</button>
+                        <button class="chat-btn" onclick="sendMessage('What rechecks are due?')">🔄 Rechecks</button>
+                        <button class="chat-btn" onclick="openAddTask()">+ Add Task</button>
+                    `;
+                    bubble.appendChild(actions);
                 }
-            }
-
-            $overridesApplied++;
+            } else { div.textContent = text; }
+            messagesEl.appendChild(div);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
         }
 
-        return new JsonResponse([
-            'ok'               => true,
-            'overrides_applied' => $overridesApplied,
-            'message'          => $overridesApplied > 0
-                ? "Review saved. {$overridesApplied} override(s) applied — corrections will persist on next crawl."
-                : 'Review saved.',
-        ]);
-    }
+        function resetChat() { messages = []; messagesEl.innerHTML = ''; requestBriefing(); }
 
-    #[Route('/api/rule-reviews', name: 'api_rule_reviews_list', methods: ['GET'])]
-    public function listRuleReviews(): JsonResponse
-    {
-        $reviews = $this->db->fetchAllAssociative(
-            'SELECT * FROM rule_reviews ORDER BY reviewed_at DESC LIMIT 50'
-        );
-        return new JsonResponse($reviews);
-    }
+        // ── Task Management ──
+        async function startTask(id) {
+            await fetch(`/api/tasks/${id}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'in_progress' }) });
+            refreshSidebar();
+        }
+        async function completeTask(id) {
+            const res = await fetch(`/api/tasks/${id}/complete`, { method: 'POST' });
+            const data = await res.json();
+            if (data.recheck_date) {
+                sendMessage(`I completed task #${id}. Recheck set for ${data.recheck_date} (${data.recheck_days} days). What's next?`);
+            }
+            refreshSidebar();
+        }
+        async function verifyRecheck(id) {
+            const passed = confirm('Did this task pass verification?\n\nOK = Pass\nCancel = Fail');
+            await fetch(`/api/tasks/${id}/verify`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passed }) });
+            sendMessage(passed ? `Recheck #${id} PASSED. Update the team.` : `Recheck #${id} FAILED. What should we do?`);
+            refreshSidebar();
+        }
 
-    // ─────────────────────────────────────────────
-    //  OVERRIDES API
-    // ─────────────────────────────────────────────
+        // ── Task Detail Panel ──
+        async function openTaskDetail(id) {
+            currentTaskId = id;
+            taskChatMessages = [];
+            document.getElementById('panel-chat-messages').innerHTML = '';
+            document.querySelectorAll('.task-item').forEach(el => el.classList.remove('selected'));
+            const el = document.getElementById('task-' + id);
+            if (el) el.classList.add('selected');
 
-    #[Route('/api/overrides', name: 'api_overrides_list', methods: ['GET'])]
-    public function listOverrides(): JsonResponse
-    {
-        $overrides = $this->db->fetchAllAssociative(
-            'SELECT * FROM user_overrides ORDER BY created_at DESC'
-        );
-        return new JsonResponse($overrides);
-    }
+            const res = await fetch('/api/tasks?status=');
+            const tasks = await res.json();
+            const task = tasks.find(t => t.id == id);
+            if (!task) return;
 
-    #[Route('/api/overrides/{id}', name: 'api_overrides_delete', methods: ['DELETE'])]
-    public function deleteOverride(int $id): JsonResponse
-    {
-        $this->db->delete('user_overrides', ['id' => $id]);
-        return new JsonResponse(['ok' => true]);
-    }
+            document.getElementById('panel-title').textContent = 'Task #' + task.id;
+            document.getElementById('panel-body').innerHTML = `
+                <div class="panel-field"><div class="panel-label">Title</div><div class="panel-value">${task.title}</div></div>
+                <div class="panel-field"><div class="panel-label">Assigned To</div><div class="panel-value">${task.assigned_to || 'Unassigned'}</div></div>
+                <div class="panel-field"><div class="panel-label">Priority</div><div class="panel-value"><span class="task-priority ${task.priority}">${task.priority}</span></div></div>
+                <div class="panel-field"><div class="panel-label">Status</div><div class="panel-value"><span class="task-status-badge ${task.status}">${task.status}</span></div></div>
+                <div class="panel-field"><div class="panel-label">Estimated Hours</div><div class="panel-value">${task.estimated_hours || '?'}h</div></div>
+                <div class="panel-field">
+                    <div class="panel-label">Log Time</div>
+                    <div class="time-log-row">
+                        <input type="number" class="time-log-input" id="log-hours-input" value="0.5" min="0.5" step="0.5">
+                        <span style="font-size:12px;color:var(--text-muted)">hours</span>
+                        <button class="time-log-btn" onclick="logTime(${task.id})">Log</button>
+                    </div>
+                </div>
+                ${task.description ? `<div class="panel-field"><div class="panel-label">Description</div><div class="panel-value">${task.description}</div></div>` : ''}
+                ${task.recheck_date ? `<div class="panel-field"><div class="panel-label">Recheck Date</div><div class="panel-value">${task.recheck_date}</div></div>` : ''}
+            `;
+            document.getElementById('task-detail-panel').classList.add('open');
+        }
 
-    // ─────────────────────────────────────────────
-    //  TASK API
-    // ─────────────────────────────────────────────
+        function closeTaskDetail() {
+            document.getElementById('task-detail-panel').classList.remove('open');
+            document.querySelectorAll('.task-item').forEach(el => el.classList.remove('selected'));
+            currentTaskId = null;
+        }
 
-    #[Route('/api/tasks', name: 'api_tasks_list', methods: ['GET'])]
-    public function listTasks(Request $request): JsonResponse
-    {
-        $status   = $request->query->get('status');
-        $assignee = $request->query->get('assignee');
-        $sql      = "SELECT * FROM tasks WHERE 1=1";
-        $params   = [];
-        if ($status) { $sql .= " AND status = ?"; $params[] = $status; }
-        if ($assignee) { $sql .= " AND assigned_to = ?"; $params[] = $assignee; }
-        $sql .= " ORDER BY CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC";
-        return new JsonResponse($this->db->fetchAllAssociative($sql, $params));
-    }
+        async function logTime(taskId) {
+            const hours = parseFloat(document.getElementById('log-hours-input').value);
+            if (!hours || hours <= 0) return;
+            // For now, log time via chat — full time_logs table can be added later
+            sendMessage(`Logged ${hours}h on task #${taskId}. Update the task estimate if needed.`);
+        }
 
-    #[Route('/api/tasks', name: 'api_tasks_create', methods: ['POST'])]
-    public function createTask(Request $request): JsonResponse
-    {
-        $body = json_decode($request->getContent(), true);
-        $this->db->insert('tasks', [
-            'title'           => $body['title'] ?? 'Untitled Task',
-            'description'     => $body['description'] ?? null,
-            'rule_id'         => $body['rule_id'] ?? null,
-            'assigned_to'     => $body['assigned_to'] ?? null,
-            'assigned_role'   => $body['assigned_role'] ?? null,
-            'status'          => 'pending',
-            'priority'        => $body['priority'] ?? 'medium',
-            'estimated_hours' => $body['estimated_hours'] ?? 1,
-            'logged_hours'    => 0,
-            'due_date'        => $body['due_date'] ?? null,
-            'recheck_type'    => $body['recheck_type'] ?? null,
-            'created_at'      => date('Y-m-d H:i:s'),
-        ]);
-        $id   = $this->db->lastInsertId();
-        $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
-        return new JsonResponse($task, 201);
-    }
+        // ── Per-task AI Chat ──
+        async function sendTaskChat() {
+            const input = document.getElementById('panel-chat-input');
+            const text = input.value.trim();
+            if (!text || !currentTaskId) return;
+            input.value = '';
 
-    #[Route('/api/tasks/{id}', name: 'api_task_single', methods: ['GET'])]
-    public function getTask(int $id): JsonResponse
-    {
-        $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
-        if (!$task) return new JsonResponse(['error' => 'Not found'], 404);
-        return new JsonResponse($task);
-    }
+            const msgContainer = document.getElementById('panel-chat-messages');
+            msgContainer.innerHTML += `<div class="panel-chat-msg user-msg">${text}</div>`;
 
-    #[Route('/api/tasks/{id}/complete', name: 'api_tasks_complete', methods: ['POST'])]
-    public function completeTask(int $id, Request $request): JsonResponse
-    {
-        $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
-        if (!$task) return new JsonResponse(['error' => 'Task not found'], 404);
+            const taskEl = document.getElementById('task-' + currentTaskId);
+            const taskTitle = taskEl ? taskEl.querySelector('.task-title').textContent : '';
 
-        $body = json_decode($request->getContent(), true) ?: [];
+            const taskMessages = [
+                ...taskChatMessages,
+                { role: 'user', content: `Regarding task #${currentTaskId} "${taskTitle}": ${text}` }
+            ];
 
-        // Allow caller to override recheck days; otherwise derive from type
-        if (isset($body['recheck_days']) && intval($body['recheck_days']) > 0) {
-            $recheckDays = intval($body['recheck_days']);
-        } else {
-            $recheckDays = match($task['recheck_type']) {
-                '404_fix', 'sitemap_fix'                  => 7,
-                'h1_fix', 'h2_fix', 'schema_fix',
-                'core_link_fix', 'on_page_fix'            => 14,
-                'ranking_drop'                            => 28,
-                default                                   => 14,
+            try {
+                const res = await fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages: taskMessages }) });
+                const data = await res.json();
+                const reply = data.response || 'No response.';
+                taskChatMessages.push({ role: 'user', content: text });
+                taskChatMessages.push({ role: 'assistant', content: reply });
+                msgContainer.innerHTML += `<div class="panel-chat-msg ai">${marked.parse(reply)}</div>`;
+                msgContainer.scrollTop = msgContainer.scrollHeight;
+            } catch (e) {
+                msgContainer.innerHTML += `<div class="panel-chat-msg ai">Error connecting to AI.</div>`;
+            }
+        }
+
+        document.getElementById('panel-chat-input').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { e.preventDefault(); sendTaskChat(); }
+        });
+
+        // ── Add Task Modal ──
+        function openAddTask() { document.getElementById('add-task-modal').classList.add('active'); }
+        function closeAddTask() { document.getElementById('add-task-modal').classList.remove('active'); }
+        async function saveNewTask() {
+            const task = {
+                title: document.getElementById('new-task-title').value,
+                assigned_to: document.getElementById('new-task-assignee').value,
+                priority: document.getElementById('new-task-priority').value,
+                estimated_hours: parseFloat(document.getElementById('new-task-hours').value),
+                recheck_type: document.getElementById('new-task-recheck').value || null,
             };
+            if (!task.title) return alert('Enter a task title');
+            await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
+            closeAddTask();
+            document.getElementById('new-task-title').value = '';
+            refreshSidebar();
         }
 
-        $recheckCriteria = $body['recheck_criteria'] ?? $task['recheck_criteria'] ?? null;
-        $recheckDate     = date('Y-m-d', strtotime("+{$recheckDays} days"));
-
-        $this->db->update('tasks', [
-            'status'           => 'done',
-            'completed_at'     => date('Y-m-d H:i:s'),
-            'recheck_date'     => $recheckDate,
-            'recheck_days'     => $recheckDays,
-            'recheck_criteria' => $recheckCriteria,
-        ], ['id' => $id]);
-
-        return new JsonResponse([
-            'task'             => $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]),
-            'recheck_date'     => $recheckDate,
-            'recheck_days'     => $recheckDays,
-            'recheck_criteria' => $recheckCriteria,
-        ]);
-    }
-
-    #[Route('/api/tasks/{id}/recheck-date', name: 'api_tasks_recheck_date', methods: ['POST'])]
-    public function updateRecheckDate(int $id, Request $request): JsonResponse
-    {
-        $body = json_decode($request->getContent(), true) ?: [];
-        $days = intval($body['days'] ?? 0);
-        if ($days <= 0) return new JsonResponse(['error' => 'days must be positive'], 400);
-        $recheckDate = date('Y-m-d', strtotime("+{$days} days"));
-        $this->db->update('tasks', [
-            'recheck_date'     => $recheckDate,
-            'recheck_days'     => $days,
-            'recheck_criteria' => $body['criteria'] ?? null,
-        ], ['id' => $id]);
-        return new JsonResponse(['recheck_date' => $recheckDate, 'recheck_days' => $days]);
-    }
-
-    #[Route('/api/tasks/clear-done', name: 'api_tasks_clear_done', methods: ['POST'])]
-    public function clearDoneTasks(): JsonResponse
-    {
-        $this->db->executeStatement("DELETE FROM tasks WHERE status = 'done'");
-        return new JsonResponse(['ok' => true]);
-    }
-
-    #[Route('/api/tasks/{id}/status', name: 'api_tasks_status', methods: ['POST'])]
-    public function updateTaskStatus(int $id, Request $request): JsonResponse
-    {
-        $body = json_decode($request->getContent(), true);
-        $this->db->update('tasks', ['status' => $body['status'] ?? 'pending'], ['id' => $id]);
-        return new JsonResponse($this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]));
-    }
-
-    #[Route('/api/tasks/{id}/log-time', name: 'api_tasks_log_time', methods: ['POST'])]
-    public function logTime(int $id, Request $request): JsonResponse
-    {
-        $body  = json_decode($request->getContent(), true);
-        $hours = floatval($body['hours'] ?? 0);
-        if ($hours <= 0) return new JsonResponse(['error' => 'Hours must be positive'], 400);
-        $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
-        if (!$task) return new JsonResponse(['error' => 'Task not found'], 404);
-        $this->db->update('tasks', ['logged_hours' => floatval($task['logged_hours'] ?? 0) + $hours], ['id' => $id]);
-        return new JsonResponse($this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]));
-    }
-
-    #[Route('/api/tasks/{id}/verify', name: 'api_tasks_verify', methods: ['POST'])]
-    public function verifyTask(int $id, Request $request): JsonResponse
-    {
-        $body   = json_decode($request->getContent(), true);
-        $passed = $body['passed'] ?? false;
-        $this->db->update('tasks', ['recheck_verified' => true, 'recheck_result' => $passed ? 'pass' : 'fail'], ['id' => $id]);
-        return new JsonResponse($this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]));
-    }
-
-    #[Route('/api/rechecks', name: 'api_rechecks', methods: ['GET'])]
-    public function listRechecks(): JsonResponse
-    {
-        return new JsonResponse($this->db->fetchAllAssociative(
-            "SELECT * FROM tasks WHERE status = 'done' AND recheck_date IS NOT NULL AND recheck_verified = false ORDER BY recheck_date ASC"
-        ));
-    }
-
-    // ─────────────────────────────────────────────
-    //  HELPERS
-    // ─────────────────────────────────────────────
-
-    private function generateTitle(string $firstMessage): string
-    {
-        if (!$firstMessage) return 'New conversation';
-        $lower = strtolower($firstMessage);
-        if (str_contains($lower, 'briefing') || str_contains($lower, 'seo brief') || str_contains($lower, 'what should i start')) {
-            return 'Daily Briefing — ' . date('M j');
-        }
-        $clean = preg_replace('/\s+/', ' ', trim($firstMessage));
-        return strlen($clean) > 60 ? substr($clean, 0, 57) . '...' : $clean;
-    }
-
-    private function loadCrawlData(): array
-    {
-        try {
-            $tables = $this->db->fetchFirstColumn(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'page_crawl_snapshots'"
-            );
-            if (empty($tables)) return [];
-
-            // Only send pages that have at least one FC rule violation — keeps prompt small
-            return $this->db->fetchAllAssociative(
-                "SELECT url, page_type, has_central_entity, has_core_link,
-                        word_count, h1, title_tag, h1_matches_title, h2s,
-                        schema_types, is_noindex
-                 FROM page_crawl_snapshots
-                 WHERE crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
-                   AND (
-                     has_central_entity = FALSE
-                     OR (page_type = 'Core' AND word_count < 800)
-                     OR h1_matches_title = FALSE
-                     OR (page_type = 'Core' AND (h2s IS NULL OR h2s = '' OR h2s = '[]'))
-                     OR (page_type = 'Core' AND (schema_types IS NULL OR schema_types = '' OR schema_types = '[]'))
-                     OR (page_type = 'Outer' AND has_core_link = FALSE)
-                   )
-                 ORDER BY page_type, url
-                 LIMIT 50"
-            );
-        } catch (\Exception $e) { return []; }
-    }
-
-    private function loadRecentReviews(): array
-    {
-        try {
-            $tables = $this->db->fetchFirstColumn(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'rule_reviews'"
-            );
-            if (empty($tables)) return [];
-            return $this->db->fetchAllAssociative(
-                "SELECT rule_id, verdict, feedback, reviewed_by, reviewed_at FROM rule_reviews ORDER BY reviewed_at DESC LIMIT 10"
-            );
-        } catch (\Exception $e) { return []; }
-    }
-
-    private function loadOverrideCount(): int
-    {
-        try {
-            $tables = $this->db->fetchFirstColumn(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_overrides'"
-            );
-            if (empty($tables)) return 0;
-            return (int) $this->db->fetchOne('SELECT COUNT(*) FROM user_overrides');
-        } catch (\Exception $e) { return 0; }
-    }
-
-    // ─────────────────────────────────────────────
-    //  SYSTEM PROMPT BUILDER
-    // ─────────────────────────────────────────────
-
-    private function buildSystemPrompt(
-        array $semrush, array $topQueries, array $topPages,
-        string $userName, string $userRole,
-        array $activeTasks, array $pendingRechecks,
-        array $topQueries90d = [], array $pageAggregates = [],
-        array $brandedQueries = [], array $cannibalizationCandidates = [],
-        array $previousPages = [], array $landingPages = [],
-        array $adsCampaigns = [], array $adsKeywords = [],
-        array $adsSearchTerms = [], array $adsDailySpend = [],
-        array $recentReviews = [], int $overrideCount = 0, array $crawlData = []
-    ): string {
-        $date = date('l, F j, Y');
-
-        $querySummary = '';
-        foreach (array_slice($topQueries, 0, 10) as $row) {
-            $querySummary .= '- "' . $row['query'] . '" | Page: ' . $row['page'] . ' | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | Position: ' . round($row['position'], 1) . "\n";
-        }
-
-        $pageSummary = '';
-        foreach (array_slice($topPages, 0, 10) as $row) {
-            $engTime = isset($row['avg_engagement_time']) ? ' | Engagement: ' . round($row['avg_engagement_time'], 0) . 's' : '';
-            $pageSummary .= '- ' . $row['page_path'] . ' | Sessions: ' . $row['sessions'] . ' | Pageviews: ' . $row['pageviews'] . ' | Conversions: ' . $row['conversions'] . $engTime . "\n";
-        }
-
-        $taskContext = '';
-        if (!empty($activeTasks)) {
-            $taskContext .= "\n\nACTIVE TASKS IN SYSTEM:\n";
-            $workload = [];
-            $overdueNudges = [];
-            foreach ($activeTasks as $t) {
-                $logged   = floatval($t['logged_hours'] ?? 0);
-                $est      = floatval($t['estimated_hours'] ?? 0);
-                $assignee = $t['assigned_to'] ?? 'Unassigned';
-                if ($assignee !== 'Unassigned' && $t['status'] !== 'done') {
-                    $workload[$assignee] = ($workload[$assignee] ?? 0) + $est;
+        // ── Refresh Sidebar ──
+        async function refreshSidebar() {
+            try {
+                const res = await fetch('/api/tasks?status=');
+                const tasks = await res.json();
+                let urgent = 0, active = 0, done = 0;
+                tasks.forEach(t => { if (t.status === 'done') done++; else if (t.status === 'in_progress') active++; if (t.priority === 'urgent' || t.priority === 'high') urgent++; });
+                document.getElementById('count-urgent').textContent = urgent;
+                document.getElementById('count-active').textContent = active;
+                document.getElementById('count-done').textContent = done;
+                const taskList = document.getElementById('task-list');
+                const activeTasks = tasks.filter(t => t.status !== 'done');
+                if (activeTasks.length === 0) { taskList.innerHTML = '<div class="task-empty">No active tasks.</div>'; }
+                else {
+                    taskList.innerHTML = activeTasks.slice(0, 15).map(t => `
+                        <div class="task-item${currentTaskId == t.id ? ' selected' : ''}" id="task-${t.id}" onclick="openTaskDetail(${t.id})">
+                            <div class="task-item-header"><span class="task-priority ${t.priority}">${t.priority}</span><span class="task-assignee">${t.assigned_to || 'Unassigned'}</span></div>
+                            <div class="task-title">${t.title}</div>
+                            <div class="task-meta"><span class="task-hours">${t.estimated_hours || '?'}h est</span><span class="task-status-badge ${t.status}">${t.status}</span></div>
+                            <div class="task-actions-row">
+                                ${t.status === 'pending' ? `<button class="task-action-btn start" onclick="event.stopPropagation(); startTask(${t.id})">▶ Start</button>` : ''}
+                                ${t.status !== 'done' ? `<button class="task-action-btn complete" onclick="event.stopPropagation(); completeTask(${t.id})">✓ Done</button>` : ''}
+                            </div>
+                        </div>
+                    `).join('');
                 }
-                if ($logged > $est && $est > 0 && $t['status'] !== 'done') {
-                    $overdueNudges[] = "⚠️ OVER-ESTIMATE: \"{$t['title']}\" — {$logged}h logged vs {$est}h estimated. Assigned: {$assignee}";
+                const recheckRes = await fetch('/api/rechecks');
+                const rechecks = await recheckRes.json();
+                const recheckList = document.getElementById('recheck-list');
+                if (rechecks.length === 0) { recheckList.innerHTML = '<div class="task-empty">No rechecks pending</div>'; }
+                else { recheckList.innerHTML = rechecks.map(r => `<div class="recheck-item"><span class="recheck-info">${r.title}</span><span class="recheck-date upcoming">${r.recheck_date}</span><button class="recheck-verify-btn" onclick="verifyRecheck(${r.id})">Verify</button></div>`).join(''); }
+            } catch (e) { console.error('Refresh failed:', e); }
+        }
+
+        // ── Briefing request (shows preparing message, not user bubble) ──
+        async function requestBriefing() {
+            const loadingDiv = document.createElement('div');
+            loadingDiv.className = 'message assistant';
+            loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Hello ' + USER_NAME + ', I\'m preparing your briefing for today...</div>';
+            loadingDiv.id = 'briefing-loading';
+            messagesEl.appendChild(loadingDiv);
+            typingEl.style.display = 'block';
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+            sendEl.disabled = true;
+
+            const briefingPrompt = 'Give me my SEO briefing for today. Address me as ' + USER_NAME + '. Focus on my role: ' + USER_ROLE + '. Generate tasks for any issues you find.';
+            messages.push({ role: 'user', content: briefingPrompt });
+
+            try {
+                const res = await fetch('/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messages }) });
+                const data = await res.json();
+                const reply = data.response || data.error || 'No response.';
+                messages.push({ role: 'assistant', content: reply });
+
+                // Remove loading message and show real briefing
+                const loadEl = document.getElementById('briefing-loading');
+                if (loadEl) loadEl.remove();
+                appendMessage('assistant', reply);
+
+                // Auto-refresh sidebar if tasks were created
+                if (data.tasks_created && data.tasks_created.length > 0) {
+                    await refreshSidebar();
+                    showTaskNotification(data.tasks_created.length);
                 }
-                $taskContext .= '- [' . strtoupper($t['priority']) . '] ' . $t['title'] . ' | Assigned: ' . $assignee . ' | Status: ' . $t['status'] . ' | ' . $est . "h est\n";
+            } catch (e) {
+                const loadEl = document.getElementById('briefing-loading');
+                if (loadEl) loadEl.remove();
+                appendMessage('assistant', 'Error reaching Logiri. Please try again.');
             }
-            $taskContext .= "\nTEAM WORKLOAD:\n";
-            foreach (['Brook', 'Kalib', 'Brad'] as $name) {
-                $load   = $workload[$name] ?? 0;
-                $status = $load > 40 ? '🔴 OVERLOADED' : ($load > 30 ? '🟡 HIGH' : '🟢 OK');
-                $taskContext .= "- {$name}: {$load}h | {$status}\n";
-            }
-            if (!empty($overdueNudges)) {
-                $taskContext .= "\nTASKS EXCEEDING ESTIMATES:\n" . implode("\n", $overdueNudges) . "\n";
-            }
+            typingEl.style.display = 'none';
+            sendEl.disabled = false;
+            inputEl.focus();
         }
 
-        $recheckContext = '';
-        if (!empty($pendingRechecks)) {
-            $recheckContext .= "\n\nPENDING VERIFICATION RECHECKS:\n";
-            foreach ($pendingRechecks as $r) {
-                $recheckContext .= '- ' . $r['title'] . ' | Due: ' . $r['recheck_date'] . ' | Type: ' . ($r['recheck_type'] ?? 'general') . ' | Assigned: ' . ($r['assigned_to'] ?? 'Unassigned') . "\n";
-            }
-        }
+        // ── Init ──
+        window.addEventListener('load', () => { requestBriefing(); });
+        sendEl.addEventListener('click', () => { const t = inputEl.value.trim(); if (t) sendMessage(t); });
+        inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const t = inputEl.value.trim(); if (t) sendMessage(t); } });
+        inputEl.addEventListener('input', () => { inputEl.style.height = '48px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px'; });
+        setInterval(refreshSidebar, 60000);
+    </script>
+</body>
+</html>
 
-        // Rule review context — so Logiri knows what's been approved/disputed
-        $reviewContext = '';
-        if (!empty($recentReviews)) {
-            $reviewContext .= "\n\nRECENT RULE REVIEWS (last 30 days):\n";
-            foreach ($recentReviews as $r) {
-                $reviewContext .= '- ' . $r['rule_id'] . ' | Verdict: ' . $r['verdict'] . ' | By: ' . $r['reviewed_by'] . ' on ' . substr($r['reviewed_at'], 0, 10);
-                if ($r['feedback']) $reviewContext .= ' | Note: ' . $r['feedback'];
-                $reviewContext .= "\n";
-            }
-        }
-        if ($overrideCount > 0) {
-            $reviewContext .= "\nACTIVE USER OVERRIDES: {$overrideCount} manual classification corrections are in effect. These persist across crawls.\n";
-        }
-
-        $promptFile  = dirname(__DIR__, 2) . '/system-prompt.txt';
-        $staticRules = file_exists($promptFile) ? file_get_contents($promptFile) : '';
-
-        $intro  = "You are Logiri, the AI Chief of Staff for Double D Trailers (doubledtrailers.com).";
-        $intro .= "\n\nYOUR PERSONA & BEHAVIOR:";
-        $intro .= "\n- Authoritative, direct, action-oriented Project Manager and Chief of Staff.";
-        $intro .= "\n- Lead with the MOST URGENT items first. Address the user by name.";
-        $intro .= "\n- Always connect SEO findings to ACTIONABLE TASKS with specific owners.";
-        $intro .= "\n- When referencing previous rule reviews, acknowledge what was approved or corrected.";
-        $intro .= "\n\nLOGIRI VOCABULARY — NEVER USE GENERIC SEO TOOL LANGUAGE:";
-        $intro .= "\nLogiri has its own terminology. Always use the Logiri term, never the generic SEO tool equivalent.";
-        $intro .= "\n| Generic Term              | Logiri Term                  |";
-        $intro .= "\n|---------------------------|------------------------------|";
-        $intro .= "\n| SEO Tool / Analyzer       | Signal Engine / Detection Engine |";
-        $intro .= "\n| Issue / Problem           | Signal                       |";
-        $intro .= "\n| Action / Task             | Play                         |";
-        $intro .= "\n| Recommendation            | Remediation / Playbook Step  |";
-        $intro .= "\n| Alert                     | Incident                     |";
-        $intro .= "\n| Dashboard                 | Command Center               |";
-        $intro .= "\n| Audit                     | Sweep                        |";
-        $intro .= "\n| Monitoring                | Pulse                        |";
-        $intro .= "\n| Automation                | Runbook                      |";
-        $intro .= "\nExamples: Say \"Logiri detected a Signal on /page/\" not \"Logiri found an issue\". Say \"here is your Play\" not \"here is your action item\". Say \"running a Sweep\" not \"running an audit\". Say \"Pulse data shows\" not \"monitoring shows\". Never say \"SEO tool\", \"audit\", \"issues\", \"recommendations\", or \"alerts\" — always substitute the Logiri term.";
-
-        $intro .= "\n\nBRIEFING FORMAT RULES:";
-        $intro .= "\n- Structure every briefing with H2 (##) section headings so sections can collapse.";
-        $intro .= "\n- Each section must start with a 1-sentence summary line BEFORE any detail.";
-        $intro .= "\n- Keep top-level bullets to one line each. Put detail under sub-bullets (indented).";
-        $intro .= "\n- Plays (tasks) are called PLAYS not tasks, actions, or recommendations.";
-        $intro .= "\n- Never use the words: issue, problem, audit, recommendation, alert, monitoring, dashboard.";
-        $intro .= "\n- Use instead: Signal, Play, Sweep, Incident, Pulse, Command Center.";
-        $intro .= "\n- Start Task button label: always say 'Run this Play' not 'Start Task'.";
-
-        $intro .= "\n\nCRITICAL TECHNICAL NOTE:";
-        $intro .= "\n- This is a Symfony application. ALWAYS use `php bin/console` for commands. NEVER say `php artisan` — that is Laravel, not this app.";
-        $intro .= "\n- Correct: `php bin/console app:crawl-pages`";
-        $intro .= "\n- Wrong: `php artisan app:crawl-pages`";
-        $intro .= "\n\nH1 NOTE: Some Core pages (e.g. /bumper-pull-horse-trailers/, /gooseneck-horse-trailers/) have no H1 tag. This is a confirmed on-page issue, not a crawl data error. Flag these as FC-R7 violations and assign fixes to Brook.";
-        $intro .= "\n\nTASK GENERATION RULES:";
-        $intro .= "\n- Generate tasks ONLY for the FC rules listed below (FC-R1 through FC-R10). Do NOT generate tasks for cannibalization, keyword research, or other topics not covered by the FC rules.";
-        $intro .= "\n- Each task: title, assigned_to, priority (critical/high/medium/low), estimated_hours, recheck_type, recheck_days, recheck_criteria, description.";
-        $intro .= "\n- TASK ASSIGNMENT: On-page fix tasks (H1, H2, schema, internal links) → assigned_to: Brook. Rule review/classification tasks → assigned_to: Jeanne.";
-        $intro .= "\n- RECHECK DAYS: Every task must have recheck_days set. H1/H2 fixes = 7 days. Internal link fixes = 7 days. Schema = 14 days. Default = 14 days.";
-        $intro .= "\n- RECHECK CRITERIA: Every task must have recheck_criteria — a plain-English description of what the next crawl must confirm to pass. Example: 'h1_matches_title = TRUE for /url/' or 'has_core_link = TRUE for /url/'";
-        $intro .= "\n- JEANNE RULE REVIEW TASKS: After every briefing, generate one task per FC rule that had violations, assigned to Jeanne, asking her to review and confirm the flagged pages are correctly classified. Priority = high. These are the classification accuracy tasks.";
-        $intro .= "\n- Do NOT duplicate tasks already in ACTIVE TASKS.";
-        $intro .= "\n- ONE TASK = ONE URL. Never batch multiple URLs into one task.";
-        $intro .= "\n- Task title format: Action + URL. Example: \"Add H1 tag to /bumper-pull-horse-trailers/\"";
-        $intro .= "\n- Task description: be surgical. State exactly what to change and what value to use. No fluff.";
-        $intro .= "\n  Good: \"H1 is missing. Add: <h1>Bumper Pull Horse Trailers</h1> in the hero section.\"";
-        $intro .= "\n  Bad: \"This page needs an H1 to fix the SEO signal mismatch.\"";
-        $intro .= "\n- At the END of every response include:";
-        $intro .= "\n<!-- TASKS_JSON -->";
-        $intro .= "\n[{\"title\":\"Example\",\"assigned_to\":\"Brook\",\"priority\":\"high\",\"estimated_hours\":2,\"recheck_type\":\"h1_fix\",\"recheck_days\":7,\"recheck_criteria\":\"h1_matches_title = TRUE for /example/\",\"description\":\"Example\"}]";
-        $intro .= "\n<!-- /TASKS_JSON -->";
-        $intro .= "\n\nCRITICAL: Include <!-- TASKS_JSON --> in EVERY response. Use [] if no tasks needed.";
-        $intro .= "\n\nFOUNDATIONAL CONTENT RULES — RUN AUTOMATICALLY ON EVERY BRIEFING:";
-        $intro .= "\nYou MUST evaluate ALL of the following rules on every briefing if crawl data is available. Do not wait for the user to ask. For each rule that has violations, output the findings AND a review card so the user can verify your classification logic.";
-        $intro .= "\n\nFC-R1: Every indexed page must contain the central entity 'horse trailer' in the body text. Flag pages where has_central_entity = FALSE.";
-        $intro .= "\nFC-R2: Every page must be classified as Core or Outer. Flag unclassified pages.";
-        $intro .= "\nFC-R3: Core pages must have at least 500 words. Flag Core pages where word_count < 500.";
-        $intro .= "\nFC-R5: Every Outer page must link to at least one Core page. Flag Outer pages where has_core_link = FALSE.";
-        $intro .= "\nFC-R6: Core pages must have at least 800 words. Flag Core pages where word_count < 800.";
-        $intro .= "\nFC-R7: Every indexed page must have an H1 tag that matches or closely reflects the title tag. Flag pages where h1_matches_title = FALSE or h1 is empty.";
-        $intro .= "\nFC-R8: Core pages must have at least one H2 tag. Flag Core pages where h2s is empty.";
-        $intro .= "\nFC-R9: Core pages must have schema markup. Flag Core pages where schema_types is empty.";
-        $intro .= "\nFC-R10: High-traffic Outer pages (100+ GSC impressions) must link to a Core page. Cross-reference GSC impressions with has_core_link = FALSE.";
-        $intro .= "\n\nREVIEW CARD FORMAT:";
-        $intro .= "\nAfter presenting findings for each rule, ALWAYS append a review card. The review card must contain the ACTUAL PAGES YOU FLAGGED so the user can confirm or correct each one — NOT a description of your methodology.";
-        $intro .= "\nUse this exact format:";
-        $intro .= "\n<!-- REVIEW_CARD rule_id=\"FC-RX\" -->";
-        $intro .= "\nI flagged these pages as violations:";
-        $intro .= "\n- /example-url/ | Core | Issue: no H1 tag";
-        $intro .= "\n- /another-url/ | Outer | Issue: missing core link";
-        $intro .= "\nAre these correct? Use the form below to approve, correct any misclassifications, or flag pages I missed.";
-        $intro .= "\n<!-- /REVIEW_CARD -->";
-        $intro .= "\nKEY RULE: The review card is for the USER to verify YOUR specific findings. Show them the actual URLs and issues you found. Do not explain your logic — show your work. Keep it plain language, no technical jargon like 'has_core_link = FALSE'. Say 'missing link to a product page' instead.";
-        $intro .= "\n\nTEAM ROSTER:";
-        $intro .= "\n- Brook | SEO + Content | 40h/week | Handles all on-page fixes, content tasks, FC rule violations";
-        $intro .= "\n- Jeanne | Content Director | 40h/week | Reviews and approves FC rule classifications — Rule Review tasks go to Jeanne";
-        $intro .= "\n- Kalib | Sales | 40h/week";
-        $intro .= "\n- Brad | Marketing | 40h/week";
-        $intro .= "\n\nToday: " . $date;
-        $intro .= "\nCurrent user: " . $userName . " | Role: " . $userRole;
-        $intro .= "\n\nSEMrush: Keywords=" . ($semrush['organic_keywords'] ?? 'N/A') . " | Traffic=" . ($semrush['organic_traffic'] ?? 'N/A') . " | Updated=" . ($semrush['fetched_at'] ?? 'N/A');
-        $intro .= "\n\nTop GSC Queries (28d):\n" . $querySummary;
-        $intro .= "\nTop GA4 Pages (28d):\n" . $pageSummary;
-
-        if (!empty($topQueries90d)) {
-            $intro .= "\n\n90-DAY GSC TRENDS:\n";
-            foreach (array_slice($topQueries90d, 0, 5) as $row) {
-                $intro .= '- "' . $row['query'] . '" | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | Position: ' . round($row['position'], 1) . "\n";
-            }
-        }
-        if (!empty($pageAggregates)) {
-            $intro .= "\n\nGSC PAGE AGGREGATES:\n";
-            foreach (array_slice($pageAggregates, 0, 5) as $row) {
-                $intro .= '- ' . $row['page'] . ' | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . ' | CTR: ' . round($row['ctr'] * 100, 1) . '% | Position: ' . round($row['position'], 1) . "\n";
-            }
-        }
-        if (!empty($brandedQueries)) {
-            $intro .= "\n\nBRANDED QUERIES:\n";
-            foreach (array_slice($brandedQueries, 0, 5) as $row) {
-                $intro .= '- "' . $row['query'] . '" | Clicks: ' . $row['clicks'] . ' | Impressions: ' . $row['impressions'] . "\n";
-            }
-        }
-
-        if (!empty($previousPages)) {
-            $intro .= "\n\nGA4 PERIOD COMPARISON (28d vs previous):\n";
-            $prevLookup = [];
-            foreach ($previousPages as $p) { $prevLookup[$p['page_path']] = $p; }
-            foreach (array_slice($topPages, 0, 10) as $current) {
-                $prev         = $prevLookup[$current['page_path']] ?? null;
-                $sessionDelta = $prev ? ($current['sessions'] - $prev['sessions']) : 'N/A';
-                $convDelta    = $prev ? ($current['conversions'] - ($prev['conversions'] ?? 0)) : 'N/A';
-                $intro .= '- ' . $current['page_path'] . ' | Sessions: ' . $current['sessions'] . ' (Δ' . $sessionDelta . ') | Conversions: ' . $current['conversions'] . ' (Δ' . $convDelta . ")\n";
-            }
-        }
-        if (!empty($landingPages)) {
-            $intro .= "\n\nTOP LANDING PAGES:\n";
-            foreach (array_slice($landingPages, 0, 8) as $row) {
-                $intro .= '- ' . $row['page_path'] . ' | Sessions: ' . $row['sessions'] . ' | Bounce: ' . round($row['bounce_rate'] * 100, 1) . '% | Engagement: ' . round($row['avg_engagement_time'], 0) . 's | Conversions: ' . $row['conversions'] . "\n";
-            }
-        }
-        if (!empty($adsCampaigns)) {
-            $intro .= "\n\nGOOGLE ADS CAMPAIGNS (30d):\n";
-            foreach ($adsCampaigns as $row) {
-                $intro .= '- ' . $row['campaign_name'] . ' | Spend: $' . number_format($row['cost_micros'] / 1000000, 2) . ' | Clicks: ' . $row['clicks'] . ' | CPC: $' . number_format($row['average_cpc'] / 1000000, 2) . ' | Conv: ' . $row['conversions'] . "\n";
-            }
-        }
-        if (!empty($adsKeywords)) {
-            $intro .= "\n\nTOP ADS KEYWORDS (30d):\n";
-            foreach (array_slice($adsKeywords, 0, 8) as $row) {
-                $intro .= '- "' . $row['keyword'] . '" [' . $row['match_type'] . '] | Spend: $' . number_format($row['cost_micros'] / 1000000, 2) . ' | CPC: $' . number_format($row['average_cpc'] / 1000000, 2) . ' | Conv: ' . $row['conversions'] . "\n";
-            }
-        }
-        if (!empty($adsSearchTerms)) {
-            $intro .= "\n\nTOP SEARCH TERMS TRIGGERING ADS:\n";
-            foreach (array_slice($adsSearchTerms, 0, 8) as $row) {
-                $intro .= '- "' . $row['search_term'] . '" | Clicks: ' . $row['clicks'] . ' | Spend: $' . number_format($row['cost_micros'] / 1000000, 2) . "\n";
-            }
-        }
-        if (!empty($adsDailySpend)) {
-            $totalSpend = array_sum(array_column($adsDailySpend, 'cost_micros')) / 1000000;
-            $intro .= "\n\nGOOGLE ADS TOTAL SPEND (last 14d): $" . number_format($totalSpend, 2) . "\n";
-        }
-
-        $intro .= $taskContext;
-        $intro .= $recheckContext;
-        $intro .= $reviewContext;
-
-        // ── Crawl data summary ──
-        if (!empty($crawlData)) {
-            $crawledAt = $crawlData[0]['crawled_at'] ?? 'unknown';
-            $intro .= "\n\nPAGE SIGNALS (last crawl: {$crawledAt}) — violations only:\n";
-            foreach ($crawlData as $row) {
-                $flags = [];
-                if (!$row['has_central_entity'])                                       $flags[] = 'FC-R1:no-entity';
-                if (!$row['has_core_link'] && strtolower($row['page_type']) === 'outer') $flags[] = 'FC-R5:no-core-link';
-                if ($row['h1_matches_title'] === false || $row['h1_matches_title'] === '0' || $row['h1_matches_title'] === 0) $flags[] = 'FC-R7:h1-mismatch';
-                if (strtolower($row['page_type']) === 'core') {
-                    if (($row['word_count'] ?? 0) < 500)                               $flags[] = 'FC-R3:thin';
-                    if (($row['word_count'] ?? 0) < 800)                               $flags[] = 'FC-R6:thin';
-                    if (empty($row['h2s']) || $row['h2s'] === '[]')                    $flags[] = 'FC-R8:no-h2';
-                    if (empty($row['schema_types']) || $row['schema_types'] === '[]')  $flags[] = 'FC-R9:no-schema';
-                }
-                if (empty($flags)) continue;
-                $h1short = substr($row['h1'] ?? '(none)', 0, 50);
-                $intro .= "- {$row['url']} [{$row['page_type']}] " . implode(', ', $flags) . " | H1: \"{$h1short}\"\n";
-            }
-
-                        // Rule violation summaries for quick Logiri parsing
-            $noEntity   = array_filter($crawlData, fn($r) => !$r['has_central_entity'] && !$r['is_noindex']);
-            $noCoreLink = array_filter($crawlData, fn($r) => $r['page_type'] === 'outer' && !$r['has_core_link'] && !$r['is_noindex']);
-            $thinCore   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && $r['word_count'] < 500 && !$r['is_noindex']);
-            $noH2Core   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && ($r['h2s'] === '[]' || !$r['h2s']) && !$r['is_noindex']);
-            $h1Mismatch = array_filter($crawlData, fn($r) => !$r['h1_matches_title'] && !$r['is_noindex']);
-            $noSchema   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && ($r['schema_types'] === '[]' || !$r['schema_types']) && !$r['is_noindex']);
-
-            $intro .= "\nCRAWL RULE VIOLATION SUMMARY:\n";
-            $intro .= "FC-R1 (no central entity): " . count($noEntity) . " pages — " . implode(', ', array_column(array_slice($noEntity, 0, 5), 'url')) . "\n";
-            $intro .= "FC-R5 (outer missing core link): " . count($noCoreLink) . " pages — " . implode(', ', array_column(array_slice($noCoreLink, 0, 5), 'url')) . "\n";
-            $intro .= "FC-R3/R6 (thin core <500w): " . count($thinCore) . " pages — " . implode(', ', array_column(array_slice($thinCore, 0, 5), 'url')) . "\n";
-            $intro .= "FC-R8 (core missing H2s): " . count($noH2Core) . " pages — " . implode(', ', array_column(array_slice($noH2Core, 0, 5), 'url')) . "\n";
-            $intro .= "FC-R7 (H1/title mismatch): " . count($h1Mismatch) . " pages — " . implode(', ', array_column(array_slice($h1Mismatch, 0, 5), 'url')) . "\n";
-            $intro .= "FC-R9 (core missing schema): " . count($noSchema) . " pages — " . implode(', ', array_column(array_slice($noSchema, 0, 5), 'url')) . "\n";
-        } else {
-            $intro .= "\n\nPAGE CRAWL DATA: No crawl data available. Run php bin/console app:crawl-pages to populate.\n";
-        }
-
-        $intro .= "\n\n" . $staticRules;
-
-        return $intro;
-    }
-}
