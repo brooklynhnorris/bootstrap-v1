@@ -1702,7 +1702,8 @@
         }
     }
 
-    document.getElementById('panel-chat-input').addEventListener('keydown', e => {
+    const panelChatInput = document.getElementById('panel-chat-input');
+    if (panelChatInput) panelChatInput.addEventListener('keydown', e => {
         if (e.key === 'Enter') { e.preventDefault(); sendTaskChat(); }
     });
 
@@ -1820,24 +1821,23 @@
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    // Init
-
-    sendEl.addEventListener('click', () => { const t = inputEl.value.trim(); if (t) sendMessage(t); });
-    inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const t = inputEl.value.trim(); if (t) sendMessage(t); } });
-    inputEl.addEventListener('input', () => { inputEl.style.height = '46px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px'; });
+    // Init — guard all DOM listeners
+    if (sendEl) sendEl.addEventListener('click', () => { const t = inputEl.value.trim(); if (t) sendMessage(t); });
+    if (inputEl) inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const t = inputEl.value.trim(); if (t) sendMessage(t); } });
+    if (inputEl) inputEl.addEventListener('input', () => { inputEl.style.height = '46px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px'; });
     setInterval(refreshTasksPanel, 60000);
 
 
     // ── BOARD VIEW ─────────────────────────────────────────
     let boardView = true;  // start on board
 
-    function showBoard() {
+    async function showBoard() {
         boardView = true;
         document.getElementById('board-view').style.display = '';
         document.getElementById('chat-view').style.display = 'none';
         document.getElementById('board-back-btn').style.display = 'none';
         document.getElementById('board-title').textContent = USER_NAME + "'s Playbook";
-        refreshBoard();
+        await refreshBoard();
     }
 
     function showChatForTask(taskId, taskTitle) {
@@ -2015,8 +2015,7 @@
         return m ? m[1] : null;
     }
 
-    // Override refreshTasksPanel to also refresh the board
-    const _origRefreshTasksPanel = typeof refreshTasksPanel === 'function' ? refreshTasksPanel : null;
+
 
 
     // ── Unified startup ──────────────────────────────────
