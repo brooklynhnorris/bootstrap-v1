@@ -285,6 +285,8 @@ class HomeController extends AbstractController
                 }
             }
             $text = preg_replace('/<!-- TASKS_JSON -->.*?<!-- \/TASKS_JSON -->/s', '', $text);
+            // Strip any bare JSON arrays that leaked outside tags (e.g. [{...},...])
+            $text = preg_replace('/^\s*\[\s*\{[^\[\]]*"title"[^\[\]]*\}[\s\S]*?\]\s*$/m', '', $text);
             $text = rtrim($text);
         }
 
@@ -820,7 +822,7 @@ class HomeController extends AbstractController
         $intro .= "\n- Task description: be surgical. State exactly what to change and what value to use. No fluff.";
         $intro .= "\n  Good: \"H1 is missing. Add: <h1>Bumper Pull Horse Trailers</h1> in the hero section.\"";
         $intro .= "\n  Bad: \"This page needs an H1 to fix the SEO signal mismatch.\"";
-        $intro .= "\n- At the END of every response include:";
+        $intro .= "\n- At the END of every response that generates tasks, append ONLY the raw JSON block below — nothing else after it. The JSON must be the LAST thing in your response. Do NOT write any text after the closing <!-- /TASKS_JSON --> tag. Do NOT output JSON anywhere else in your response outside these tags.";
         $intro .= "\n<!-- TASKS_JSON -->";
         $intro .= "\n[{\"title\":\"Example\",\"assigned_to\":\"Brook\",\"priority\":\"high\",\"estimated_hours\":2,\"recheck_type\":\"h1_fix\",\"recheck_days\":7,\"recheck_criteria\":\"h1_matches_title = TRUE for /example/\",\"description\":\"Example\"}]";
         $intro .= "\n<!-- /TASKS_JSON -->";
@@ -964,3 +966,4 @@ class HomeController extends AbstractController
         return $intro;
     }
 }
+    

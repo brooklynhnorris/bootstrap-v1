@@ -44,7 +44,7 @@
         /* Left Sidebar */
         #sidebar { width: 240px; min-width: 240px; background: var(--bg-primary); border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; overflow: hidden; }
         #sidebar-header { padding: 12px 18px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 8px; }
-        #sidebar-header img.logo-small { height: 22px; width: auto; flex-shrink: 0; object-fit: contain; }
+        #sidebar-header img.logo-small { height: 22px; max-width: 90px; width: auto; flex-shrink: 0; object-fit: contain; }
         #sidebar-header h1 { font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
         #sidebar-header p { font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.8px; }
         .user-card { padding: 12px 18px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 9px; }
@@ -335,7 +335,7 @@
                     <div class="history-empty">No conversations yet. Start chatting!</div>
                 {% else %}
                     <div class="history-group-label">Recent</div>
-                    {% for convo in conversations %}
+                    {% for convo in conversations|slice(0, 10) %}
                         <div class="convo-item" id="convo-{{ convo.id }}" onclick="loadConversation({{ convo.id }})">
                             <div class="convo-title">{{ convo.title ?? 'Conversation #' ~ convo.id }}</div>
                             <div class="convo-date">{{ convo.updated_at|date('M j') }}</div>
@@ -416,7 +416,7 @@
     </div>
     <div id="right-panel-body">
         <div class="right-stats">
-            <div class="task-stat"><div class="task-stat-number urgent" id="count-urgent">{{ taskCounts.urgent }}</div><div class="task-stat-label">High+</div></div>
+            <div class="task-stat"><div class="task-stat-number urgent" id="count-urgent">{{ taskCounts.urgent }}</div><div class="task-stat-label">Pending</div></div>
             <div class="task-stat"><div class="task-stat-number active" id="count-active">{{ taskCounts.active }}</div><div class="task-stat-label">Active</div></div>
             <div class="task-stat"><div class="task-stat-number done" id="count-done">{{ taskCounts.done }}</div><div class="task-stat-label">Done</div></div>
         </div>
@@ -694,6 +694,14 @@
     }
 
     function appendMessage(role, text) {
+        // Strip any raw JSON array blocks that leaked through (unstripped TASKS_JSON or bare arrays)
+        text = text.replace(/\[\s*\{[\s\S]*?\}\s*\]/g, function(match) {
+            // Only strip if it looks like a task array (has "title" key)
+            if (match.includes('"title"') && match.includes('"priority"')) return '';
+            return match;
+        });
+        // Strip any orphaned TASKS_JSON comment tags
+        text = text.replace(/<!--\s*\/?TASKS_JSON\s*-->/g, '').trim();
         const div = document.createElement('div');
         div.className = 'message ' + role;
         if (role === 'assistant') {
@@ -1188,7 +1196,7 @@
             tasks.forEach(t => {
                 if (t.status === 'done') done++;
                 else if (t.status === 'in_progress') active++;
-                else if (t.priority === 'urgent' || t.priority === 'high') urgent++;
+                else if (t.status === 'pending') urgent++;
             });
             document.getElementById('count-urgent').textContent = urgent;
             document.getElementById('count-active').textContent = active;
