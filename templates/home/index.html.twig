@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Logiri — Double D Trailers</title>
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Sans:ital,wght@0,400;0,500;0,600;0,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
     <style>
         :root {
@@ -36,8 +36,8 @@
             --radius-sm:  6px;
             --radius-md:  10px;
             --radius-lg:  14px;
-            --font-display: 'Syne', sans-serif;
-            --font-body:    'DM Sans', sans-serif;
+            --font-display: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-body:    'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
             --font-mono:    'JetBrains Mono', monospace;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -526,6 +526,16 @@
             cursor: pointer; font-family: var(--font-body);
             transition: opacity 0.15s; white-space: nowrap;
         }
+        #send:hover { background: #1d4ed8; }
+        #mark-done-btn {
+            padding: 10px 16px;
+            background: var(--accent-green); color: #fff;
+            border: none; border-radius: var(--radius-md);
+            font-size: 13px; font-weight: 600;
+            cursor: pointer; white-space: nowrap;
+            display: none; align-items: center;
+        }
+        #mark-done-btn:hover { background: #15803d; }
         #send:hover { opacity: 0.85; }
         #send:disabled { opacity: 0.4; cursor: not-allowed; }
 
@@ -875,8 +885,9 @@
             </div>
         </div>
         <div id="input-area">
-            <textarea id="input" placeholder="Ask Logiri anything about this Play…" rows="1"></textarea>
+            <textarea id="input" placeholder="Ask anything about this Play…" rows="1"></textarea>
             <button id="send">Send</button>
+            <button id="mark-done-btn" onclick="if(currentTaskId) completeTask(currentTaskId)" style="display:none;">✓ Done</button>
         </div>
     </div>
 
@@ -1198,12 +1209,11 @@
             if (text.length > 200) {
                 const actions = document.createElement('div');
                 actions.className = 'chat-actions';
-                actions.innerHTML =
-                    '<button class="chat-btn" onclick="sendMessage(\'What should ' + USER_NAME + ' work on today?\')">&#x1F4CB; My Tasks</button>' +
-                    '<button class="chat-btn" onclick="sendMessage(\'Show team status and blockers\')">&#x1F465; Team Status</button>' +
-                    '<button class="chat-btn" onclick="sendMessage(\'Quick wins under 2 hours\')">&#x26A1; Quick Wins</button>' +
-                    '<button class="chat-btn" onclick="sendMessage(\'What rechecks are due?\')">&#x1F504; Rechecks</button>' +
-                    '<button class="chat-btn" onclick="openAddTask()">+ Add Task</button>';
+                // Only show mark done when viewing a task
+                if (currentTaskId) {
+                    actions.innerHTML =
+                        '<button class="chat-btn done-btn" onclick="completeTask(currentTaskId)">&#10003; Mark as Done</button>';
+                }
                 bubble.appendChild(actions);
             }
         } else {
@@ -1837,6 +1847,8 @@
         document.getElementById('chat-view').style.display = 'none';
         document.getElementById('board-back-btn').style.display = 'none';
         document.getElementById('board-title').textContent = USER_NAME + "'s Playbook";
+        const doneBtn = document.getElementById('mark-done-btn');
+        if (doneBtn) doneBtn.style.display = 'none';
         await refreshBoard();
     }
 
@@ -1846,6 +1858,8 @@
         document.getElementById('chat-view').style.display = 'flex';
         document.getElementById('board-back-btn').style.display = 'flex';
         document.getElementById('board-title').textContent = taskTitle || 'Play';
+        const doneBtn = document.getElementById('mark-done-btn');
+        if (doneBtn) doneBtn.style.display = 'inline-flex';
         // Reset chat for this task
         messages = [];
         conversationId = null;
