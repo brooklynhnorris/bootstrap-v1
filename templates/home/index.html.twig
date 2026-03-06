@@ -43,7 +43,8 @@
 
         /* Left Sidebar */
         #sidebar { width: 240px; min-width: 240px; background: var(--bg-primary); border-right: 1px solid var(--border-subtle); display: flex; flex-direction: column; overflow: hidden; }
-        #sidebar-header { padding: 16px 18px; border-bottom: 1px solid var(--border-subtle); }
+        #sidebar-header { padding: 12px 18px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 8px; }
+        #sidebar-header img.logo-small { height: 22px; width: auto; flex-shrink: 0; object-fit: contain; }
         #sidebar-header h1 { font-size: 18px; font-weight: 700; color: var(--text-primary); letter-spacing: -0.3px; }
         #sidebar-header p { font-size: 10px; color: var(--text-muted); margin-top: 2px; text-transform: uppercase; letter-spacing: 0.8px; }
         .user-card { padding: 12px 18px; border-bottom: 1px solid var(--border-subtle); display: flex; align-items: center; gap: 9px; }
@@ -1354,5 +1355,4 @@
 </script>
 </body>
 </html>
-
 
