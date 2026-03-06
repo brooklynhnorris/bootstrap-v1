@@ -1898,7 +1898,7 @@
         } catch(e) {
             const loadEl = document.getElementById('briefing-loading');
             if (loadEl) loadEl.remove();
-            appendMessage('assistant', "Signal lost. Type your question and I'll get back on the board.");
+            appendMessage('assistant', 'Signal lost — type your question and I will get back on the board.');
         }
         typingEl.style.display = 'none';
         sendEl.disabled = false;
@@ -2022,38 +2022,12 @@
     // ── Unified startup ──────────────────────────────────
     (async () => {
         try {
-        setTaskFilter('mine');
-        const justSelected = sessionStorage.getItem('persona_just_selected');
-
-        if (justSelected) {
-            // Persona just selected — clear flag FIRST, then brief once
             sessionStorage.removeItem('persona_just_selected');
-            const statusMessages = [
-                'Scanning the board, ' + justSelected + '…',
-                'Pulling your Plays, ' + justSelected + '. One moment…',
-                'Loading your Signal feed, ' + justSelected + '…',
-            ];
-            const msg = statusMessages[Math.floor(Math.random() * statusMessages.length)];
-            setTimeout(() => { showBoard(); }, 100);
-        } else {
-            // Normal load — check for today's briefing first, otherwise start fresh
-            try {
-                const res    = await fetch('/api/conversations');
-                const convos = await res.json();
-                const today  = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-                const todayBriefing = convos.find(c => c.title && c.title.includes(today));
-                if (false && todayBriefing) {
-                    await loadConversation(todayBriefing.id);
-                    messagesEl.scrollTop = 0;
-                } else {
-                    requestBriefing();
-                }
-            } catch(e) {
-                requestBriefing();
-            }
+            await showBoard();
+        } catch(startupErr) {
+            console.error('Logiri startup error:', startupErr);
         }
-        } catch(startupErr) { console.error('Logiri startup error:', startupErr); }
-    })();;
+    })();
 </script>
 
 <script>
