@@ -404,7 +404,7 @@
             margin-bottom: 8px;
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .board-card-run {
+            (!isDone ? '<button class="board-card-run" data-id="' + task.id + '" data-title="' + (task.title||'').replace(/"/g,'\'') + '" onclick="event.stopPropagation();runPlay(this)">\u25b6 Run this Play</button>' : '<div class="board-card-done-badge">\u2713 Complete</div>');
             width: 100%;
             padding: 7px 10px;
             background: transparent;
@@ -943,18 +943,38 @@
         overlay.style.opacity = '0.6';
         overlay.style.pointerEvents = 'none';
         try {
-            await fetch('/api/set-persona', {
+            const res = await fetch('/api/set-persona', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, role })
             });
-            // Store the selected name so we can auto-send the greeting after reload
+            if (!res.ok) {
+                const txt = await res.text();
+                throw new Error('Server error ' + res.status + ': ' + txt.slice(0, 100));
+            }
             sessionStorage.setItem('persona_just_selected', name);
             window.location.reload();
         } catch(e) {
+            console.error('selectPersona failed:', e);
             overlay.style.opacity = '1';
             overlay.style.pointerEvents = 'auto';
+            // Show visible error so user knows what happened
+            const errEl = document.createElement('div');
+            errEl.style.cssText = 'color:#dc2626;font-size:13px;margin-top:8px;text-align:center;';
+            errEl.textContent = 'Could not connect — ' + e.message;
+            const greeting = overlay.querySelector('.persona-greeting');
+            if (greeting && !overlay.querySelector('.persona-err')) {
+                errEl.className = 'persona-err';
+                greeting.appendChild(errEl);
+            }
         }
+    }
+
+    function runPlay(btn) {
+        const id = btn.getAttribute('data-id');
+        const title = btn.getAttribute('data-title');
+        const task = window._taskCache && window._taskCache[id];
+        showChatForTask(id, title, task ? task.description : '', task ? task.priority : '');
     }
 
     function showPersonaPicker() {
@@ -1878,7 +1898,7 @@
         } catch(e) {
             const loadEl = document.getElementById('briefing-loading');
             if (loadEl) loadEl.remove();
-            appendMessage('assistant', 'Signal lost. Type your question and I'll get back on the board.');
+            appendMessage('assistant', "Signal lost. Type your question and I'll get back on the board.");
         }
         typingEl.style.display = 'none';
         sendEl.disabled = false;
@@ -1896,6 +1916,7 @@
             data.forEach(t => { if (t.id) window._taskCache[t.id] = t; });
             renderBoard(data);
             updateStatCounters(data);
+            if (typeof updateSignalBar === 'function') updateSignalBar(data);
         } catch(e) {
             console.error('Board refresh failed', e);
         }
@@ -1978,7 +1999,7 @@
             '</div>' +
             '<div class="board-card-title">' + escapeHtml(task.title || '') + '</div>' +
             (url ? '<div class="board-card-url">' + escapeHtml(url) + '</div>' : '') +
-            (!isDone ? '<button class="board-card-run" onclick="event.stopPropagation(); showChatForTask(' + task.id + ', '' + escapeHtml(task.title || '').replace(/'/g, "\'") + '')">▶ Run this Play</button>' : '<div class="board-card-done-badge">✓ Complete</div>');
+            (!isDone ? '<button class="board-card-run" data-id="' + task.id + '" data-title="' + (task.title||'').replace(/"/g,'\'') + '" onclick="event.stopPropagation();runPlay(this)">\u25b6 Run this Play</button>' : '<div class="board-card-done-badge">\u2713 Complete</div>');
 
         if (!isDone) {
             card.addEventListener('click', () => {
@@ -2070,24 +2091,7 @@
             '</span>';
     }
 
-    // ── Override refreshBoard to also update signal bar ──
-    const _origRefreshBoard = refreshBoard;
-    async function refreshBoard() {
-        try {
-            const fetchUrl = (activeTaskFilter === 'all' || activeTaskFilter === 'team')
-                ? '/api/tasks'
-                : '/api/tasks?assignee=' + encodeURIComponent(USER_NAME);
-            const res = await fetch(fetchUrl);
-            const data = await res.json();
-            window._taskCache = {};
-            data.forEach(t => { if (t.id) window._taskCache[t.id] = t; });
-            renderBoard(data);
-            updateStatCounters(data);
-            updateSignalBar(data);
-        } catch(e) {
-            console.error('Board refresh failed', e);
-        }
-    }
+    // ── refreshBoard also updates signal bar (signal bar call added to main refreshBoard) ──
 </script>
 
 </body>
