@@ -350,7 +350,7 @@ class HomeController extends AbstractController
                     $priority = in_array($aiTask['priority'] ?? '', ['critical','high','medium','low']) ? $aiTask['priority'] : 'medium';
                     $this->db->insert('tasks', [
                         'title'            => $title,
-                        'description'      => $aiTask['description'] ?? null,
+                        'description'      => isset($aiTask['description']) ? strip_tags($aiTask['description']) : null,
                         'assigned_to'      => $aiTask['assigned_to'] ?? null,
                         'assigned_role'    => $aiTask['role'] ?? null,
                         'status'           => 'pending',
@@ -371,6 +371,11 @@ class HomeController extends AbstractController
             $text = preg_replace('/^\s*\[\s*\{[^\[\]]*"title"[^\[\]]*\}[\s\S]*?\]\s*$/m', '', $text);
             $text = rtrim($text);
         }
+
+        // ── Strip any raw HTML tags the AI accidentally included ──
+        $text = preg_replace('/<(h[1-6]|p|br|div|span|a|ul|li|ol|strong|em|b|i)[^>]*>/i', '', $text);
+        $text = preg_replace('</(h[1-6]|p|div|span|a|ul|li|ol|strong|em|b|i)>', '', $text);
+        $text = rtrim($text);
 
         // ── Save assistant response ──
         $this->db->insert('messages', [
@@ -882,6 +887,8 @@ class HomeController extends AbstractController
         $intro .= "\n- Each section must start with a 1-sentence summary line BEFORE any detail.";
         $intro .= "\n- Keep top-level bullets to one line each. Put detail under sub-bullets (indented).";
         $intro .= "\n- Plays (tasks) are called PLAYS not tasks, actions, or recommendations.";
+        $intro .= "\n- NEVER write HTML tags in your response. No <h1>, <p>, <a>, <br> or any other HTML. Plain markdown only.";
+        $intro .= "\n- When referencing what an H1 value should be, write it as plain text in quotes. Example: H1 should be: \"Bumper Pull Horse Trailers\" — NOT: <h1>Bumper Pull Horse Trailers</h1>";
         $intro .= "\n- Never use the words: issue, problem, audit, recommendation, alert, monitoring, dashboard.";
         $intro .= "\n- Use instead: Signal, Play, Sweep, Incident, Pulse, Command Center.";
         $intro .= "\n- Start Task button label: always say 'Run this Play' not 'Start Task'.";
@@ -906,9 +913,10 @@ class HomeController extends AbstractController
         $intro .= "\n- Do NOT duplicate tasks already in ACTIVE TASKS.";
         $intro .= "\n- ONE TASK = ONE URL. Never batch multiple URLs into one task.";
         $intro .= "\n- Task title format: Action + URL. Example: \"Add H1 tag to /bumper-pull-horse-trailers/\"";
-        $intro .= "\n- Task description: be surgical. State exactly what to change and what value to use. No fluff.";
-        $intro .= "\n  Good: \"H1 is missing. Add: <h1>Bumper Pull Horse Trailers</h1> in the hero section.\"";
+        $intro .= "\n- Task description: be surgical. Plain text only — NO HTML tags in descriptions. State exactly what to change and what value to use.";
+        $intro .= "\n  Good: \"H1 is missing. Add the text: Bumper Pull Horse Trailers — in the hero section, as the first heading on the page.\"";
         $intro .= "\n  Bad: \"This page needs an H1 to fix the SEO signal mismatch.\"";
+        $intro .= "\n  NEVER put HTML tags like <h1>, <p>, <a> inside the description field. Write the value in plain English.";
         $intro .= "\n- At the END of every response that generates tasks, append ONLY the raw JSON block below — nothing else after it. The JSON must be the LAST thing in your response. Do NOT write any text after the closing <!-- /TASKS_JSON --> tag. Do NOT output JSON anywhere else in your response outside these tags.";
         $intro .= "\n<!-- TASKS_JSON -->";
         $intro .= "\n[{\"title\":\"Example\",\"assigned_to\":\"Brook\",\"priority\":\"high\",\"estimated_hours\":2,\"recheck_type\":\"h1_fix\",\"recheck_days\":7,\"recheck_criteria\":\"h1_matches_title = TRUE for /example/\",\"description\":\"Example\"}]";
@@ -925,16 +933,19 @@ class HomeController extends AbstractController
         $intro .= "\nFC-R8: Core pages must have at least one H2 tag. Flag Core pages where h2s is empty.";
         $intro .= "\nFC-R9: Core pages must have schema markup. Flag Core pages where schema_types is empty.";
         $intro .= "\nFC-R10: High-traffic Outer pages (100+ GSC impressions) must link to a Core page. Cross-reference GSC impressions with has_core_link = FALSE.";
-        $intro .= "\n\nREVIEW CARD FORMAT:";
-        $intro .= "\nAfter presenting findings for each rule, ALWAYS append a review card. The review card must contain the ACTUAL PAGES YOU FLAGGED so the user can confirm or correct each one — NOT a description of your methodology.";
-        $intro .= "\nUse this exact format:";
-        $intro .= "\n<!-- REVIEW_CARD rule_id=\"FC-RX\" -->";
-        $intro .= "\nI flagged these pages as violations:";
-        $intro .= "\n- /example-url/ | Core | Issue: no H1 tag";
-        $intro .= "\n- /another-url/ | Outer | Issue: missing core link";
-        $intro .= "\nAre these correct? Use the form below to approve, correct any misclassifications, or flag pages I missed.";
-        $intro .= "\n<!-- /REVIEW_CARD -->";
-        $intro .= "\nKEY RULE: The review card is for the USER to verify YOUR specific findings. Show them the actual URLs and issues you found. Do not explain your logic — show your work. Keep it plain language, no technical jargon like 'has_core_link = FALSE'. Say 'missing link to a product page' instead.";
+        // Review cards are ONLY for Jeanne
+        if ($userName === 'Jeanne') {
+            $intro .= "\n\nREVIEW CARD FORMAT:";
+            $intro .= "\nAfter presenting findings for each rule, ALWAYS append a review card. The review card must contain the ACTUAL PAGES YOU FLAGGED so the user can confirm or correct each one — NOT a description of your methodology.";
+            $intro .= "\nUse this exact format:";
+            $intro .= "\n<!-- REVIEW_CARD rule_id=\"FC-RX\" -->";
+            $intro .= "\nI flagged these pages as violations:";
+            $intro .= "\n- /example-url/ | Core | Issue: no H1 tag";
+            $intro .= "\n- /another-url/ | Outer | Issue: missing core link";
+            $intro .= "\nAre these correct? Use the form below to approve, correct any misclassifications, or flag pages I missed.";
+            $intro .= "\n<!-- /REVIEW_CARD -->";
+            $intro .= "\nKEY RULE: The review card is for the USER to verify YOUR specific findings. Show them the actual URLs and issues you found. Do not explain your logic — show your work. Keep it plain language, no technical jargon like 'has_core_link = FALSE'. Say 'missing link to a product page' instead.";
+        }
         $intro .= "\n\nTEAM ROSTER:";
         $intro .= "\n- Brook | SEO + Content | 40h/week | Handles all on-page fixes, content tasks, FC rule violations";
         $intro .= "\n- Jeanne | Content Director | 40h/week | Reviews and approves FC rule classifications — Rule Review tasks go to Jeanne";
@@ -1053,3 +1064,4 @@ class HomeController extends AbstractController
         return $intro;
     }
 }
+    
