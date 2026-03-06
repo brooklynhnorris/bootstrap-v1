@@ -50,14 +50,22 @@ class CrawlPagesCommand extends Command
         '/book-a-video-call/',
     ];
 
+    // Pages that should never be flagged for content rules — utility/navigational pages
+    private array $utilityUrls = [
+        '/contact/', '/contact-us/', '/get-quote/', '/dealers/', '/financing/',
+        '/join-our-mailing-list/', '/freebook/', '/book-a-video-call/',
+        '/trailer-finder/', '/sitemap/', '/privacy-policy/', '/terms/',
+        '/search/', '/login/', '/logout/', '/cart/', '/checkout/',
+    ];
+
     private array $outerPatterns = [
-        '/blog/',
-        '/podcast/',
-        '/video/',
-        '/how-to',
-        '/guide',
-        '/tips',
-        '/news/',
+        '/blog/', '/podcast/', '/video/', '/how-to', '/guide', '/tips', '/news/',
+    ];
+
+    // All known central entity variations for horse trailers
+    private array $centralEntityVariants = [
+        'horse trailer', 'horse trailers', 'trailer for horse', 'trailers for horse',
+        'equine trailer', 'livestock trailer', 'horse hauler',
     ];
 
     public function __construct(private Connection $db)
@@ -68,7 +76,7 @@ class CrawlPagesCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('url', null, InputOption::VALUE_OPTIONAL, 'Crawl a single URL path (e.g. /gooseneck-horse-trailers/)')
+            ->addOption('url', null, InputOption::VALUE_OPTIONAL, 'Crawl a single URL path')
             ->addOption('limit', null, InputOption::VALUE_OPTIONAL, 'Max URLs to crawl', 200)
             ->addOption('debug', null, InputOption::VALUE_NONE, 'Extra debug output');
     }
@@ -80,8 +88,6 @@ class CrawlPagesCommand extends Command
         $debug     = (bool) $input->getOption('debug');
 
         $this->ensureSchema();
-
-        // Load user overrides so crawl respects manual corrections
         $overrides = $this->loadOverrides();
 
         if ($singleUrl) {
@@ -116,10 +122,7 @@ class CrawlPagesCommand extends Command
                 $output->writeln("  FAILED: {$fullUrl}");
                 $failed++;
             } else {
-                // Apply user overrides before saving
                 $result = $this->applyOverrides($result, $overrides);
-
-                // Upsert: delete existing row for this URL then insert fresh
                 $this->db->executeStatement('DELETE FROM page_crawl_snapshots WHERE url = ?', [$path]);
                 $this->db->insert('page_crawl_snapshots', $result);
 
@@ -134,7 +137,7 @@ class CrawlPagesCommand extends Command
                 $crawled++;
             }
 
-            usleep(500000); // 0.5 second polite delay
+            usleep(500000);
         }
 
         $output->writeln("Done. Crawled: {$crawled} | Failed: {$failed} | Total: {$total}");
@@ -166,15 +169,15 @@ class CrawlPagesCommand extends Command
         libxml_clear_errors();
         $xpath = new \DOMXPath($dom);
 
-        // Title
+        // ── Title ──
         $titleNodes = $xpath->query('//title');
         $titleTag   = $titleNodes->length > 0 ? trim($titleNodes->item(0)->textContent) : null;
 
-        // H1
+        // ── H1 ──
         $h1Nodes = $xpath->query('//h1');
         $h1      = $h1Nodes->length > 0 ? trim($h1Nodes->item(0)->textContent) : null;
 
-        // H2s
+        // ── H2s ──
         $h2Nodes = $xpath->query('//h2');
         $h2s = [];
         foreach ($h2Nodes as $h2) {
@@ -182,57 +185,133 @@ class CrawlPagesCommand extends Command
             if ($t) $h2s[] = $t;
         }
 
-        // Meta description
+        // ── Meta description ──
         $metaNodes       = $xpath->query('//meta[@name="description"]/@content');
         $metaDescription = $metaNodes->length > 0 ? trim($metaNodes->item(0)->textContent) : null;
 
-        // Canonical
+        // ── Canonical ──
         $canonicalNodes = $xpath->query('//link[@rel="canonical"]/@href');
         $canonicalUrl   = $canonicalNodes->length > 0 ? trim($canonicalNodes->item(0)->textContent) : null;
 
-        // Noindex
+        // ── Noindex ──
         $robotsNodes = $xpath->query('//meta[@name="robots"]/@content');
         $isNoindex   = false;
         if ($robotsNodes->length > 0) {
             $isNoindex = str_contains(strtolower($robotsNodes->item(0)->textContent), 'noindex');
         }
 
-        // Schema types
+        // ── Schema types — handles both top-level @type and @graph arrays (Yoast/RankMath) ──
         $schemaNodes = $xpath->query('//*[@type="application/ld+json"]');
         $schemaTypes = [];
         foreach ($schemaNodes as $node) {
             $json = json_decode($node->textContent, true);
-            if (isset($json['@type'])) $schemaTypes[] = $json['@type'];
+            if (!$json) continue;
+            // Top-level @type
+            if (isset($json['@type'])) {
+                $schemaTypes[] = is_array($json['@type']) ? implode(',', $json['@type']) : $json['@type'];
+            }
+            // @graph array (Yoast SEO pattern)
+            if (isset($json['@graph']) && is_array($json['@graph'])) {
+                foreach ($json['@graph'] as $item) {
+                    if (isset($item['@type'])) {
+                        $schemaTypes[] = is_array($item['@type']) ? implode(',', $item['@type']) : $item['@type'];
+                    }
+                }
+            }
+        }
+        $schemaTypes = array_values(array_unique($schemaTypes));
+
+        // ── ACCURATE word count — strip nav/header/footer/aside/scripts/styles first ──
+        $wordCount = 0;
+        $bodyText  = '';
+        $mainContentSelectors = [
+            '//main',
+            '//article',
+            '//*[@id="content"]',
+            '//*[@id="main-content"]',
+            '//*[@class="entry-content"]',
+            '//*[@class="page-content"]',
+            '//*[@class="post-content"]',
+        ];
+
+        $contentText = '';
+        foreach ($mainContentSelectors as $selector) {
+            $nodes = $xpath->query($selector);
+            if ($nodes->length > 0) {
+                $contentText = $this->extractCleanText($nodes->item(0), $xpath);
+                break;
+            }
         }
 
-        // Body text + word count
-        $bodyNodes = $xpath->query('//body');
-        $bodyText  = '';
-        if ($bodyNodes->length > 0) {
-            $bodyText = preg_replace('/\s+/', ' ', strip_tags($bodyNodes->item(0)->textContent));
+        // Fallback: strip noisy elements from body
+        if (empty(trim($contentText))) {
+            // Remove nav, header, footer, aside, scripts, styles, forms
+            $noiseSelectors = ['//nav', '//header', '//footer', '//aside',
+                               '//script', '//style', '//noscript',
+                               '//*[@class="menu"]', '//*[@id="menu"]',
+                               '//*[@class="navigation"]', '//*[@role="navigation"]',
+                               '//*[@class="sidebar"]', '//*[@id="sidebar"]',
+                               '//*[@class="widget"]', '//*[contains(@class,"cookie")]',
+                               '//*[@aria-label="breadcrumb"]'];
+            foreach ($noiseSelectors as $sel) {
+                $noiseNodes = $xpath->query($sel);
+                foreach ($noiseNodes as $noiseNode) {
+                    if ($noiseNode->parentNode) {
+                        $noiseNode->parentNode->removeChild($noiseNode);
+                    }
+                }
+            }
+            $bodyNodes = $xpath->query('//body');
+            if ($bodyNodes->length > 0) {
+                $contentText = $this->extractCleanText($bodyNodes->item(0), $xpath);
+            }
         }
+
+        $bodyText  = $contentText;
         $wordCount = $bodyText ? str_word_count(trim($bodyText)) : 0;
 
-        // Central entity check
+        // ── Central entity check — multiple variants, minimum 2 occurrences for confidence ──
         $bodyLower          = strtolower($bodyText);
-        $centralEntityCount = substr_count($bodyLower, 'horse trailer');
-        $hasCentralEntity   = $centralEntityCount > 0;
+        $centralEntityCount = 0;
+        foreach ($this->centralEntityVariants as $variant) {
+            $centralEntityCount += substr_count($bodyLower, $variant);
+        }
+        $hasCentralEntity = $centralEntityCount >= 2; // Require at least 2 mentions
 
-        // Internal links + core link detection
-        $linkNodes      = $xpath->query('//a[@href]');
+        // ── Internal links + core link detection — BODY ONLY (excludes nav/footer) ──
         $internalLinks  = [];
         $coreLinksFound = [];
         $hasCoreLink    = false;
 
-        foreach ($linkNodes as $link) {
-            $href = trim($link->getAttribute('href'));
-            if (str_starts_with($href, '/') || str_contains($href, 'doubledtrailers.com')) {
-                $parsed = parse_url($href, PHP_URL_PATH);
-                if ($parsed) {
-                    $internalLinks[] = $parsed;
-                    if ($this->isCoreUrl($parsed)) {
-                        $hasCoreLink      = true;
-                        $coreLinksFound[] = $parsed;
+        // Only check links within main content areas, not nav/header/footer
+        $contentLinkSelectors = ['//main//a[@href]', '//article//a[@href]',
+                                  '//*[@class="entry-content"]//a[@href]',
+                                  '//*[@id="content"]//a[@href]'];
+        $linkNodes = null;
+        foreach ($contentLinkSelectors as $sel) {
+            $nodes = $xpath->query($sel);
+            if ($nodes->length > 0) {
+                $linkNodes = $nodes;
+                break;
+            }
+        }
+
+        // Fallback to all body links if no main content found
+        if ($linkNodes === null || $linkNodes->length === 0) {
+            $linkNodes = $xpath->query('//body//a[@href]');
+        }
+
+        if ($linkNodes) {
+            foreach ($linkNodes as $link) {
+                $href = trim($link->getAttribute('href'));
+                if (str_starts_with($href, '/') || str_contains($href, 'doubledtrailers.com')) {
+                    $parsed = parse_url($href, PHP_URL_PATH);
+                    if ($parsed) {
+                        $internalLinks[] = $parsed;
+                        if ($this->isCoreUrl($parsed)) {
+                            $hasCoreLink      = true;
+                            $coreLinksFound[] = $parsed;
+                        }
                     }
                 }
             }
@@ -241,14 +320,26 @@ class CrawlPagesCommand extends Command
         $internalLinks  = array_values(array_unique($internalLinks));
         $coreLinksFound = array_values(array_unique($coreLinksFound));
 
-        // H1 vs title alignment (60% word overlap threshold)
+        // ── H1 vs title alignment — stricter: requires 70% overlap AND checks key noun match ──
         $h1MatchesTitle = false;
         if ($h1 && $titleTag) {
-            $h1Words    = array_filter(explode(' ', strtolower(preg_replace('/[^a-z0-9 ]/i', '', $h1))), fn($w) => strlen($w) > 3);
-            $titleLower = strtolower($titleTag);
-            $matches    = count(array_filter($h1Words, fn($w) => str_contains($titleLower, $w)));
-            $h1MatchesTitle = count($h1Words) > 0 && ($matches / count($h1Words)) >= 0.6;
+            $stopWords  = ['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'is', 'are', 'was', 'be'];
+            $h1Clean    = strtolower(preg_replace('/[^a-z0-9 ]/i', '', $h1));
+            $titleClean = strtolower(preg_replace('/[^a-z0-9 ]/i', '', $titleTag));
+
+            $h1Words    = array_filter(explode(' ', $h1Clean), fn($w) => strlen($w) > 3 && !in_array($w, $stopWords));
+            $titleWords = array_filter(explode(' ', $titleClean), fn($w) => strlen($w) > 3 && !in_array($w, $stopWords));
+
+            if (count($h1Words) > 0 && count($titleWords) > 0) {
+                $matches = count(array_filter($h1Words, fn($w) => str_contains($titleClean, $w)));
+                $overlap = $matches / count($h1Words);
+                // 70% threshold (stricter than original 60%)
+                $h1MatchesTitle = $overlap >= 0.70;
+            }
         }
+
+        // ── Page type classification ──
+        $pageType = $this->classifyPageType($path);
 
         return [
             'url'                  => $path,
@@ -267,9 +358,34 @@ class CrawlPagesCommand extends Command
             'schema_types'         => json_encode($schemaTypes),
             'canonical_url'        => $canonicalUrl ? substr($canonicalUrl, 0, 500) : null,
             'is_noindex'           => $isNoindex ? 1 : 0,
-            'page_type'            => $this->classifyPageType($path),
+            'page_type'            => $pageType,
+            'is_utility'           => $this->isUtilityUrl($path) ? 1 : 0,
             'crawled_at'           => date('Y-m-d H:i:s'),
         ];
+    }
+
+    /**
+     * Extract clean text from a DOM node, stripping nested nav/scripts/styles
+     */
+    private function extractCleanText(\DOMNode $node, \DOMXPath $xpath): string
+    {
+        // Clone so we don't mutate the original DOM
+        $clone = $node->cloneNode(true);
+        $cloneDoc = new \DOMDocument();
+        $cloneDoc->appendChild($cloneDoc->importNode($clone, true));
+        $cloneXpath = new \DOMXPath($cloneDoc);
+
+        $removeSelectors = ['//script', '//style', '//nav', '//header', '//footer',
+                            '//noscript', '//*[@aria-hidden="true"]'];
+        foreach ($removeSelectors as $sel) {
+            $nodes = $cloneXpath->query($sel);
+            foreach ($nodes as $n) {
+                if ($n->parentNode) $n->parentNode->removeChild($n);
+            }
+        }
+
+        $text = strip_tags($cloneDoc->textContent ?? '');
+        return preg_replace('/\s+/', ' ', $text);
     }
 
     private function loadOverrides(): array
@@ -295,7 +411,6 @@ class CrawlPagesCommand extends Command
     {
         $url = $result['url'];
         if (!isset($overrides[$url])) return $result;
-
         foreach ($overrides[$url] as $field => $value) {
             if (array_key_exists($field, $result)) {
                 $result[$field] = $value;
@@ -318,7 +433,6 @@ class CrawlPagesCommand extends Command
             if ($parsed) $paths[] = $parsed;
         }
 
-        // Always include core URLs even if not in GSC
         foreach ($this->coreUrls as $core) {
             $paths[] = $core;
         }
@@ -344,8 +458,19 @@ class CrawlPagesCommand extends Command
         return false;
     }
 
+    private function isUtilityUrl(string $path): bool
+    {
+        $n = '/' . trim($path, '/') . '/';
+        foreach ($this->utilityUrls as $util) {
+            $u = '/' . trim($util, '/') . '/';
+            if ($n === $u || str_starts_with($n, $u)) return true;
+        }
+        return false;
+    }
+
     private function classifyPageType(string $path): string
     {
+        if ($this->isUtilityUrl($path)) return 'utility';
         if ($this->isCoreUrl($path)) return 'core';
         foreach ($this->outerPatterns as $pattern) {
             if (str_contains($path, $pattern)) return 'outer';
@@ -387,6 +512,7 @@ class CrawlPagesCommand extends Command
                     canonical_url           TEXT DEFAULT NULL,
                     is_noindex              BOOLEAN DEFAULT FALSE,
                     page_type               VARCHAR(20) DEFAULT NULL,
+                    is_utility              BOOLEAN DEFAULT FALSE,
                     crawled_at              TIMESTAMP NOT NULL
                 )
             ");
@@ -394,6 +520,11 @@ class CrawlPagesCommand extends Command
             $this->db->executeStatement('CREATE INDEX idx_crawl_page_type ON page_crawl_snapshots (page_type)');
             $this->db->executeStatement('CREATE INDEX idx_crawl_has_core_link ON page_crawl_snapshots (has_core_link)');
             $this->db->executeStatement('CREATE INDEX idx_crawl_central_entity ON page_crawl_snapshots (has_central_entity)');
+        } else {
+            // Add is_utility column if it doesn't exist yet
+            try {
+                $this->db->executeStatement('ALTER TABLE page_crawl_snapshots ADD COLUMN IF NOT EXISTS is_utility BOOLEAN DEFAULT FALSE');
+            } catch (\Exception $e) {}
         }
     }
 }
