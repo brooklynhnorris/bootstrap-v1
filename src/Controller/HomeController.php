@@ -30,6 +30,11 @@ class HomeController extends AbstractController
             $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_criteria TEXT DEFAULT NULL');
         // Add persona_name to existing conversations table if missing
             $this->db->executeStatement("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS persona_name VARCHAR(50) DEFAULT NULL");
+            // One-time cleanup: remove tasks with no assigned_to (legacy unscoped tasks)
+            $this->db->executeStatement("DELETE FROM tasks WHERE assigned_to IS NULL OR assigned_to = ''");
+            // One-time cleanup: remove conversations with no persona_name older than 7 days
+            $this->db->executeStatement("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE persona_name IS NULL AND created_at < NOW() - INTERVAL '7 days')");
+            $this->db->executeStatement("DELETE FROM conversations WHERE persona_name IS NULL AND created_at < NOW() - INTERVAL '7 days'");
         } catch (\Exception $e) {
             // Tables already exist or DB not ready — fail silently
         }
@@ -61,6 +66,7 @@ class HomeController extends AbstractController
             return new JsonResponse(['error' => 'Invalid persona'], 400);
         }
 
+        $session->remove('active_persona'); // clear old first
         $session->set('active_persona', ['name' => $name, 'role' => $role]);
         return new JsonResponse(['ok' => true, 'name' => $name, 'role' => $role]);
     }
@@ -106,6 +112,8 @@ class HomeController extends AbstractController
         } else {
             $userName = $defaultName;
             $userRole = $defaultRole;
+            // No persona chosen yet — show the picker overlay (handled client-side)
+            $showPersonaPicker = true;
         }
         $tasks = $this->db->fetchAllAssociative(
             "SELECT * FROM tasks WHERE status != 'done' AND assigned_to = ? ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC LIMIT 20",
@@ -1045,4 +1053,3 @@ class HomeController extends AbstractController
         return $intro;
     }
 }
-    

@@ -1382,10 +1382,11 @@
     }
 
     // Briefing
-    async function requestBriefing() {
+    async function requestBriefing(statusMsg) {
         const loadingDiv = document.createElement('div');
         loadingDiv.className = 'message assistant';
-        loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Hello ' + USER_NAME + ', reading the board…</div>';
+        const msg = statusMsg || ('Reading the board, ' + USER_NAME + '…');
+        loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">' + msg + '</div>';
         loadingDiv.id = 'briefing-loading';
         messagesEl.appendChild(loadingDiv);
         typingEl.style.display = 'block';
@@ -1503,11 +1504,16 @@
     const justSelected = sessionStorage.getItem('persona_just_selected');
     if (justSelected) {
         sessionStorage.removeItem('persona_just_selected');
-        // Persona just selected — skip requestBriefing, send targeted greeting instead
+        // Persona just selected — trigger silent briefing with persona-aware status message
         setTimeout(() => {
-            const greetingPrompt = 'Signal check, ' + justSelected + '. What are my top Plays today and any active Signals I need to move on?';
-            sendMessage(greetingPrompt);
-        }, 500);
+            const statusMessages = [
+                'Scanning the board, ' + justSelected + '…',
+                'Pulling your Plays, ' + justSelected + '. One moment…',
+                'Loading your Signal feed, ' + justSelected + '…',
+            ];
+            const msg = statusMessages[Math.floor(Math.random() * statusMessages.length)];
+            requestBriefing(msg);
+        }, 400);
     } else {
         // Normal page load — run briefing if no conversation loaded
         if (!conversationId) {
