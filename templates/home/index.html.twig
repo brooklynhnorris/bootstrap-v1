@@ -8,31 +8,31 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
     <style>
         :root {
-            --bg-primary:      #0d0d12;
-            --bg-secondary:    #131319;
-            --bg-tertiary:     #1a1a23;
-            --bg-card:         #1e1e28;
-            --bg-card-hover:   #252530;
-            --border-subtle:   #2a2a38;
-            --border-medium:   #363648;
-            --border-accent:   #4a4a62;
-            --text-primary:    #f0f0f8;
-            --text-secondary:  #a0a0b8;
-            --text-muted:      #5a5a72;
-            --accent-blue:     #4f8ef7;
-            --accent-blue-dim: #1a2540;
-            --accent-blue-border: #2a4070;
-            --accent-red:      #f05252;
-            --accent-red-dim:  #2a1020;
-            --accent-yellow:   #f5a623;
-            --accent-yellow-dim: #2a1e08;
-            --accent-green:    #34d399;
-            --accent-green-dim: #0a2018;
-            --accent-purple:   #a78bfa;
-            --accent-purple-dim: #1e1430;
-            --shadow-sm:  0 1px 3px rgba(0,0,0,0.3);
-            --shadow-md:  0 4px 16px rgba(0,0,0,0.4);
-            --shadow-lg:  0 8px 32px rgba(0,0,0,0.5);
+            --bg-primary:      #ffffff;
+            --bg-secondary:    #f8f8fa;
+            --bg-tertiary:     #f0f0f3;
+            --bg-card:         #ffffff;
+            --bg-card-hover:   #f4f4f8;
+            --border-subtle:   #e4e4e8;
+            --border-medium:   #d0d0d6;
+            --border-accent:   #b0b0ba;
+            --text-primary:    #1a1a1f;
+            --text-secondary:  #5c5c66;
+            --text-muted:      #9898a0;
+            --accent-blue:     #2563eb;
+            --accent-blue-dim: #eff4ff;
+            --accent-blue-border: #bfdbfe;
+            --accent-red:      #dc2626;
+            --accent-red-dim:  #fef2f2;
+            --accent-yellow:   #d97706;
+            --accent-yellow-dim: #fffbeb;
+            --accent-green:    #16a34a;
+            --accent-green-dim: #f0fdf4;
+            --accent-purple:   #7c3aed;
+            --accent-purple-dim: #f5f3ff;
+            --shadow-sm:  0 1px 2px rgba(0,0,0,0.04);
+            --shadow-md:  0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.06);
+            --shadow-lg:  0 8px 24px rgba(0,0,0,0.08);
             --radius-sm:  6px;
             --radius-md:  10px;
             --radius-lg:  14px;
@@ -58,7 +58,7 @@
         /* ── PERSONA OVERLAY ────────────────────────── */
         #persona-overlay {
             position: fixed; inset: 0; z-index: 1000;
-            background: var(--bg-primary);
+            background: #f8f8fa;
             display: flex; flex-direction: column;
             align-items: center; justify-content: center;
             gap: 32px; padding: 40px;
@@ -291,7 +291,7 @@
             gap: 16px;
         }
         .board-signal-bar {
-            background: linear-gradient(135deg, #1a1220 0%, #1a1a28 100%);
+            background: linear-gradient(135deg, #f5f3ff 0%, #eff4ff 100%);
             border: 1px solid var(--border-subtle);
             border-left: 3px solid var(--accent-purple);
             border-radius: var(--radius-md);
@@ -645,7 +645,7 @@
         /* ── ADD TASK MODAL ─────────────────────────── */
         #add-task-modal {
             display: none; position: fixed; inset: 0; z-index: 200;
-            background: rgba(0,0,0,0.7); align-items: center; justify-content: center;
+            background: rgba(0,0,0,0.25); align-items: center; justify-content: center;
         }
         #add-task-modal.open { display: flex; }
         .modal-box {
@@ -712,7 +712,7 @@
             text-transform: uppercase; letter-spacing: 0.5px;
             padding: 2px 8px; border-radius: 10px;
         }
-        .task-priority.critical { background: #2a0a0a; color: var(--accent-red); }
+        .task-priority.critical { background: #fef2f2; color: var(--accent-red); }
         .task-priority.high     { background: var(--accent-yellow-dim); color: var(--accent-yellow); }
         .task-priority.medium   { background: var(--accent-blue-dim); color: var(--accent-blue); }
         .task-priority.low      { background: var(--bg-tertiary); color: var(--text-muted); }
