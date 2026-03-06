@@ -1856,7 +1856,7 @@
             if (data.conversation_id) {
                 const isNew = !conversationId;
                 conversationId = data.conversation_id;
-                if (isNew) addConvoToSidebar(conversationId, 'Briefing \u2014 ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                if (isNew) addConvoToSidebar(conversationId, (function(){ var d=new Date(); return 'Daily Brief \u2014 '+d.toLocaleString('en-US',{month:'short'})+' '+d.getDate(); })());
             }
             const loadEl = document.getElementById('briefing-loading');
             if (loadEl) loadEl.remove();
@@ -1881,7 +1881,7 @@
                 if (data2.conversation_id) {
                     const isNew2 = !conversationId;
                     conversationId = data2.conversation_id;
-                    if (isNew2) addConvoToSidebar(conversationId, 'Briefing \u2014 ' + new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' }));
+                    if (isNew2) addConvoToSidebar(conversationId, (function(){ var d=new Date(); return 'Daily Brief \u2014 '+d.toLocaleString('en-US',{month:'short'})+' '+d.getDate(); })());
                 }
                 const loadEl2 = document.getElementById('briefing-loading');
                 if (loadEl2) loadEl2.remove();
@@ -1985,8 +1985,9 @@
             const data = await res.json();
             const reply = data.response || data.error || 'No response.';
             if (data.conversation_id) {
+                const isNewTask = !conversationId;
                 conversationId = data.conversation_id;
-                // Don't add task chats to sidebar history
+                if (isNewTask) addConvoToSidebar(conversationId, title.length > 45 ? title.substring(0, 42) + '...' : title);
             }
             const loadEl = document.getElementById('briefing-loading');
             if (loadEl) loadEl.remove();
