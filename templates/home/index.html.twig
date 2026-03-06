@@ -214,28 +214,49 @@
         .right-filter-btn:hover { color: var(--text-secondary); border-color: var(--border-accent); }
         .right-filter-btn.active { background: var(--accent-blue-dim); border-color: var(--accent-blue-border); color: var(--accent-blue); font-weight: 600; }
         #right-task-list { overflow-y: auto; flex: 1; padding: 8px 10px; scrollbar-width: thin; scrollbar-color: var(--border-medium) transparent; }
-        .task-item { padding: 9px 11px; background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: var(--radius-sm); margin-bottom: 5px; cursor: pointer; transition: border-color 0.15s; }
-        .task-item:hover { border-color: var(--accent-blue-border); }
-        .task-item.selected { border-color: var(--accent-blue) !important; background: var(--accent-blue-dim) !important; box-shadow: 0 0 0 2px rgba(37,99,235,0.15); }
-        .task-item.selected::before { content: '\25B6  '; color: var(--accent-blue); font-size: 9px; }
-        .task-item-header { display: flex; align-items: center; gap: 5px; margin-bottom: 3px; }
-        .task-priority { font-size: 9px; font-weight: 600; padding: 1px 5px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.5px; }
-        .task-priority.urgent { background: var(--accent-red-dim); color: var(--accent-red); border: 1px solid var(--accent-red-border); }
-        .task-priority.high { background: var(--accent-yellow-dim); color: var(--accent-yellow); border: 1px solid var(--accent-yellow-border); }
-        .task-priority.medium { background: var(--accent-blue-dim); color: var(--accent-blue); border: 1px solid var(--accent-blue-border); }
-        .task-priority.low { background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border-subtle); }
-        .task-assignee { font-size: 10px; color: var(--text-muted); margin-left: auto; }
-        .task-title { font-size: 11px; color: var(--text-secondary); line-height: 1.4; }
-        .task-meta { display: flex; gap: 7px; margin-top: 5px; align-items: center; }
+        /* ── Task Cards ──────────────────────────── */
+        .task-item {
+            padding: 10px 12px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-subtle);
+            border-left: 3px solid transparent;
+            border-radius: var(--radius-sm);
+            margin-bottom: 6px;
+            cursor: pointer;
+            transition: border-color 0.15s, box-shadow 0.15s;
+        }
+        .task-item:hover { border-color: var(--accent-blue-border); box-shadow: 0 1px 4px rgba(0,0,0,0.06); }
+        .task-item.selected { border-color: var(--accent-blue) !important; background: var(--accent-blue-dim) !important; box-shadow: 0 0 0 2px rgba(37,99,235,0.12); }
+        /* Priority left-border accent */
+        .task-item.priority-critical { border-left-color: #ef4444; }
+        .task-item.priority-urgent   { border-left-color: #ef4444; }
+        .task-item.priority-high     { border-left-color: #f59e0b; }
+        .task-item.priority-medium   { border-left-color: #3b82f6; }
+        .task-item.priority-low      { border-left-color: #9ca3af; }
+        /* Header row: badge + assignee */
+        .task-item-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 5px; }
+        .task-priority { font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.6px; }
+        .task-priority.critical, .task-priority.urgent { background: var(--accent-red-dim); color: var(--accent-red); border: 1px solid var(--accent-red-border); }
+        .task-priority.high    { background: var(--accent-yellow-dim); color: var(--accent-yellow); border: 1px solid var(--accent-yellow-border); }
+        .task-priority.medium  { background: var(--accent-blue-dim); color: var(--accent-blue); border: 1px solid var(--accent-blue-border); }
+        .task-priority.low     { background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border-subtle); }
+        .task-assignee { font-size: 10px; color: var(--text-muted); font-weight: 500; }
+        /* Title */
+        .task-title { font-size: 12px; font-weight: 500; color: var(--text-primary); line-height: 1.45; margin-bottom: 6px; }
+        /* Meta row: hours + status */
+        .task-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
         .task-hours { font-size: 10px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
-        .task-status-badge { font-size: 9px; padding: 1px 5px; border-radius: 3px; background: var(--bg-tertiary); color: var(--text-muted); border: 1px solid var(--border-subtle); }
-        .task-status-badge.in_progress { background: var(--accent-yellow-dim); color: var(--accent-yellow); border-color: var(--accent-yellow-border); }
-        .task-actions-row { display: flex; gap: 3px; margin-top: 5px; }
-        .task-action-btn { font-size: 10px; padding: 2px 7px; border-radius: 3px; border: 1px solid var(--border-subtle); background: var(--bg-secondary); color: var(--text-muted); cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.15s; }
-        .task-action-btn:hover { border-color: var(--border-accent); color: var(--text-secondary); }
+        .task-status-badge { font-size: 9px; padding: 2px 6px; border-radius: 10px; font-weight: 600; letter-spacing: 0.3px; }
+        .task-status-badge.pending     { background: var(--bg-secondary); color: var(--text-muted); border: 1px solid var(--border-subtle); }
+        .task-status-badge.in_progress { background: var(--accent-yellow-dim); color: var(--accent-yellow); border: 1px solid var(--accent-yellow-border); }
+        .task-status-badge.done        { background: var(--accent-green-dim); color: var(--accent-green); border: 1px solid var(--accent-green-border); }
+        /* Action buttons */
+        .task-actions-row { display: flex; gap: 5px; }
+        .task-action-btn { font-size: 10px; padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border-subtle); background: var(--bg-secondary); color: var(--text-secondary); cursor: pointer; font-family: 'DM Sans', sans-serif; font-weight: 500; transition: all 0.15s; white-space: nowrap; }
+        .task-action-btn:hover { border-color: var(--border-accent); color: var(--text-primary); }
         .task-action-btn.complete:hover { border-color: var(--accent-green-border); color: var(--accent-green); background: var(--accent-green-dim); }
         .task-action-btn.start:hover { border-color: var(--accent-yellow-border); color: var(--accent-yellow); background: var(--accent-yellow-dim); }
-        .task-empty { font-size: 12px; color: var(--text-muted); font-style: italic; padding: 4px 0; }
+        .task-empty { font-size: 12px; color: var(--text-muted); font-style: italic; padding: 8px 2px; }
 
         /* Task Detail Slide-over */
         #task-detail-panel { display: none; position: fixed; top: 0; right: 280px; width: 360px; height: 100vh; background: var(--bg-primary); border-left: 1px solid var(--border-subtle); flex-direction: column; overflow: hidden; z-index: 50; box-shadow: -4px 0 16px rgba(0,0,0,0.08); }
@@ -306,55 +327,58 @@
         /* ── Persona Picker ─────────────────────────── */
         #persona-overlay {
             position: fixed; inset: 0; z-index: 9999;
-            background: #0f1117;
+            background: #f8f8fa;
             display: flex; align-items: center; justify-content: center;
             flex-direction: column;
+            font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
         }
         #persona-overlay.hidden { display: none; }
         .persona-greeting {
-            text-align: center; margin-bottom: 40px;
+            text-align: center; margin-bottom: 36px;
         }
         .persona-greeting .greeting-eyebrow {
             font-size: 11px; font-weight: 600; letter-spacing: 2px;
-            text-transform: uppercase; color: #3b82f6; margin-bottom: 12px;
+            text-transform: uppercase; color: #2563eb; margin-bottom: 12px;
         }
         .persona-greeting h1 {
-            font-size: 28px; font-weight: 700; color: #fff;
+            font-size: 26px; font-weight: 700; color: #1a1a1f;
             letter-spacing: -0.5px; margin-bottom: 8px;
         }
         .persona-greeting p {
-            font-size: 14px; color: #6b7280;
+            font-size: 13px; color: #9898a0;
         }
         .persona-grid {
-            display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
-            width: 100%; max-width: 440px;
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px;
+            width: 100%; max-width: 420px;
         }
         .persona-card {
-            background: #1a1d27; border: 1px solid #2d3148;
-            border-radius: 12px; padding: 20px 22px;
+            background: #ffffff;
+            border: 1px solid #e4e4e8;
+            border-radius: 12px; padding: 18px 20px;
             cursor: pointer; transition: all 0.15s;
             display: flex; align-items: center; gap: 14px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.04);
         }
         .persona-card:hover {
-            border-color: #3b82f6; background: #1e2235;
+            border-color: #2563eb;
             transform: translateY(-1px);
-            box-shadow: 0 4px 20px rgba(59,130,246,0.15);
+            box-shadow: 0 4px 16px rgba(37,99,235,0.10);
         }
         .persona-avatar {
-            width: 42px; height: 42px; border-radius: 50%;
+            width: 40px; height: 40px; border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
-            font-size: 14px; font-weight: 700; color: #fff; flex-shrink: 0;
+            font-size: 13px; font-weight: 700; color: #fff; flex-shrink: 0;
         }
         .persona-info .persona-name {
-            font-size: 15px; font-weight: 600; color: #f1f5f9;
+            font-size: 14px; font-weight: 600; color: #1a1a1f;
         }
         .persona-info .persona-role {
-            font-size: 11px; color: #6b7280; margin-top: 2px;
+            font-size: 11px; color: #9898a0; margin-top: 2px;
         }
         .persona-logo {
-            margin-bottom: 32px;
+            margin-bottom: 28px;
         }
-        .persona-logo img { height: 36px; width: auto; }
+        .persona-logo img { height: 32px; width: auto; }
 
         </style>
 </head>
@@ -508,18 +532,18 @@
                 <div class="task-empty">No active tasks. Ask Logiri for a briefing.</div>
             {% else %}
                 {% for task in tasks %}
-                <div class="task-item" id="task-{{ task.id }}"
+                <div class="task-item priority-{{ task.priority }}" id="task-{{ task.id }}"
                      data-assignee="{{ task.assigned_to ?? '' }}"
                      data-hours="{{ task.estimated_hours ?? 99 }}"
                      onclick="openTaskDetail({{ task.id }})">
                     <div class="task-item-header">
-                        <span class="task-priority {{ task.priority }}">{{ task.priority }}</span>
+                        <span class="task-priority {{ task.priority }}">{{ task.priority|capitalize }}</span>
                         <span class="task-assignee">{{ task.assigned_to ?? 'Unassigned' }}</span>
                     </div>
                     <div class="task-title">{{ task.title }}</div>
                     <div class="task-meta">
                         <span class="task-hours">{{ task.estimated_hours ?? '?' }}h</span>
-                        <span class="task-status-badge {{ task.status }}">{{ task.status }}</span>
+                        <span class="task-status-badge {{ task.status }}">{{ task.status == 'in_progress' ? 'In Progress' : task.status|capitalize }}</span>
                     </div>
                     <div class="task-actions-row">
                         {% if task.status == 'pending' %}<button class="task-action-btn start" onclick="event.stopPropagation(); startTask({{ task.id }})">&#9654; Start</button>{% endif %}
@@ -579,7 +603,6 @@
     // ── Persona Picker ──────────────────────────────
     async function selectPersona(name, role) {
         const overlay = document.getElementById('persona-overlay');
-        // Show a subtle loading state on the card
         overlay.style.opacity = '0.6';
         overlay.style.pointerEvents = 'none';
         try {
@@ -588,7 +611,8 @@
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, role })
             });
-            // Reload so Symfony serves the correct persona context
+            // Store the selected name so we can auto-send the greeting after reload
+            sessionStorage.setItem('persona_just_selected', name);
             window.location.reload();
         } catch(e) {
             overlay.style.opacity = '1';
@@ -1314,16 +1338,18 @@
             const activeTasks = tasks.filter(t => t.status !== 'done');
             taskList.innerHTML = activeTasks.length === 0
                 ? '<div class="task-empty">No active tasks.</div>'
-                : activeTasks.slice(0, 20).map(t =>
-                    '<div class="task-item' + (currentTaskId == t.id ? ' selected' : '') + '" id="task-' + t.id + '" data-assignee="' + escapeHtml(t.assigned_to || '') + '" data-hours="' + (t.estimated_hours || 99) + '" onclick="openTaskDetail(' + t.id + ')">' +
-                    '<div class="task-item-header"><span class="task-priority ' + t.priority + '">' + t.priority + '</span><span class="task-assignee">' + (t.assigned_to || 'Unassigned') + '</span></div>' +
+                : activeTasks.slice(0, 20).map(t => {
+                    const statusLabel = { pending: 'Pending', in_progress: 'In Progress', done: 'Done' }[t.status] || t.status;
+                    const priorityLabel = t.priority.charAt(0).toUpperCase() + t.priority.slice(1);
+                    return '<div class="task-item priority-' + t.priority + (currentTaskId == t.id ? ' selected' : '') + '" id="task-' + t.id + '" data-assignee="' + escapeHtml(t.assigned_to || '') + '" data-hours="' + (t.estimated_hours || 99) + '" onclick="openTaskDetail(' + t.id + ')">' +
+                    '<div class="task-item-header"><span class="task-priority ' + t.priority + '">' + priorityLabel + '</span><span class="task-assignee">' + escapeHtml(t.assigned_to || 'Unassigned') + '</span></div>' +
                     '<div class="task-title">' + escapeHtml(t.title) + '</div>' +
-                    '<div class="task-meta"><span class="task-hours">' + (t.estimated_hours || '?') + 'h</span><span class="task-status-badge ' + t.status + '">' + t.status + '</span></div>' +
+                    '<div class="task-meta"><span class="task-hours">' + (t.estimated_hours || '?') + 'h</span><span class="task-status-badge ' + t.status + '">' + statusLabel + '</span></div>' +
                     '<div class="task-actions-row">' +
                     (t.status === 'pending' ? '<button class="task-action-btn start" onclick="event.stopPropagation();startTask(' + t.id + ')">&#9654; Start</button>' : '') +
                     (t.status !== 'done' ? '<button class="task-action-btn complete" onclick="event.stopPropagation();completeTask(' + t.id + ')">&#10003; Done</button>' : '') +
-                    '</div></div>'
-                ).join('');
+                    '</div></div>';
+                }).join('');
 
             setTaskFilter(activeTaskFilter);
 
@@ -1464,6 +1490,17 @@
     inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const t = inputEl.value.trim(); if (t) sendMessage(t); } });
     inputEl.addEventListener('input', () => { inputEl.style.height = '46px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px'; });
     setInterval(refreshTasksPanel, 60000);
+
+    // ── Auto-greeting after persona selection ──────────────
+    const justSelected = sessionStorage.getItem('persona_just_selected');
+    if (justSelected) {
+        sessionStorage.removeItem('persona_just_selected');
+        // Short delay so the page renders first
+        setTimeout(() => {
+            const greetingPrompt = `Signal check, ${justSelected}. Pull up my active Plays and today's priority Signals — let's run the Playbook.`;
+            sendMessage(greetingPrompt);
+        }, 600);
+    }
 </script>
 </body>
 </html>
