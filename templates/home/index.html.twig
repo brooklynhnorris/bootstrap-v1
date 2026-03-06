@@ -1318,7 +1318,10 @@
     // Refresh Right Tasks Panel
     async function refreshTasksPanel() {
         try {
-            const res   = await fetch('/api/tasks');
+            const fetchUrl = (activeTaskFilter === 'all' || activeTaskFilter === 'team')
+                ? '/api/tasks'
+                : '/api/tasks?assignee=' + encodeURIComponent(USER_NAME);
+            const res   = await fetch(fetchUrl);
             const tasks = await res.json();
             let urgent = 0, active = 0, done = 0;
             tasks.forEach(t => {

@@ -20,7 +20,7 @@ class HomeController extends AbstractController
     private function ensureSchema(): void
     {
         try {
-            $this->db->executeStatement('CREATE TABLE IF NOT EXISTS conversations (id SERIAL PRIMARY KEY, user_id INT DEFAULT NULL, title VARCHAR(255) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, is_archived BOOLEAN DEFAULT FALSE)');
+            $this->db->executeStatement('CREATE TABLE IF NOT EXISTS conversations (id SERIAL PRIMARY KEY, user_id INT DEFAULT NULL, title VARCHAR(255) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, is_archived BOOLEAN DEFAULT FALSE, persona_name VARCHAR(50) DEFAULT NULL)');
             $this->db->executeStatement('CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY, conversation_id INT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role VARCHAR(20) NOT NULL, content TEXT NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
             $this->db->executeStatement('CREATE TABLE IF NOT EXISTS rule_reviews (id SERIAL PRIMARY KEY, conversation_id INT DEFAULT NULL REFERENCES conversations(id) ON DELETE SET NULL, rule_id VARCHAR(20) NOT NULL, verdict VARCHAR(30) NOT NULL, feedback TEXT DEFAULT NULL, reviewed_by VARCHAR(100) DEFAULT NULL, reviewed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
             $this->db->executeStatement('CREATE TABLE IF NOT EXISTS user_overrides (id SERIAL PRIMARY KEY, url TEXT NOT NULL, field VARCHAR(50) NOT NULL, original_value TEXT DEFAULT NULL, override_value TEXT NOT NULL, reason TEXT DEFAULT NULL, overridden_by VARCHAR(100) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(url, field))');
@@ -28,8 +28,23 @@ class HomeController extends AbstractController
             $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_overrides_url ON user_overrides (url)');
             $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_days INT DEFAULT NULL');
             $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_criteria TEXT DEFAULT NULL');
+        // Add persona_name to existing conversations table if missing
+            $this->db->executeStatement("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS persona_name VARCHAR(50) DEFAULT NULL");
         } catch (\Exception $e) {
             // Tables already exist or DB not ready — fail silently
+        }
+    }
+
+    #[Route('/api/admin/clear-slate', name: 'clear_slate', methods: ['POST'])]
+    public function clearSlate(): JsonResponse
+    {
+        try {
+            $this->db->executeStatement('DELETE FROM messages');
+            $this->db->executeStatement('DELETE FROM conversations');
+            $this->db->executeStatement('DELETE FROM tasks');
+            return new JsonResponse(['ok' => true, 'message' => 'Slate cleared']);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
         }
     }
 
@@ -93,26 +108,28 @@ class HomeController extends AbstractController
             $userRole = $defaultRole;
         }
         $tasks = $this->db->fetchAllAssociative(
-            "SELECT * FROM tasks WHERE status != 'done' ORDER BY CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC LIMIT 10"
+            "SELECT * FROM tasks WHERE status != 'done' AND assigned_to = ? ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC LIMIT 20",
+            [$userName]
         );
         $rechecks = $this->db->fetchAllAssociative(
             "SELECT * FROM tasks WHERE status = 'done' AND recheck_date IS NOT NULL AND recheck_verified = false ORDER BY recheck_date ASC LIMIT 10"
         );
         $taskCounts = $this->db->fetchAssociative(
             "SELECT
-                COUNT(*) FILTER (WHERE status != 'done' AND priority IN ('urgent','high')) as urgent,
+                COUNT(*) FILTER (WHERE status = 'pending') as urgent,
                 COUNT(*) FILTER (WHERE status = 'in_progress') as active,
                 COUNT(*) FILTER (WHERE status = 'done') as done
-            FROM tasks"
+            FROM tasks WHERE assigned_to = ?",
+            [$userName]
         );
 
         // Load recent conversations for sidebar history
         $userId = $user ? $user->getId() : null;
         $conversations = $this->db->fetchAllAssociative(
             "SELECT id, title, created_at, updated_at FROM conversations
-             WHERE user_id = ? AND is_archived = FALSE
+             WHERE user_id = ? AND is_archived = FALSE AND (persona_name = ? OR persona_name IS NULL)
              ORDER BY updated_at DESC LIMIT 10",
-            [$userId]
+            [$userId, $userName]
         );
 
         return $this->render('home/index.html.twig', [
@@ -216,11 +233,14 @@ class HomeController extends AbstractController
                 if ($msg['role'] === 'user') { $firstUserMsg = $msg['content']; break; }
             }
             $title = $this->generateTitle($firstUserMsg);
+            $session      = $this->requestStack->getSession();
+            $activePersona = $session->get('active_persona', null);
             $this->db->insert('conversations', [
-                'user_id'    => $userId,
-                'title'      => $title,
-                'created_at' => date('Y-m-d H:i:s'),
-                'updated_at' => date('Y-m-d H:i:s'),
+                'user_id'      => $userId,
+                'title'        => $title,
+                'persona_name' => $activePersona ? $activePersona['name'] : null,
+                'created_at'   => date('Y-m-d H:i:s'),
+                'updated_at'   => date('Y-m-d H:i:s'),
             ]);
             $conversationId = $this->db->lastInsertId();
         } else {
