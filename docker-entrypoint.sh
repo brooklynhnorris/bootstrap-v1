@@ -113,9 +113,13 @@ echo 'User table updated.' . PHP_EOL;
 "
 
 # Clear and rebuild Symfony cache on every deploy
-rm -rf /var/www/html/var/cache/*
-php /var/www/html/bin/console cache:clear --env=prod --no-warmup 2>/dev/null || true
-php /var/www/html/bin/console cache:warmup --env=prod 2>/dev/null || true
+rm -rf /var/www/html/var/cache/
+mkdir -p /var/www/html/var/cache/prod
+chown -R www-data:www-data /var/www/html/var/cache
+chmod -R 777 /var/www/html/var/cache
+php /var/www/html/bin/console cache:clear --env=prod --no-warmup 2>&1
+php /var/www/html/bin/console cache:warmup --env=prod 2>&1
+chown -R www-data:www-data /var/www/html/var/cache
 chmod -R 777 /var/www/html/var/cache
 chmod -R 777 /var/www/html/var/log
 chmod +x /var/www/html/crawl.sh 2>/dev/null || true

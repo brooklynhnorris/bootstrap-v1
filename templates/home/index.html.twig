@@ -1882,7 +1882,7 @@
         messagesEl.scrollTop = messagesEl.scrollHeight;
         sendEl.disabled = true;
 
-        const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + description + '. Give me a sharp, specific briefing on exactly what to do, what the current state is, and what success looks like. Address me as ' + USER_NAME + '. Be surgical — this is one task, not a full briefing. Keep it under 150 words unless I need to see specific values or URLs.';
+        const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + description + '. Give me a sharp, specific briefing on exactly what to do, what the current state is, and what success looks like. Address me as ' + USER_NAME + '. Be surgical — this is one task, not a full briefing. Keep it under 150 words. DO NOT create any new tasks or plays — only brief on this specific one.';
         messages.push({ role: 'user', content: prompt });
 
         try {
@@ -1906,9 +1906,6 @@
             if (loadEl) loadEl.remove();
             messages.push({ role: 'assistant', content: reply });
             appendMessage('assistant', reply);
-            if (data.tasks_created && data.tasks_created.length > 0) {
-                await refreshBoard();
-            }
         } catch(e) {
             const loadEl = document.getElementById('briefing-loading');
             if (loadEl) loadEl.remove();
