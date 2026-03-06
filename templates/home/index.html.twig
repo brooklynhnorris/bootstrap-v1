@@ -502,7 +502,7 @@
         </div>
     </div>
     <div id="messages"></div>
-    <div class="typing-indicator" id="typing"><div class="thinking-bubble"><div class="thinking-bar"><div class="thinking-bar-fill"></div></div><span class="thinking-text">Logiri is thinking…</span></div></div>
+    <div class="typing-indicator" id="typing"><div class="thinking-bubble"><div class="thinking-bar"><div class="thinking-bar-fill"></div></div><span class="thinking-text">Scanning the board…</span></div></div>
     <div id="input-area">
         <textarea id="input" placeholder="Ask Logiri about your SEO, tasks, or priorities..." rows="1"></textarea>
         <button id="send">Send</button>
@@ -810,8 +810,8 @@
             messagesEl.scrollTop = 0;
             if (data.tasks_created && data.tasks_created.length > 0) {
                 await refreshTasksPanel();
-                showNotification('&#10003; ' + data.tasks_created.length + ' task' + (data.tasks_created.length > 1 ? 's' : '') + ' created', 'green');
-                appendTaskCards(data.tasks_created);
+                const n = data.tasks_created.length;
+                showNotification('&#10003; ' + n + ' Play' + (n > 1 ? 's' : '') + ' queued in your panel', 'green');
             }
         } catch (e) {
             appendMessage('assistant', 'Error reaching Logiri. Please try again.');
@@ -1385,7 +1385,7 @@
     async function requestBriefing() {
         const loadingDiv = document.createElement('div');
         loadingDiv.className = 'message assistant';
-        loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Hello ' + USER_NAME + ', preparing your briefing...</div>';
+        loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Hello ' + USER_NAME + ', reading the board…</div>';
         loadingDiv.id = 'briefing-loading';
         messagesEl.appendChild(loadingDiv);
         typingEl.style.display = 'block';
@@ -1416,8 +1416,8 @@
             appendMessage('assistant', reply);
             if (data.tasks_created && data.tasks_created.length > 0) {
                 await refreshTasksPanel();
-                showNotification('&#10003; ' + data.tasks_created.length + ' task' + (data.tasks_created.length > 1 ? 's' : '') + ' created', 'green');
-                appendTaskCards(data.tasks_created);
+                const n1 = data.tasks_created.length;
+                showNotification('&#10003; ' + n1 + ' Play' + (n1 !== 1 ? 's' : '') + ' added to your queue', 'green');
             }
         } catch (e) {
             // Retry once after 3s (handles Render cold start)
@@ -1441,7 +1441,6 @@
                 appendMessage('assistant', reply2);
                 if (data2.tasks_created && data2.tasks_created.length > 0) {
                     await refreshTasksPanel();
-                    appendTaskCards(data2.tasks_created);
                 }
             } catch (e2) {
                 const loadEl = document.getElementById('briefing-loading');
@@ -1485,9 +1484,15 @@
                 await loadConversation(todayBriefing.id);
                 messagesEl.scrollTop = 0;
             } else {
+                if (!sessionStorage.getItem('persona_just_selected')) {
+                    requestBriefing();
+                }
+            }
+        } catch(e) {
+            if (!sessionStorage.getItem('persona_just_selected')) {
                 requestBriefing();
             }
-        } catch(e) { requestBriefing(); }
+        }
     });
     sendEl.addEventListener('click', () => { const t = inputEl.value.trim(); if (t) sendMessage(t); });
     inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const t = inputEl.value.trim(); if (t) sendMessage(t); } });
@@ -1498,11 +1503,16 @@
     const justSelected = sessionStorage.getItem('persona_just_selected');
     if (justSelected) {
         sessionStorage.removeItem('persona_just_selected');
-        // Short delay so the page renders first
+        // Persona just selected — skip requestBriefing, send targeted greeting instead
         setTimeout(() => {
-            const greetingPrompt = `Signal check, ${justSelected}. Pull up my active Plays and today's priority Signals — let's run the Playbook.`;
+            const greetingPrompt = 'Signal check, ' + justSelected + '. What are my top Plays today and any active Signals I need to move on?';
             sendMessage(greetingPrompt);
-        }, 600);
+        }, 500);
+    } else {
+        // Normal page load — run briefing if no conversation loaded
+        if (!conversationId) {
+            requestBriefing();
+        }
     }
 </script>
 </body>
