@@ -1132,6 +1132,9 @@
         const msgs = await res.json();
         msgs.forEach(msg => {
             messages.push({ role: msg.role, content: msg.content });
+            // Skip rendering hidden system prompts (task brief prompts)
+            if (msg.role === 'user' && msg.content.startsWith('I just opened the Play:')) return;
+            if (msg.role === 'user' && msg.content.startsWith('Give me my SEO briefing')) return;
             appendMessage(msg.role, msg.content);
         });
         const convoEl = document.getElementById('convo-' + id);
@@ -1952,7 +1955,6 @@
         const t = window._taskCache && window._taskCache[taskId];
         const taskDesc = t ? t.description : '';
         const taskPriority = t ? t.priority : '';
-        const briefMsg = 'statusOnly:Opening play: ' + (taskTitle || 'task') + '. Priority: ' + taskPriority + '. ' + taskDesc;
         requestBriefingForTask(taskId, taskTitle, taskDesc, taskPriority);
     }
 
@@ -1968,6 +1970,7 @@
 
         const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + description + '. Give me a sharp, specific briefing on exactly what to do, what the current state is, and what success looks like. Address me as ' + USER_NAME + '. Be surgical — this is one task, not a full briefing. Keep it under 150 words. DO NOT create any new tasks or plays — only brief on this specific one.';
         messages.push({ role: 'user', content: prompt });
+        // Don't show the raw prompt to the user — only show Logiri's response
 
         try {
             const controller = new AbortController();
@@ -1982,9 +1985,8 @@
             const data = await res.json();
             const reply = data.response || data.error || 'No response.';
             if (data.conversation_id) {
-                const isNew = !conversationId;
                 conversationId = data.conversation_id;
-                if (isNew) addConvoToSidebar(conversationId, title.slice(0, 40));
+                // Don't add task chats to sidebar history
             }
             const loadEl = document.getElementById('briefing-loading');
             if (loadEl) loadEl.remove();
