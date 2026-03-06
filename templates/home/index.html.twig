@@ -992,14 +992,8 @@
             const btn = document.getElementById('filter-' + f);
             if (btn) btn.classList.toggle('active', f === filter);
         });
-        document.querySelectorAll('#right-task-list .task-item').forEach(el => {
-            const assignee = el.dataset.assignee || '';
-            const hours    = parseFloat(el.dataset.hours) || 99;
-            let show = true;
-            if (filter === 'mine')  show = assignee === USER_NAME;
-            if (filter === 'wins')  show = hours <= 2;
-            el.style.display = show ? '' : 'none';
-        });
+        // Board filter is handled by refreshBoard() — no DOM list to filter
+        if (typeof refreshBoard === 'function') refreshBoard();
     }
 
     // Conversation History
@@ -1707,68 +1701,8 @@
 
     // Refresh Right Tasks Panel
     async function refreshTasksPanel() {
-        try {
-            const fetchUrl = (activeTaskFilter === 'all' || activeTaskFilter === 'team')
-                ? '/api/tasks'
-                : '/api/tasks?assignee=' + encodeURIComponent(USER_NAME);
-            const res   = await fetch(fetchUrl);
-            const tasks = await res.json();
-            let urgent = 0, active = 0, done = 0;
-            tasks.forEach(t => {
-                if (t.status === 'done') done++;
-                else if (t.status === 'in_progress') active++;
-                else if (t.status === 'pending') urgent++;
-            });
-            document.getElementById('count-urgent').textContent = urgent;
-            document.getElementById('count-active').textContent = active;
-            document.getElementById('count-done').textContent   = done;
-
-            // Cache task data for recheck modal defaults
-            window._taskCache = {};
-            tasks.forEach(t => { window._taskCache[t.id] = t; });
-
-            const taskList    = document.getElementById('right-task-list');
-            const activeTasks = tasks.filter(t => t.status !== 'done');
-            taskList.innerHTML = activeTasks.length === 0
-                ? '<div class="task-empty">No active tasks.</div>'
-                : activeTasks.slice(0, 20).map(t => {
-                    const statusLabel = { pending: 'Pending', in_progress: 'In Progress', done: 'Done' }[t.status] || t.status;
-                    const priorityLabel = t.priority.charAt(0).toUpperCase() + t.priority.slice(1);
-                    return '<div class="task-item priority-' + t.priority + (currentTaskId == t.id ? ' selected' : '') + '" id="task-' + t.id + '" data-assignee="' + escapeHtml(t.assigned_to || '') + '" data-hours="' + (t.estimated_hours || 99) + '" onclick="openTaskDetail(' + t.id + ')">' +
-                    '<div class="task-item-header"><span class="task-priority ' + t.priority + '">' + priorityLabel + '</span><span class="task-assignee">' + escapeHtml(t.assigned_to || 'Unassigned') + '</span></div>' +
-                    '<div class="task-title">' + escapeHtml(t.title) + '</div>' +
-                    '<div class="task-meta"><span class="task-hours">' + (t.estimated_hours || '?') + 'h</span><span class="task-status-badge ' + t.status + '">' + statusLabel + '</span></div>' +
-                    '<div class="task-actions-row">' +
-                    (t.status === 'pending' ? '<button class="task-action-btn start" onclick="event.stopPropagation();startTask(' + t.id + ')">&#9654; Start</button>' : '') +
-                    (t.status !== 'done' ? '<button class="task-action-btn complete" onclick="event.stopPropagation();completeTask(' + t.id + ')">&#10003; Done</button>' : '') +
-                    '</div></div>';
-                }).join('');
-
-            setTaskFilter(activeTaskFilter);
-
-            const recheckRes  = await fetch('/api/rechecks');
-            const rechecks    = await recheckRes.json();
-            const recheckList = document.getElementById('recheck-list');
-            if (rechecks.length === 0) {
-                recheckList.innerHTML = '<div class="task-empty">No rechecks pending</div>';
-            } else {
-                recheckList.innerHTML = rechecks.map(r => {
-                    const overdue  = r.recheck_date && r.recheck_date < new Date().toISOString().slice(0,10);
-                    const dateStr  = r.recheck_date || 'No date';
-                    const criteria = r.recheck_criteria ? '<div class="recheck-criteria-text">&#10003; ' + escapeHtml(r.recheck_criteria) + '</div>' : '';
-                    const editFn   = 'editRecheckDate(' + r.id + ', &quot;' + dateStr + '&quot;)';
-                    return '<div class="recheck-item">' +
-                        '<div class="recheck-item-main">' +
-                        '<div class="recheck-info">' + escapeHtml(r.title) + '</div>' +
-                        criteria +
-                        '<div class="recheck-controls">' +
-                        '<span class="recheck-date ' + (overdue ? 'overdue' : 'upcoming') + '" id="rdate-' + r.id + '">' + dateStr + '</span>' +
-                        '<button class="recheck-edit-btn" onclick="' + editFn + '">&#x270E;</button>' +
-                        '<button class="recheck-verify-btn" onclick="verifyRecheck(' + r.id + ')">Verify</button>' +
-                        '</div></div></div>';
-                }).join('');
-            }
-        } catch (e) { console.error('Refresh failed:', e); }
+        // Board-first architecture: refresh the board grid instead of a task list
+        if (typeof refreshBoard === 'function') await refreshBoard();
     }
 
     // Briefing
