@@ -258,6 +258,49 @@
         .task-action-btn.start:hover { border-color: var(--accent-yellow-border); color: var(--accent-yellow); background: var(--accent-yellow-dim); }
         .task-empty { font-size: 12px; color: var(--text-muted); font-style: italic; padding: 8px 2px; }
 
+        /* ── Inline Play Buttons in Chat ───────────────── */
+        .chat-plays-strip {
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px solid var(--border-subtle);
+        }
+        .chat-plays-label {
+            font-size: 10px; font-weight: 600; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 7px;
+        }
+        .chat-play-btn {
+            display: flex; align-items: center; justify-content: space-between;
+            width: 100%; margin-bottom: 5px;
+            padding: 8px 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-left: 3px solid #f59e0b;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.15s;
+            text-align: left;
+            font-family: 'DM Sans', sans-serif;
+        }
+        .chat-play-btn:hover {
+            border-color: var(--accent-blue-border);
+            border-left-color: var(--accent-blue);
+            background: var(--accent-blue-dim);
+        }
+        .chat-play-btn.priority-critical { border-left-color: #ef4444; }
+        .chat-play-btn.priority-high     { border-left-color: #f59e0b; }
+        .chat-play-btn.priority-medium   { border-left-color: #3b82f6; }
+        .chat-play-btn.priority-low      { border-left-color: #9ca3af; }
+        .chat-play-btn .cpb-title {
+            font-size: 12px; font-weight: 500; color: var(--text-primary);
+            flex: 1; margin-right: 10px;
+        }
+        .chat-play-btn .cpb-meta {
+            font-size: 10px; color: var(--text-muted); white-space: nowrap;
+        }
+        .chat-play-btn .cpb-arrow {
+            font-size: 11px; color: var(--accent-blue); margin-left: 8px; flex-shrink: 0;
+        }
+
         /* Task Detail Slide-over */
         #task-detail-panel { display: none; position: fixed; top: 0; right: 280px; width: 360px; height: 100vh; background: var(--bg-primary); border-left: 1px solid var(--border-subtle); flex-direction: column; overflow: hidden; z-index: 50; box-shadow: -4px 0 16px rgba(0,0,0,0.08); }
         #task-detail-panel.open { display: flex; }
@@ -810,8 +853,7 @@
             messagesEl.scrollTop = 0;
             if (data.tasks_created && data.tasks_created.length > 0) {
                 await refreshTasksPanel();
-                const n = data.tasks_created.length;
-                showNotification('&#10003; ' + n + ' Play' + (n > 1 ? 's' : '') + ' queued in your panel', 'green');
+                injectPlayButtons(data.tasks_created);
             }
         } catch (e) {
             appendMessage('assistant', 'Error reaching Logiri. Please try again.');
@@ -1146,6 +1188,60 @@
         return card;
     }
 
+    function injectPlayButtons(tasks) {
+        if (!tasks || tasks.length === 0) return;
+
+        // Find the last assistant bubble
+        const bubbles = messagesEl.querySelectorAll('.message.assistant .bubble');
+        const lastBubble = bubbles[bubbles.length - 1];
+        if (!lastBubble) return;
+
+        // Remove any existing play strip (avoid duplicates on retry)
+        const existing = lastBubble.querySelector('.chat-plays-strip');
+        if (existing) existing.remove();
+
+        const strip = document.createElement('div');
+        strip.className = 'chat-plays-strip';
+
+        const label = document.createElement('div');
+        label.className = 'chat-plays-label';
+        label.textContent = '▶ Your Plays — click to jump to queue';
+        strip.appendChild(label);
+
+        tasks.forEach(task => {
+            if (!task || !task.id) return;
+            const btn = document.createElement('button');
+            btn.className = 'chat-play-btn priority-' + (task.priority || 'medium');
+            btn.innerHTML =
+                '<span class="cpb-title">' + escapeHtml(task.title || '') + '</span>' +
+                '<span class="cpb-meta">' + (task.estimated_hours || '?') + 'h · ' + escapeHtml(task.assigned_to || '') + '</span>' +
+                '<span class="cpb-arrow">→</span>';
+
+            btn.addEventListener('click', () => {
+                // Open tasks panel if closed
+                const panel = document.getElementById('right-panel');
+                if (panel && !panel.classList.contains('open')) {
+                    panel.classList.add('open');
+                }
+                // Scroll to and highlight the task in the right panel
+                const taskEl = document.getElementById('task-' + task.id);
+                if (taskEl) {
+                    taskEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    // Flash highlight
+                    taskEl.style.transition = 'box-shadow 0.3s';
+                    taskEl.style.boxShadow = '0 0 0 2px #2563eb';
+                    setTimeout(() => { taskEl.style.boxShadow = ''; }, 1800);
+                    openTaskDetail(task.id);
+                }
+            });
+
+            strip.appendChild(btn);
+        });
+
+        lastBubble.appendChild(strip);
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
     function makeCollapsible(bubble) {
         try {
             const headings = Array.from(bubble.querySelectorAll('h2, h3'));
@@ -1442,11 +1538,12 @@
                 appendMessage('assistant', reply2);
                 if (data2.tasks_created && data2.tasks_created.length > 0) {
                     await refreshTasksPanel();
+                    injectPlayButtons(data2.tasks_created);
                 }
             } catch (e2) {
                 const loadEl = document.getElementById('briefing-loading');
                 if (loadEl) loadEl.remove();
-                appendMessage('assistant', 'Logiri is warming up. Type a message to get your briefing.');
+                requestBriefing('Taking a moment to read the board, ' + USER_NAME + '…');
             }
         }
         typingEl.style.display = 'none';
@@ -1471,55 +1568,45 @@
     }
 
     // Init
-    window.addEventListener('load', async () => {
-        setTaskFilter('mine');
-        try {
-            const res    = await fetch('/api/conversations');
-            const convos = await res.json();
-            const today  = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            const todayBriefing = convos.find(c => c.title && (
-                (c.title.includes('Briefing') && c.title.includes(today)) ||
-                (c.title.includes('Daily Briefing') && c.title.includes(new Date().toLocaleDateString('en-US',{month:'short',day:'numeric'})))
-            ));
-            if (todayBriefing) {
-                await loadConversation(todayBriefing.id);
-                messagesEl.scrollTop = 0;
-            } else {
-                if (!sessionStorage.getItem('persona_just_selected')) {
-                    requestBriefing();
-                }
-            }
-        } catch(e) {
-            if (!sessionStorage.getItem('persona_just_selected')) {
-                requestBriefing();
-            }
-        }
-    });
+
     sendEl.addEventListener('click', () => { const t = inputEl.value.trim(); if (t) sendMessage(t); });
     inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const t = inputEl.value.trim(); if (t) sendMessage(t); } });
     inputEl.addEventListener('input', () => { inputEl.style.height = '46px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px'; });
     setInterval(refreshTasksPanel, 60000);
 
-    // ── Auto-greeting after persona selection ──────────────
-    const justSelected = sessionStorage.getItem('persona_just_selected');
-    if (justSelected) {
-        sessionStorage.removeItem('persona_just_selected');
-        // Persona just selected — trigger silent briefing with persona-aware status message
-        setTimeout(() => {
+    // ── Unified startup ──────────────────────────────────
+    (async () => {
+        setTaskFilter('mine');
+        const justSelected = sessionStorage.getItem('persona_just_selected');
+
+        if (justSelected) {
+            // Persona just selected — clear flag FIRST, then brief once
+            sessionStorage.removeItem('persona_just_selected');
             const statusMessages = [
                 'Scanning the board, ' + justSelected + '…',
                 'Pulling your Plays, ' + justSelected + '. One moment…',
                 'Loading your Signal feed, ' + justSelected + '…',
             ];
             const msg = statusMessages[Math.floor(Math.random() * statusMessages.length)];
-            requestBriefing(msg);
-        }, 400);
-    } else {
-        // Normal page load — run briefing if no conversation loaded
-        if (!conversationId) {
-            requestBriefing();
+            setTimeout(() => requestBriefing(msg), 400);
+        } else {
+            // Normal load — check for today's briefing first, otherwise start fresh
+            try {
+                const res    = await fetch('/api/conversations');
+                const convos = await res.json();
+                const today  = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                const todayBriefing = convos.find(c => c.title && c.title.includes(today));
+                if (todayBriefing) {
+                    await loadConversation(todayBriefing.id);
+                    messagesEl.scrollTop = 0;
+                } else {
+                    requestBriefing();
+                }
+            } catch(e) {
+                requestBriefing();
+            }
         }
-    }
+    })();
 </script>
 </body>
 </html>
