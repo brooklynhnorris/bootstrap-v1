@@ -302,9 +302,86 @@
             #messages { padding: 14px; }
             #input-area { padding: 11px 14px; }
         }
-    </style>
+    
+        /* ── Persona Picker ─────────────────────────── */
+        #persona-overlay {
+            position: fixed; inset: 0; z-index: 9999;
+            background: #0f1117;
+            display: flex; align-items: center; justify-content: center;
+            flex-direction: column;
+        }
+        #persona-overlay.hidden { display: none; }
+        .persona-greeting {
+            text-align: center; margin-bottom: 40px;
+        }
+        .persona-greeting .greeting-eyebrow {
+            font-size: 11px; font-weight: 600; letter-spacing: 2px;
+            text-transform: uppercase; color: #3b82f6; margin-bottom: 12px;
+        }
+        .persona-greeting h1 {
+            font-size: 28px; font-weight: 700; color: #fff;
+            letter-spacing: -0.5px; margin-bottom: 8px;
+        }
+        .persona-greeting p {
+            font-size: 14px; color: #6b7280;
+        }
+        .persona-grid {
+            display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;
+            width: 100%; max-width: 440px;
+        }
+        .persona-card {
+            background: #1a1d27; border: 1px solid #2d3148;
+            border-radius: 12px; padding: 20px 22px;
+            cursor: pointer; transition: all 0.15s;
+            display: flex; align-items: center; gap: 14px;
+        }
+        .persona-card:hover {
+            border-color: #3b82f6; background: #1e2235;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 20px rgba(59,130,246,0.15);
+        }
+        .persona-avatar {
+            width: 42px; height: 42px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 14px; font-weight: 700; color: #fff; flex-shrink: 0;
+        }
+        .persona-info .persona-name {
+            font-size: 15px; font-weight: 600; color: #f1f5f9;
+        }
+        .persona-info .persona-role {
+            font-size: 11px; color: #6b7280; margin-top: 2px;
+        }
+        .persona-logo {
+            margin-bottom: 32px;
+        }
+        .persona-logo img { height: 36px; width: auto; }
+
+        </style>
 </head>
 <body>
+
+<!-- ── Persona Picker Overlay ── -->
+<div id="persona-overlay" class="{{ showPersonaPicker ? '' : 'hidden' }}">
+    <div class="persona-logo">
+        <img src="/logiri-logo-small.png" alt="Logiri">
+    </div>
+    <div class="persona-greeting">
+        <div class="greeting-eyebrow">Logiri · Signal Engine</div>
+        <h1>Who's running the Playbook today?</h1>
+        <p>Select your profile to tailor Signals, Plays, and briefings.</p>
+    </div>
+    <div class="persona-grid">
+        {% for member in teamMembers %}
+        <div class="persona-card" onclick="selectPersona('{{ member.name }}', '{{ member.role }}')">
+            <div class="persona-avatar" style="background: {{ member.color }};">{{ member.avatar }}</div>
+            <div class="persona-info">
+                <div class="persona-name">{{ member.name }}</div>
+                <div class="persona-role">{{ member.role }}</div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
 
 <!-- Left Sidebar -->
 <div id="sidebar">
@@ -321,7 +398,7 @@
             <div class="user-name">{{ userName }}</div>
             <div class="user-role">{{ userRole }}</div>
         </div>
-        <a href="{{ logout_path() }}" class="user-logout">Logout</a>
+        <button class="user-logout" onclick="showPersonaPicker()" title="Switch user" style="background:none;border:none;cursor:pointer;padding:0;color:var(--text-muted);font-size:11px;margin-right:8px;">⇄ Switch</button><a href="{{ logout_path() }}" class="user-logout">Logout</a>
     </div>
     <div class="sidebar-tabs">
         <div class="sidebar-tab active" id="tab-history" onclick="switchTab('history')">History</div>
@@ -498,6 +575,33 @@
 
     const USER_NAME = '{{ userName }}';
     const USER_ROLE = '{{ userRole }}';
+
+    // ── Persona Picker ──────────────────────────────
+    async function selectPersona(name, role) {
+        const overlay = document.getElementById('persona-overlay');
+        // Show a subtle loading state on the card
+        overlay.style.opacity = '0.6';
+        overlay.style.pointerEvents = 'none';
+        try {
+            await fetch('/api/set-persona', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, role })
+            });
+            // Reload so Symfony serves the correct persona context
+            window.location.reload();
+        } catch(e) {
+            overlay.style.opacity = '1';
+            overlay.style.pointerEvents = 'auto';
+        }
+    }
+
+    function showPersonaPicker() {
+        const overlay = document.getElementById('persona-overlay');
+        overlay.classList.remove('hidden');
+        overlay.style.opacity = '1';
+        overlay.style.pointerEvents = 'auto';
+    }
 
     let messages         = [];
     let conversationId   = null;

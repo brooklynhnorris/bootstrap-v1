@@ -6,12 +6,13 @@ use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Routing\Annotation\Route;
 use Doctrine\DBAL\Connection;
 
 class HomeController extends AbstractController
 {
-    public function __construct(private Connection $db)
+    public function __construct(private Connection $db, private RequestStack $requestStack)
     {
         $this->ensureSchema();
     }
@@ -32,6 +33,31 @@ class HomeController extends AbstractController
         }
     }
 
+    #[Route('/api/set-persona', name: 'set_persona', methods: ['POST'])]
+    public function setPersona(Request $request): JsonResponse
+    {
+        $body    = json_decode($request->getContent(), true);
+        $name    = $body['name'] ?? null;
+        $role    = $body['role'] ?? null;
+        $session = $this->requestStack->getSession();
+
+        $allowed = ['Brook', 'Brad', 'Jeanne', 'Kalib'];
+        if (!$name || !in_array($name, $allowed)) {
+            return new JsonResponse(['error' => 'Invalid persona'], 400);
+        }
+
+        $session->set('active_persona', ['name' => $name, 'role' => $role]);
+        return new JsonResponse(['ok' => true, 'name' => $name, 'role' => $role]);
+    }
+
+    #[Route('/api/clear-persona', name: 'clear_persona', methods: ['POST'])]
+    public function clearPersona(): JsonResponse
+    {
+        $session = $this->requestStack->getSession();
+        $session->remove('active_persona');
+        return new JsonResponse(['ok' => true]);
+    }
+
     // ─────────────────────────────────────────────
     //  MAIN PAGE
     // ─────────────────────────────────────────────
@@ -39,7 +65,33 @@ class HomeController extends AbstractController
     #[Route('/', name: 'home')]
     public function index(): Response
     {
-        $user = $this->getUser();
+        $user    = $this->getUser();
+        $session = $this->requestStack->getSession();
+
+        // Active persona — set via /api/set-persona, stored in session
+        // Defaults to the logged-in user's name
+        $defaultName = $user ? ($user->getName() ?? explode('@', $user->getEmail())[0]) : 'User';
+        $defaultRole = $user ? ($user->getTeamRole() ?? 'Owner') : 'Owner';
+        $activePersona = $session->get('active_persona', null);
+        $showPersonaPicker = ($activePersona === null);
+
+        $teamMembers = [
+            ['name' => 'Brook',  'role' => 'SEO + Content', 'avatar' => 'BR', 'color' => '#3b82f6'],
+            ['name' => 'Brad',   'role' => 'Developer',     'avatar' => 'BD', 'color' => '#8b5cf6'],
+            ['name' => 'Jeanne', 'role' => 'Strategy',      'avatar' => 'JE', 'color' => '#10b981'],
+            ['name' => 'Kalib',  'role' => 'Design',        'avatar' => 'KA', 'color' => '#f59e0b'],
+        ];
+
+        if ($activePersona) {
+            // Find persona data
+            $personaData = array_filter($teamMembers, fn($m) => $m['name'] === $activePersona['name']);
+            $personaData = reset($personaData);
+            $userName = $personaData ? $personaData['name'] : $defaultName;
+            $userRole = $personaData ? $personaData['role'] : $defaultRole;
+        } else {
+            $userName = $defaultName;
+            $userRole = $defaultRole;
+        }
         $tasks = $this->db->fetchAllAssociative(
             "SELECT * FROM tasks WHERE status != 'done' ORDER BY CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC LIMIT 10"
         );
@@ -64,13 +116,15 @@ class HomeController extends AbstractController
         );
 
         return $this->render('home/index.html.twig', [
-            'userName'      => $user ? ($user->getName() ?? explode('@', $user->getEmail())[0]) : 'User',
-            'userRole'      => $user ? ($user->getTeamRole() ?? 'Owner') : 'Owner',
-            'userEmail'     => $user ? $user->getEmail() : '',
-            'tasks'         => $tasks,
-            'rechecks'      => $rechecks,
-            'taskCounts'    => $taskCounts ?: ['urgent' => 0, 'active' => 0, 'done' => 0],
-            'conversations' => $conversations,
+            'userName'          => $userName,
+            'userRole'          => $userRole,
+            'userEmail'         => $user ? $user->getEmail() : '',
+            'tasks'             => $tasks,
+            'rechecks'          => $rechecks,
+            'taskCounts'        => $taskCounts ?: ['urgent' => 0, 'active' => 0, 'done' => 0],
+            'conversations'     => $conversations,
+            'showPersonaPicker' => $showPersonaPicker,
+            'teamMembers'       => $teamMembers,
         ]);
     }
 
@@ -966,4 +1020,3 @@ class HomeController extends AbstractController
         return $intro;
     }
 }
-    
