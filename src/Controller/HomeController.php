@@ -572,6 +572,7 @@ class HomeController extends AbstractController
     #[Route('/api/tasks', name: 'api_tasks_list', methods: ['GET'])]
     public function listTasks(Request $request): JsonResponse
     {
+        try {
         $status   = $request->query->get('status');
         $assignee = $request->query->get('assignee');
         $sql      = "SELECT * FROM tasks WHERE 1=1";
@@ -580,6 +581,9 @@ class HomeController extends AbstractController
         if ($assignee) { $sql .= " AND assigned_to = ?"; $params[] = $assignee; }
         $sql .= " ORDER BY CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC";
         return new JsonResponse($this->db->fetchAllAssociative($sql, $params));
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
     }
 
     #[Route('/api/tasks', name: 'api_tasks_create', methods: ['POST'])]
@@ -1065,3 +1069,6 @@ class HomeController extends AbstractController
     }
 }
     
+
+    
+
