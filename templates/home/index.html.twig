@@ -971,10 +971,15 @@
     let activeSidebarTab = 'history';
     let activeTaskFilter = 'mine';
 
+    // Lazy getters so missing elements never crash startup
     const messagesEl = document.getElementById('messages');
     const inputEl    = document.getElementById('input');
     const sendEl     = document.getElementById('send');
     const typingEl   = document.getElementById('typing');
+    // Guard: if core chat elements missing, page still works (persona picker etc.)
+    if (!messagesEl || !inputEl || !sendEl) {
+        console.warn('Logiri: chat elements not found — persona picker mode');
+    }
 
     // Sidebar Tabs (History + Rechecks only)
     function switchTab(tab) {
@@ -1995,6 +2000,7 @@
 
     // ── Unified startup ──────────────────────────────────
     (async () => {
+        try {
         setTaskFilter('mine');
         const justSelected = sessionStorage.getItem('persona_just_selected');
 
@@ -2025,7 +2031,8 @@
                 requestBriefing();
             }
         }
-    })();
+        } catch(startupErr) { console.error('Logiri startup error:', startupErr); }
+    })();;
 </script>
 
 <script>
