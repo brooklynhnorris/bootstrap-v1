@@ -346,7 +346,7 @@ PROMPT;
                 'contents' => [['parts' => [['text' => $prompt]]]],
                 'generationConfig' => ['maxOutputTokens' => 1024],
             ]);
-            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={$geminiKey}");
+            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$geminiKey}");
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST           => true,
