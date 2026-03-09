@@ -200,8 +200,8 @@ class EvaluateRuleCommand extends Command
                 'FC-R5'  => "SELECT url, page_type, has_core_link, core_links_found FROM page_crawl_snapshots WHERE page_type = 'outer' AND has_core_link = FALSE AND is_noindex = FALSE AND is_utility = FALSE LIMIT 10",
                 'FC-R6'  => "SELECT url, page_type, word_count, h2s, schema_types FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count < 800 AND is_noindex = FALSE LIMIT 10",
                 'FC-R7'  => "SELECT url, page_type, h1, title_tag, h1_matches_title FROM page_crawl_snapshots WHERE h1_matches_title = FALSE AND is_noindex = FALSE AND is_utility = FALSE LIMIT 10",
-                'FC-R8'  => "SELECT url, page_type, h2s, word_count FROM page_crawl_snapshots WHERE page_type = 'core' AND (h2s = '[]' OR h2s IS NULL) AND is_noindex = FALSE LIMIT 10",
-                'FC-R9'  => "SELECT url, page_type, schema_types, h1 FROM page_crawl_snapshots WHERE page_type = 'core' AND schema_types = '[]' AND is_noindex = FALSE LIMIT 10",
+                'FC-R8'  => "SELECT url, page_type, h2s, word_count FROM page_crawl_snapshots WHERE page_type = 'core' AND (h2s = '[]' OR h2s IS NULL) AND is_noindex = FALSE AND url NOT IN ('/contact-us/','/get-quote/','/trailer-finder/','/book-a-video-call/','/join-our-mailing-list/','/freebook/','/horse-trailer-safety-webinars/','/virtual-horse-trailer-safety-inspection/') LIMIT 10",
+                'FC-R9'  => "SELECT url, page_type, schema_types, h1 FROM page_crawl_snapshots WHERE page_type = 'core' AND schema_types = '[]' AND is_noindex = FALSE AND url NOT LIKE '%//' LIMIT 10",
                 'FC-R10' => "SELECT p.url, p.page_type, p.has_core_link, g.impressions FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.has_core_link = FALSE AND g.impressions >= 100 AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 10",
                 default  => null,
             };
@@ -341,7 +341,7 @@ PROMPT;
                 'contents' => [['parts' => [['text' => $prompt]]]],
                 'generationConfig' => ['maxOutputTokens' => 1024],
             ]);
-            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$geminiKey}");
+            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={$geminiKey}");
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST           => true,
@@ -401,16 +401,16 @@ PROMPT;
         $needsChange = 'no';
         $suggested  = 'none';
 
-        if (preg_match('/VERDICT:\s*(PASS|FLAG)/i', $text, $m)) {
+        if (preg_match('/VERDICT\s*:\s*(PASS|FLAG)/i', $text, $m)) {
             $verdict = strtoupper(trim($m[1]));
         }
-        if (preg_match('/CONFIDENCE:\s*(\d+)/i', $text, $m)) {
+        if (preg_match('/CONFIDENCE\s*:\s*(\d+)/i', $text, $m)) {
             $confidence = (int) $m[1];
         }
-        if (preg_match('/SUMMARY:\s*(.+)/i', $text, $m)) {
+        if (preg_match('/SUMMARY\s*:\s*(.+)/i', $text, $m)) {
             $summary = trim($m[1]);
         }
-        if (preg_match('/NEEDS_ADJUSTMENT:\s*(yes|no)\s*[—-]\s*(.+)/i', $text, $m)) {
+        if (preg_match('/NEEDS_ADJUSTMENT\s*:\s*(yes|no)\s*[—\-–]\s*(.+)/i', $text, $m)) {
             $needsChange = strtolower(trim($m[1]));
             $suggested   = trim($m[2]);
         }
