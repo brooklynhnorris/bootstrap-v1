@@ -50,9 +50,9 @@ class EvaluateRuleCommand extends Command
         }
 
         $output->writeln('');
-        $output->writeln('╔══════════════════════════════════════════╗');
-        $output->writeln('║     LOGIRI MULTI-LLM RULE EVALUATOR      ║');
-        $output->writeln('╚══════════════════════════════════════════╝');
+        $output->writeln('+==========================================+');
+        $output->writeln('|     LOGIRI MULTI-LLM RULE EVALUATOR      |');
+        $output->writeln('+==========================================+');
         $output->writeln('');
 
         $totalEvaluated = 0;
@@ -63,11 +63,11 @@ class EvaluateRuleCommand extends Command
             $firingPages = $this->getFiringPages($rule);
 
             if (empty($firingPages)) {
-                $output->writeln("⬜ {$rule['id']} — no pages currently firing, skipping.");
+                $output->writeln("[ ] {$rule['id']} -- no pages currently firing, skipping.");
                 continue;
             }
 
-            $output->writeln("▶ Evaluating {$rule['id']}: {$rule['name']}");
+            $output->writeln(">> Evaluating {$rule['id']}: {$rule['name']}");
             $output->writeln("  Pages firing: " . count($firingPages));
 
             // Build the evaluation prompt
@@ -88,7 +88,7 @@ class EvaluateRuleCommand extends Command
             $verdicts = [];
             foreach ($responses as $llm => $response) {
                 if (isset($response['error'])) {
-                    $output->writeln("  ⚠ {$llm}: API error — {$response['error']}");
+                    $output->writeln("  [!] {$llm}: API error -- {$response['error']}");
                     continue;
                 }
                 $parsed = $this->parseVerdict($response['text']);
@@ -100,7 +100,7 @@ class EvaluateRuleCommand extends Command
             }
 
             if (empty($verdicts)) {
-                $output->writeln("  ✗ All LLM calls failed — skipping\n");
+                $output->writeln("  [x] All LLM calls failed -- skipping\n");
                 continue;
             }
 
@@ -122,23 +122,23 @@ class EvaluateRuleCommand extends Command
         }
 
         // Summary
-        $output->writeln('══════════════════════════════════════════');
+        $output->writeln('==============================================');
         $output->writeln("SUMMARY: {$totalEvaluated} rules evaluated | {$totalFlagged} flagged for review");
         $output->writeln('');
 
         if ($totalFlagged > 0) {
-            $output->writeln("⚠  Run: php bin/console app:evaluate-rule --rule=FC-RX to dig into specific rules");
-            $output->writeln("   View all evaluations: SELECT * FROM rule_evaluations ORDER BY evaluated_at DESC;");
+            $output->writeln("  Run: php bin/console app:evaluate-rule --rule=FC-RX to dig into specific rules");
+            $output->writeln("  View all evaluations: SELECT * FROM rule_evaluations ORDER BY evaluated_at DESC;");
         } else {
-            $output->writeln("✅ All evaluated rules passed LLM consensus.");
+            $output->writeln("  All evaluated rules passed LLM consensus.");
         }
 
         return Command::SUCCESS;
     }
 
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
     //  LOAD RULES FROM system-prompt.txt
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
 
     private function loadRules(): array
     {
@@ -150,7 +150,7 @@ class EvaluateRuleCommand extends Command
         $content = file_get_contents($promptPath);
         $rules   = [];
 
-        // Parse each rule block — format: FC-R1 | Rule Name
+        // Parse each rule block -- format: FC-R1 | Rule Name
         preg_match_all('/\n(FC-R\d+)\s*\|\s*([^\n]+)\n(.*?)(?=\nFC-R\d+|\nRESULTS VERIFICATION|\z)/s', $content, $matches, PREG_SET_ORDER);
 
         foreach ($matches as $match) {
@@ -184,9 +184,9 @@ class EvaluateRuleCommand extends Command
         return $rules;
     }
 
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
     //  GET PAGES WHERE RULE IS CURRENTLY FIRING
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
 
     private function getFiringPages(array $rule): array
     {
@@ -214,9 +214,9 @@ class EvaluateRuleCommand extends Command
         }
     }
 
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
     //  BUILD EVALUATION PROMPT
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
 
     private function buildPrompt(array $rule, array $firingPages): string
     {
@@ -254,8 +254,8 @@ CURRENT FIRING DATA ({$totalFiring} pages triggering this rule):
 
 YOUR EVALUATION TASK:
 1. Is this rule firing correctly given the data above? (yes/no)
-2. Are there false positives — pages being flagged that shouldn't be? (yes/no, explain)
-3. Are there false negatives — pages NOT being flagged that should be? (yes/no, explain)
+2. Are there false positives -- pages being flagged that shouldn't be? (yes/no, explain)
+3. Are there false negatives -- pages NOT being flagged that should be? (yes/no, explain)
 4. Is the diagnosis accurate for the pages shown? (yes/no)
 5. Does the rule need adjustment? If yes, what specific change?
 6. Confidence score: how confident are you in this rule's accuracy? (1-10)
@@ -263,19 +263,19 @@ YOUR EVALUATION TASK:
 
 Respond in this exact format:
 FIRING_CORRECTLY: yes/no
-FALSE_POSITIVES: yes/no — [explanation]
-FALSE_NEGATIVES: yes/no — [explanation]
+FALSE_POSITIVES: yes/no -- [explanation]
+FALSE_NEGATIVES: yes/no -- [explanation]
 DIAGNOSIS_ACCURATE: yes/no
-NEEDS_ADJUSTMENT: yes/no — [specific suggested change or "none"]
+NEEDS_ADJUSTMENT: yes/no -- [specific suggested change or "none"]
 CONFIDENCE: [1-10]
 VERDICT: PASS/FLAG
 SUMMARY: [one sentence]
 PROMPT;
     }
 
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
     //  CALL ALL THREE LLMs IN PARALLEL
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
 
     private function callAllLLMs(string $prompt): array
     {
@@ -287,7 +287,7 @@ PROMPT;
         $results = [];
         $mh      = curl_multi_init();
 
-        // ── Claude ──
+        // -- Claude --
         if ($claudeKey) {
             $payload = json_encode([
                 'model'      => 'claude-sonnet-4-6',
@@ -310,7 +310,7 @@ PROMPT;
             curl_multi_add_handle($mh, $ch);
         }
 
-        // ── GPT-4o ──
+        // -- GPT-4o --
         if ($openaiKey) {
             $payload = json_encode([
                 'model'      => 'gpt-4o',
@@ -335,13 +335,13 @@ PROMPT;
             curl_multi_add_handle($mh, $ch);
         }
 
-        // ── Gemini ──
+        // -- Gemini --
         if ($geminiKey) {
             $payload = json_encode([
                 'contents' => [['parts' => [['text' => $prompt]]]],
                 'generationConfig' => ['maxOutputTokens' => 1024],
             ]);
-            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key={$geminiKey}");
+            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-04-17:generateContent?key={$geminiKey}");
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST           => true,
@@ -389,9 +389,9 @@ PROMPT;
         return $results;
     }
 
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
     //  PARSE VERDICT FROM LLM RESPONSE
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
 
     private function parseVerdict(string $text): array
     {
@@ -401,6 +401,7 @@ PROMPT;
         $needsChange = 'no';
         $suggested  = 'none';
 
+        // Primary: structured format
         if (preg_match('/VERDICT\s*:\s*(PASS|FLAG)/i', $text, $m)) {
             $verdict = strtoupper(trim($m[1]));
         }
@@ -415,6 +416,31 @@ PROMPT;
             $suggested   = trim($m[2]);
         }
 
+        // Fallback: if verdict still UNKNOWN, scan text for PASS/FLAG signal words
+        // Handles Gemini's tendency to respond in prose rather than structured format
+        if ($verdict === 'UNKNOWN') {
+            $lower = strtolower($text);
+            $flagSignals = ['false positive', 'not firing correctly', 'needs adjustment', 'should be revised', 'incorrect', 'flag', 'inaccurate'];
+            $passSignals = ['firing correctly', 'accurate', 'no false positives', 'rule is correct', 'pass', 'looks good', 'working as intended'];
+            $flagScore = 0;
+            $passScore = 0;
+            foreach ($flagSignals as $s) { if (str_contains($lower, $s)) $flagScore++; }
+            foreach ($passSignals as $s) { if (str_contains($lower, $s)) $passScore++; }
+            if ($flagScore > $passScore) $verdict = 'FLAG';
+            elseif ($passScore > 0)      $verdict = 'PASS';
+
+            // Fallback confidence: look for any number 1-10 near "confidence" or "/10"
+            if ($confidence === 0 && preg_match('/(\d+)\s*\/\s*10/i', $text, $m)) {
+                $confidence = (int) $m[1];
+            }
+
+            // Fallback summary: first sentence of response
+            if (!$summary) {
+                $sentences = preg_split('/(?<=[.!?])\s+/', strip_tags($text), 3);
+                $summary = trim($sentences[0] ?? substr($text, 0, 120));
+            }
+        }
+
         return [
             'verdict'     => $verdict,
             'confidence'  => $confidence,
@@ -425,9 +451,9 @@ PROMPT;
         ];
     }
 
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
     //  DETERMINE CONSENSUS ACROSS LLMs
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
 
     private function determineConsensus(array $verdicts): array
     {
@@ -448,9 +474,9 @@ PROMPT;
         $avgConf = $count > 0 ? round($totalConf / $count, 1) : 0;
 
         // Consensus rules:
-        // - All PASS → VALIDATED
-        // - 1+ FLAG → FLAGGED (any dissent surfaces for review)
-        // - Avg confidence < 6 → FLAGGED regardless
+        // - All PASS -> VALIDATED
+        // - 1+ FLAG -> FLAGGED (any dissent surfaces for review)
+        // - Avg confidence < 6 -> FLAGGED regardless
         $status = 'VALIDATED';
         $reason = 'All LLMs agree rule is firing correctly.';
 
@@ -459,7 +485,7 @@ PROMPT;
             $reason = "{$flags} of " . count($verdicts) . " LLMs flagged this rule for review.";
         } elseif ($avgConf < 6) {
             $status = 'FLAGGED';
-            $reason = "Low average confidence ({$avgConf}/10) — rule needs review.";
+            $reason = "Low average confidence ({$avgConf}/10) -- rule needs review.";
         }
 
         return [
@@ -471,42 +497,42 @@ PROMPT;
         ];
     }
 
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
     //  DISPLAY RESULTS
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
 
     private function displayResults(OutputInterface $output, array $rule, array $firingPages, array $verdicts, array $consensus): void
     {
-        $icon = $consensus['status'] === 'VALIDATED' ? '✅' : '⚠️';
+        $icon = $consensus['status'] === 'VALIDATED' ? '[PASS]' : '[FLAG]';
         $output->writeln("  {$icon} Consensus: {$consensus['status']} (avg confidence: {$consensus['avg_conf']}/10)");
         $output->writeln("  Reason: {$consensus['reason']}");
         $output->writeln('');
         $output->writeln('  LLM Verdicts:');
 
         foreach ($verdicts as $llm => $v) {
-            $vIcon = $v['verdict'] === 'PASS' ? '✅' : '⚠️';
+            $vIcon = $v['verdict'] === 'PASS' ? '[PASS]' : '[FLAG]';
             $label = strtoupper($llm);
             $output->writeln("    {$vIcon} {$label}: {$v['verdict']} (confidence: {$v['confidence']}/10)");
             if ($v['summary']) {
-                $output->writeln("       → {$v['summary']}");
+                $output->writeln("       -> " . $v['summary']);
             }
             if ($v['needs_change'] === 'yes' && $v['suggested'] !== 'none') {
-                $output->writeln("       💡 Suggested change: {$v['suggested']}");
+                $output->writeln("       SUGGESTED: " . $v['suggested']);
             }
         }
 
         if ($consensus['status'] === 'FLAGGED') {
             $output->writeln('');
-            $output->writeln('  ── ACTION REQUIRED ──────────────────────────');
+            $output->writeln('  -- ACTION REQUIRED ------------------------------------------');
             $output->writeln("  Review this rule before relying on its output.");
             $output->writeln("  Check rule_evaluations table for full details.");
-            $output->writeln('  ─────────────────────────────────────────────');
+            $output->writeln('  -------------------------------------------------------------');
         }
     }
 
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
     //  STORE EVALUATION IN DB
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
 
     private function storeEvaluation(array $rule, array $firingPages, array $verdicts, array $consensus): void
     {
@@ -531,13 +557,13 @@ PROMPT;
                 'evaluated_at'     => date('Y-m-d H:i:s'),
             ]);
         } catch (\Exception $e) {
-            // Non-fatal — evaluation still displayed even if storage fails
+            // Non-fatal -- evaluation still displayed even if storage fails
         }
     }
 
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
     //  ENSURE DB SCHEMA
-    // ─────────────────────────────────────────────
+    // ---------------------------------------------
 
     private function ensureSchema(): void
     {
