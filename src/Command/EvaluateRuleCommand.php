@@ -404,7 +404,7 @@ PROMPT;
         }
 
         if ($geminiKey) {
-            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$geminiKey}");
+            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={$geminiKey}");
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST           => true,
@@ -445,19 +445,27 @@ PROMPT;
     {
         $verdict = 'UNKNOWN'; $confidence = 0; $summary = ''; $needsChange = 'no'; $suggested = 'none';
 
-        if (preg_match('/VERDICT\s*:\s*(PASS|FLAG)/i',                          $text, $m)) $verdict     = strtoupper(trim($m[1]));
-        if (preg_match('/CONFIDENCE\s*:\s*(\d+)/i',                             $text, $m)) $confidence  = (int) $m[1];
-        if (preg_match('/SUMMARY\s*:\s*(.+)/i',                                 $text, $m)) $summary     = trim($m[1]);
-        if (preg_match('/NEEDS_ADJUSTMENT\s*:\s*(yes|no)\s*[—\-–]\s*(.+)/i',   $text, $m)) {
+        // ── Primary: structured format ──────────────────────────────────────────
+        if (preg_match('/VERDICT\s*:\s*(PASS|FLAG)/i',                        $text, $m)) $verdict    = strtoupper(trim($m[1]));
+        if (preg_match('/SUMMARY\s*:\s*(.+)/i',                               $text, $m)) $summary    = trim($m[1]);
+        if (preg_match('/NEEDS_ADJUSTMENT\s*:\s*(yes|no)\s*[—\-–]\s*(.+)/i', $text, $m)) {
             $needsChange = strtolower(trim($m[1]));
             $suggested   = trim($m[2]);
         }
 
+        // ── Confidence: runs always (not just in fallback block) ────────────────
+        // Handles structured "CONFIDENCE: 8", prose "confidence of 8/10", and
+        // Round-2 narrative responses like "I have high confidence (8/10) that..."
+        if (preg_match('/CONFIDENCE\s*:\s*(\d+)/i',                $text, $m)) $confidence = (int) $m[1];
+        if ($confidence === 0 && preg_match('/(\d+)\s*\/\s*10/i',  $text, $m)) $confidence = (int) $m[1];
+        if ($confidence === 0 && preg_match('/confidence[^.]{0,30}?(\d+)/i', $text, $m)) $confidence = (int) $m[1];
+
+        // ── Fallback: handles Gemini semi-structured / Claude prose responses ───
         if ($verdict === 'UNKNOWN') {
             $lower = strtolower($text);
             if (preg_match('/firing_correctly\s*:\s*(yes|no)/i', $text, $m)) {
-                $fc     = strtolower(trim($m[1]));
-                $hasFP  = (bool) preg_match('/false_positives\s*:\s*yes/i', $text);
+                $fc    = strtolower(trim($m[1]));
+                $hasFP = (bool) preg_match('/false_positives\s*:\s*yes/i', $text);
                 $verdict = ($fc === 'yes' && !$hasFP) ? 'PASS' : 'FLAG';
             } else {
                 $fS = ['false positive','not firing correctly','needs adjustment','should be revised','inaccurate','misclassified'];
@@ -468,9 +476,23 @@ PROMPT;
                 if ($fC > $pC) $verdict = 'FLAG';
                 elseif ($pC > 0) $verdict = 'PASS';
             }
-            if ($confidence === 0 && preg_match('/(\d+)\s*\/\s*10/i',          $text, $m)) $confidence = (int) $m[1];
-            if ($confidence === 0 && preg_match('/confidence\s*[:\-]\s*(\d+)/i',$text, $m)) $confidence = (int) $m[1];
-            if (!$summary) { $s = preg_split('/(?<=[.!?])\s+/', strip_tags($text), 3); $summary = trim($s[0] ?? substr($text, 0, 120)); }
+        }
+
+        // ── Summary fallback: skip structured field lines (KEY: value format) ──
+        // Prevents Gemini's "FIRING_CORRECTLY: no" from leaking into the summary
+        if (!$summary) {
+            $lines = preg_split('/\r?\n/', strip_tags($text));
+            foreach ($lines as $line) {
+                $line = trim($line);
+                // Skip blank lines and structured field lines (e.g. "FIRING_CORRECTLY: yes")
+                if ($line === '' || preg_match('/^[A-Z_]+\s*:\s*/i', $line)) continue;
+                // Skip lines that are just filler phrases
+                if (strlen($line) < 20) continue;
+                $summary = $line;
+                break;
+            }
+            // Last resort: first 120 chars of raw text
+            if (!$summary) $summary = substr(strip_tags($text), 0, 120);
         }
 
         return ['verdict' => $verdict, 'confidence' => $confidence, 'summary' => $summary, 'needs_change' => $needsChange, 'suggested' => $suggested, 'raw' => $text];
