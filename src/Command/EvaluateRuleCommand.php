@@ -404,7 +404,7 @@ PROMPT;
         }
 
         if ($geminiKey) {
-            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$geminiKey}");
+            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={$geminiKey}");
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST           => true,
@@ -478,20 +478,25 @@ PROMPT;
             }
         }
 
-        // ── Summary fallback: skip structured field lines (KEY: value format) ──
-        // Prevents Gemini's "FIRING_CORRECTLY: no" from leaking into the summary
+        // ── Summary fallback: extract first real prose line ──────────────────────
+        // Gemini writes "KEY: value -- explanation" all on one line, so we must
+        // skip any line starting with an ALL_CAPS_KEY: pattern before looking for prose.
         if (!$summary) {
             $lines = preg_split('/\r?\n/', strip_tags($text));
             foreach ($lines as $line) {
                 $line = trim($line);
-                // Skip blank lines and structured field lines (e.g. "FIRING_CORRECTLY: yes")
-                if ($line === '' || preg_match('/^[A-Z_]+\s*:\s*/i', $line)) continue;
-                // Skip lines that are just filler phrases
-                if (strlen($line) < 20) continue;
+                // Skip blank lines
+                if ($line === '') continue;
+                // Skip ANY line starting with a structured field key (e.g. FIRING_CORRECTLY: yes -- blah)
+                if (preg_match('/^[A-Z][A-Z_]{2,}\s*:/i', $line)) continue;
+                // Skip markdown headers/bullets
+                if (preg_match('/^[#\*\-]/', $line)) continue;
+                // Skip lines too short to be a meaningful summary
+                if (strlen($line) < 25) continue;
                 $summary = $line;
                 break;
             }
-            // Last resort: first 120 chars of raw text
+            // Last resort
             if (!$summary) $summary = substr(strip_tags($text), 0, 120);
         }
 
