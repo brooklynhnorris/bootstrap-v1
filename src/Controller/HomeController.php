@@ -99,7 +99,7 @@ class HomeController extends AbstractController
         $teamMembers = [
             ['name' => 'Brook',  'role' => 'SEO + Content', 'avatar' => 'BR', 'color' => '#3b82f6'],
             ['name' => 'Brad',   'role' => 'Developer',     'avatar' => 'BD', 'color' => '#8b5cf6'],
-            ['name' => 'Jeanne', 'role' => 'Strategy',      'avatar' => 'JE', 'color' => '#10b981'],
+            ['name' => 'Jeanne', 'role' => 'Owner',         'avatar' => 'JE', 'color' => '#10b981'],
             ['name' => 'Kalib',  'role' => 'Design',        'avatar' => 'KA', 'color' => '#f59e0b'],
         ];
 
@@ -905,14 +905,14 @@ class HomeController extends AbstractController
         $intro .= "\n\nTASK GENERATION RULES:";
         $intro .= "\n- Generate tasks ONLY for the FC rules listed below (FC-R1 through FC-R10). Do NOT generate tasks for cannibalization, keyword research, or other topics not covered by the FC rules.";
         $intro .= "\n- Each task: title, assigned_to, priority (critical/high/medium/low), estimated_hours, recheck_type, recheck_days, recheck_criteria, description.";
-        $intro .= "\n- TASK ASSIGNMENT: On-page fix tasks (H1, H2, schema, internal links) → assigned_to: Brook. Rule review/classification tasks → assigned_to: Jeanne.";
+        $intro .= "\n- TASK ASSIGNMENT: FC-R1 on-page fix → Brook. FC-R1 off-topic/classification → Jeanne. FC-R2 classification → Jeanne. FC-R3/R5/R6/R7/R8/R9/R10 → Brook. FC-R4 intent review → Brook.";
         $intro .= "\n- RECHECK DAYS: Every task must have recheck_days set. H1/H2 fixes = 7 days. Internal link fixes = 7 days. Schema = 14 days. Default = 14 days.";
         $intro .= "\n- RECHECK CRITERIA: Every task must have recheck_criteria — a plain-English description of what the next crawl must confirm to pass. Example: 'h1_matches_title = TRUE for /url/' or 'has_core_link = TRUE for /url/'";
         $intro .= "\n- ROLE-BASED TASK ASSIGNMENT: Tasks are scoped strictly to the current user.
-- Brook = on-page fixes only: H1 tags, H2 tags, meta descriptions, schema markup, internal links. No rule review tasks.
-- Jeanne = rule review and classification tasks only. Never assign on-page fix tasks to Jeanne.
-- Brad = development and technical implementation tasks.
-- Kalib = design tasks.
+- Brook = all on-page fixes: H1, H2, meta descriptions, schema specs, internal links, content expansion, FC-R3/R5/R6/R7/R8/R9/R10.
+- Jeanne = page classification (FC-R2), off-topic page review (FC-R1 escalations), rule validation approval. Never assign on-page fix tasks to Jeanne.
+- Brad = technical implementation: schema deployment, redirects, canonicals, crawl command updates.
+- Kalib = design and UX tasks.
 - CURRENT USER: " . $userName . " (role: " . $userRole . "). Generate tasks for THIS person only. Never cross-assign in a single-user briefing.";
         $intro .= "\n- Do NOT duplicate tasks already in ACTIVE TASKS.";
         $intro .= "\n- ONE TASK = ONE URL. Never batch multiple URLs into one task.";
@@ -951,10 +951,10 @@ class HomeController extends AbstractController
             $intro .= "\nKEY RULE: The review card is for the USER to verify YOUR specific findings. Show them the actual URLs and issues you found. Do not explain your logic — show your work. Keep it plain language, no technical jargon like 'has_core_link = FALSE'. Say 'missing link to a product page' instead.";
         }
         $intro .= "\n\nTEAM ROSTER:";
-        $intro .= "\n- Brook | SEO + Content | 40h/week | Handles all on-page fixes, content tasks, FC rule violations";
-        $intro .= "\n- Jeanne | Content Director | 40h/week | Reviews and approves FC rule classifications — Rule Review tasks go to Jeanne";
-        $intro .= "\n- Kalib | Sales | 40h/week";
-        $intro .= "\n- Brad | Marketing | 40h/week";
+        $intro .= "\n- Brook  | SEO + Content | 40h/week | On-page fixes, content tasks, FC rule violations, internal linking";
+        $intro .= "\n- Jeanne | Owner         | 10h/week | Rule review and approval, strategic decisions, QA of AI findings — Rule Review tasks go to Jeanne";
+        $intro .= "\n- Brad   | Developer     | 40h/week | Schema implementation, redirects, canonicals, crawl command updates, technical fixes";
+        $intro .= "\n- Kalib  | Design        | 40h/week | UX improvements, conversion path design, page layout, CTA design";
         $intro .= "\n\nToday: " . $date;
         $intro .= "\nCurrent user: " . $userName . " | Role: " . $userRole;
         $intro .= "\n\nSEMrush: Keywords=" . ($semrush['organic_keywords'] ?? 'N/A') . " | Traffic=" . ($semrush['organic_traffic'] ?? 'N/A') . " | Updated=" . ($semrush['fetched_at'] ?? 'N/A');
@@ -1068,7 +1068,3 @@ class HomeController extends AbstractController
         return $intro;
     }
 }
-    
-
-    
-
