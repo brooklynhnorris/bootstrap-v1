@@ -302,6 +302,10 @@ PROMPT;
             ? "Rule validation: VALIDATED. The rule is firing correctly."
             : "Rule validation: {$ruleStatus}. Note any caveats.";
 
+        // Pull actual Core page URLs from the database so LLMs reference real pages
+        $corePages = $this->getCorePageList();
+        $coreList  = implode("\n", array_map(fn($p) => "- {$p['url']} | {$p['title_tag']}", $corePages));
+
         return <<<PROMPT
 You are Logiri, an SEO intelligence engine for doubledtrailers.com (Double D Trailers — custom horse trailer manufacturer).
 
@@ -315,6 +319,9 @@ Diagnosis: {$rule['diagnosis']}
 
 VALIDATION: {$ruleNote}
 LLM assessments:{$s1Summary}
+
+REAL CORE PAGES ON THIS SITE (use ONLY these URLs when suggesting Core link targets):
+{$coreList}
 
 DATA FOR AFFECTED PAGES ({$total} total):
 {$pageDetails}
@@ -332,6 +339,7 @@ CRITICAL RULES FOR OUTPUT:
 - Include actual code snippets where relevant (JSON-LD, meta tags, HTML).
 - Include actual copy rewrites where relevant (before→after).
 - Reference the EXACT data values from the crawl data above.
+- When suggesting Core page link targets, use ONLY URLs from the REAL CORE PAGES list above. Do not invent URLs.
 - Keep each brief under 300 words.
 - If a page is a false positive or edge case, say so in a CAVEAT line and suggest skipping or reclassifying instead of fixing.
 
@@ -443,9 +451,9 @@ PROMPT;
                 'caveat'        => '',
             ];
 
-            // Title is the first line
+            // Title is the first line — strip any residual PLAY_BRIEF: prefix
             $lines = explode("\n", $block, 2);
-            $brief['title'] = trim($lines[0]);
+            $brief['title'] = trim(preg_replace('/^PLAY_BRIEF:\s*/i', '', trim($lines[0])));
             $rest = $lines[1] ?? '';
 
             $brief['url']           = $this->extractField($rest, 'URL') ?: $this->extractField($block, 'URL');
@@ -748,6 +756,21 @@ PROMPT;
     }
 
     // ─────────────────────────────────────────────
+    //  GET CORE PAGE LIST (for Stage 2 prompt context)
+    // ─────────────────────────────────────────────
+
+    private function getCorePageList(): array
+    {
+        try {
+            return $this->db->fetchAllAssociative(
+                "SELECT url, title_tag FROM page_crawl_snapshots WHERE page_type = 'core' ORDER BY url"
+            );
+        } catch (\Exception $e) {
+            return [];
+        }
+    }
+
+    // ─────────────────────────────────────────────
     //  CALL ALL THREE LLMs IN PARALLEL
     // ─────────────────────────────────────────────
 
@@ -756,6 +779,7 @@ PROMPT;
         $claudeKey = $_ENV['ANTHROPIC_API_KEY'] ?? '';
         $openaiKey = $_ENV['OPENAI_API_KEY']    ?? '';
         $geminiKey = $_ENV['GEMINI_API_KEY']    ?? '';
+        $grokKey   = $_ENV['XAI_API_KEY']       ?? '';
 
         $handles = [];
         $mh      = curl_multi_init();
@@ -799,6 +823,19 @@ PROMPT;
             curl_multi_add_handle($mh, $ch);
         }
 
+        if ($grokKey) {
+            $ch = curl_init('https://api.x.ai/v1/chat/completions');
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => json_encode(['model' => 'grok-3-fast', 'max_tokens' => $maxTokens, 'messages' => [['role' => 'system', 'content' => 'You are an expert SEO strategist for a horse trailer manufacturer. Be specific, concise, and actionable.'], ['role' => 'user', 'content' => $prompt]]]),
+                CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $grokKey],
+                CURLOPT_TIMEOUT        => 60,
+            ]);
+            $handles['grok'] = $ch;
+            curl_multi_add_handle($mh, $ch);
+        }
+
         $running = null;
         do { curl_multi_exec($mh, $running); curl_multi_select($mh); } while ($running > 0);
 
@@ -812,6 +849,7 @@ PROMPT;
                 'claude' => isset($decoded['content'][0]['text'])                           ? ['text' => $decoded['content'][0]['text']]                           : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
                 'gpt4o'  => isset($decoded['choices'][0]['message']['content'])             ? ['text' => $decoded['choices'][0]['message']['content']]             : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
                 'gemini' => isset($decoded['candidates'][0]['content']['parts'][0]['text']) ? ['text' => $decoded['candidates'][0]['content']['parts'][0]['text']] : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
+                'grok'   => isset($decoded['choices'][0]['message']['content'])             ? ['text' => $decoded['choices'][0]['message']['content']]             : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
                 default  => ['error' => 'Unknown LLM'],
             };
         }
@@ -920,6 +958,9 @@ PROMPT;
                 'gemini_verdict'     => $verdicts['gemini']['verdict']    ?? 'N/A',
                 'gemini_conf'        => $verdicts['gemini']['confidence'] ?? 0,
                 'gemini_summary'     => $verdicts['gemini']['summary']    ?? '',
+                'grok_verdict'       => $verdicts['grok']['verdict']      ?? 'N/A',
+                'grok_conf'          => $verdicts['grok']['confidence']   ?? 0,
+                'grok_summary'       => $verdicts['grok']['summary']      ?? '',
                 'consensus_status'   => $consensus['status'],
                 'avg_confidence'     => $consensus['avg_conf'],
                 'consensus_reason'   => $consensus['reason'],
@@ -967,6 +1008,9 @@ PROMPT;
                     gemini_verdict      VARCHAR(10),
                     gemini_conf         INT DEFAULT 0,
                     gemini_summary      TEXT,
+                    grok_verdict        VARCHAR(10),
+                    grok_conf           INT DEFAULT 0,
+                    grok_summary        TEXT,
                     consensus_status    VARCHAR(30),
                     avg_confidence      NUMERIC(4,1),
                     consensus_reason    TEXT,
@@ -987,7 +1031,7 @@ PROMPT;
                 )
             ");
             // Add columns to existing tables if missing
-            foreach (['rounds_run INT DEFAULT 1', 'round_history TEXT', 'output_finding TEXT', 'output_diagnosis TEXT', 'output_pages TEXT', 'output_priority VARCHAR(20)', 'output_verify_in VARCHAR(20)', 'output_brook TEXT', 'output_brad TEXT', 'output_kalib TEXT', 'output_jeanne TEXT', 'output_caveat TEXT', 'output_conf NUMERIC(4,1)'] as $col) {
+            foreach (['rounds_run INT DEFAULT 1', 'round_history TEXT', 'output_finding TEXT', 'output_diagnosis TEXT', 'output_pages TEXT', 'output_priority VARCHAR(20)', 'output_verify_in VARCHAR(20)', 'output_brook TEXT', 'output_brad TEXT', 'output_kalib TEXT', 'output_jeanne TEXT', 'output_caveat TEXT', 'output_conf NUMERIC(4,1)', 'grok_verdict VARCHAR(10)', 'grok_conf INT DEFAULT 0', 'grok_summary TEXT'] as $col) {
                 $colName = explode(' ', $col)[0];
                 $this->db->executeStatement("ALTER TABLE rule_evaluations ADD COLUMN IF NOT EXISTS {$col}");
             }
