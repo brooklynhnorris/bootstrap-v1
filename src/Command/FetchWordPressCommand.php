@@ -363,6 +363,9 @@ class FetchWordPressCommand extends Command
         // ── Page type classification ──
         $pageType = $this->classifyPageType($path);
 
+        // Postgres requires proper boolean literals — PHP true/false become empty strings via Doctrine
+        $pgBool = fn(bool $v): string => $v ? 't' : 'f';
+
         return [
             'url'                  => $path,
             'http_status'          => 200, // If it's in the API, it's published/200
@@ -371,17 +374,17 @@ class FetchWordPressCommand extends Command
             'h2s'                  => json_encode(array_slice($h2s, 0, 20)),
             'meta_description'     => $metaDescription ? substr($metaDescription, 0, 500) : null,
             'word_count'           => $wordCount,
-            'has_central_entity'   => $hasCentralEntity ? true : false,
+            'has_central_entity'   => $pgBool($hasCentralEntity),
             'central_entity_count' => $centralEntityCount,
             'internal_links'       => json_encode(array_slice($internalLinks, 0, 100)),
-            'has_core_link'        => $hasCoreLink ? true : false,
+            'has_core_link'        => $pgBool($hasCoreLink),
             'core_links_found'     => json_encode($coreLinksFound),
-            'h1_matches_title'     => $h1MatchesTitle ? true : false,
+            'h1_matches_title'     => $pgBool($h1MatchesTitle),
             'schema_types'         => json_encode($schemaTypes),
             'canonical_url'        => $canonicalUrl ? substr($canonicalUrl, 0, 500) : null,
-            'is_noindex'           => $isNoindex ? true : false,
+            'is_noindex'           => $pgBool($isNoindex),
             'page_type'            => $pageType,
-            'is_utility'           => $this->isUtilityUrl($path) ? true : false,
+            'is_utility'           => $pgBool($this->isUtilityUrl($path)),
             'crawled_at'           => date('Y-m-d H:i:s'),
         ];
     }
@@ -617,3 +620,5 @@ class FetchWordPressCommand extends Command
         }
     }
 }
+
+    
