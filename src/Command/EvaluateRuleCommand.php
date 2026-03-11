@@ -113,7 +113,7 @@ class EvaluateRuleCommand extends Command
                 $output->writeln("   -- Stage 2: Output Consensus --");
 
                 $outputPrompt  = $this->buildOutputPrompt($rule, $firingPages, $finalConsensus, $finalVerdicts);
-                $stage2Result  = $this->runDeliberation($outputPrompt, $output, $verboseLlm, 'S2');
+                $stage2Result  = $this->runDeliberation($outputPrompt, $output, $verboseLlm, 'S2', 3000);
                 $outputConsensus = $this->synthesiseOutput($stage2Result['verdicts'], $stage2Result['consensus'], $rule);
                 $outputConsensus['rounds_run'] = $stage2Result['rounds_run'];
 
@@ -146,7 +146,7 @@ class EvaluateRuleCommand extends Command
     //  RUN DELIBERATION LOOP (shared by both stages)
     // ─────────────────────────────────────────────
 
-    private function runDeliberation(string $basePrompt, OutputInterface $output, bool $verboseLlm, string $stagePrefix): array
+    private function runDeliberation(string $basePrompt, OutputInterface $output, bool $verboseLlm, string $stagePrefix, int $maxTokens = 1500): array
     {
         $allRounds     = [];
         $finalVerdicts = [];
@@ -161,7 +161,7 @@ class EvaluateRuleCommand extends Command
                 ? $basePrompt
                 : $this->buildDeliberationPrompt($basePrompt, $allRounds, $round);
 
-            $responses     = $this->callAllLLMs($prompt);
+            $responses     = $this->callAllLLMs($prompt, $maxTokens);
             $roundVerdicts = [];
 
             foreach ($responses as $llm => $response) {
@@ -276,88 +276,80 @@ PROMPT;
 
     private function buildOutputPrompt(array $rule, array $firingPages, array $stage1Consensus, array $stage1Verdicts): string
     {
-        $pageList = '';
+        $pageDetails = '';
         foreach (array_slice($firingPages, 0, 5) as $page) {
-            $pageList .= "\n- URL: " . ($page['url'] ?? 'n/a');
+            $pageDetails .= "\n\nPAGE: " . ($page['url'] ?? 'n/a');
             foreach ($page as $key => $val) {
                 if ($key === 'url' || in_array($key, ['internal_links', 'crawled_at'])) continue;
-                // Boolean fields must display TRUE/FALSE explicitly (PHP false = empty string)
                 $boolFields = ['has_central_entity', 'has_core_link', 'h1_matches_title', 'is_noindex', 'is_utility'];
                 if (is_null($val)) { $display = 'NULL'; }
                 elseif (in_array($key, $boolFields)) { $display = ($val && $val !== 'f' && $val !== '0') ? 'TRUE' : 'FALSE'; }
                 elseif (is_bool($val)) { $display = $val ? 'TRUE' : 'FALSE'; }
                 else { $display = (string) $val; }
-                $pageList .= " | {$key}: " . $display;
+                $pageDetails .= "\n  {$key}: {$display}";
             }
         }
 
         $total       = count($firingPages);
         $ruleStatus  = $stage1Consensus['status'];
 
-        // Summarise stage 1 findings for context
         $s1Summary = '';
         foreach ($stage1Verdicts as $llm => $v) {
             $s1Summary .= "\n- " . strtoupper($llm) . ": {$v['verdict']} ({$v['confidence']}/10) — {$v['summary']}";
-            if ($v['needs_change'] === 'yes') {
-                $s1Summary .= "\n  Suggested: {$v['suggested']}";
-            }
         }
 
         $ruleNote = ($ruleStatus === 'VALIDATED')
-            ? "Rule validation: VALIDATED. The rule is firing correctly. Produce output for the team."
-            : "Rule validation: {$ruleStatus}. The rule may have false positives or need adjustment. Still produce the best-possible output for the team, but note any caveats.";
-
-        $teamRoster = '';
-        foreach (self::TEAM as $name => $role) {
-            $teamRoster .= "\n- {$name}: {$role}";
-        }
+            ? "Rule validation: VALIDATED. The rule is firing correctly."
+            : "Rule validation: {$ruleStatus}. Note any caveats.";
 
         return <<<PROMPT
-You are an expert SEO strategist writing a finding report for the Double D Trailers (DDT) SEO team.
+You are Logiri, an SEO intelligence engine for doubledtrailers.com (Double D Trailers — custom horse trailer manufacturer).
 
-SITE CONTEXT:
-- Domain: doubledtrailers.com
-- Business: Custom horse trailer manufacturer
-- Central entity: horse trailer
-- Audience: horse owners, equestrians, competitive riders
-
-TEAM ROSTER:{$teamRoster}
+Your job: produce ONE PLAY BRIEF per affected page. A play brief is a task ticket — specific, actionable, copy-paste ready.
 
 RULE THAT FIRED:
 ID: {$rule['id']}
 Name: {$rule['name']}
-Trigger condition: {$rule['trigger_condition']}
+Trigger: {$rule['trigger_condition']}
 Diagnosis: {$rule['diagnosis']}
 
-PAGES AFFECTED ({$total} total):
-{$pageList}
-
-STAGE 1 VALIDATION CONTEXT:
-{$ruleNote}
+VALIDATION: {$ruleNote}
 LLM assessments:{$s1Summary}
 
-YOUR TASK:
-Write the output that Logiri will display to the DDT team for this finding.
-The output must be specific to the ACTUAL pages listed above — not generic.
-Name the specific URLs. State the specific issue on each. Be direct and actionable.
+DATA FOR AFFECTED PAGES ({$total} total):
+{$pageDetails}
 
-Produce output in this EXACT format:
+INSTRUCTIONS:
+Write one PLAY_BRIEF block per page. Each brief must include:
+1. CURRENT STATE — the exact data fields from the crawl that triggered this rule. Use the actual values above. Format as bullet points.
+2. YOUR MOVE — numbered steps the person should take. Be surgical. If the fix involves code (schema, meta tags, HTML), include the actual code snippet. If it involves copy changes, write the actual new copy or give a specific before→after example. Reference the exact URL, exact field values, exact text.
+3. DONE WHEN — the specific crawl field check that confirms the fix worked, plus any manual verification step (e.g. "Run Google Rich Results Test — 0 errors, Product detected").
+4. RECHECK — number of days until recheck.
 
-FINDING: [One sentence — what the rule found, naming the specific pages/issue]
-DIAGNOSIS: [2-3 sentences — why this matters for doubledtrailers.com specifically, business impact]
-PAGES:
-- [url] | Issue: [specific issue on this page]
-- [url] | Issue: [specific issue on this page]
-(list all affected pages)
+CRITICAL RULES FOR OUTPUT:
+- Do NOT write a report or analysis. Write task tickets.
+- Do NOT split by team role. One unified brief per page.
+- Include actual code snippets where relevant (JSON-LD, meta tags, HTML).
+- Include actual copy rewrites where relevant (before→after).
+- Reference the EXACT data values from the crawl data above.
+- Keep each brief under 300 words.
+- If a page is a false positive or edge case, say so in a CAVEAT line and suggest skipping or reclassifying instead of fixing.
+
+FORMAT (repeat for each page):
+
+PLAY_BRIEF: [Short title — verb + what + where]
+URL: [exact url path]
 PRIORITY: [Critical / High / Medium / Low]
-VERIFY_IN: [number] days
-
-ROLE_BROOK: [Plain English action for Brook — content/on-page fixes. What to change, on which pages, and why. No jargon.]
-ROLE_BRAD: [Plain English action for Brad — technical implementation. Specific code/schema/redirect instructions if applicable. "No action needed" if not relevant.]
-ROLE_KALIB: [Plain English action for Kalib — design/UX changes if applicable. "No action needed" if not relevant.]
-ROLE_JEANNE: [One sentence business summary for Jeanne — impact on leads/rankings/revenue, decision needed if any.]
-
-CAVEAT: [Any false positive warnings or rule limitations the team should know. "None" if clean.]
+CURRENT_STATE:
+- [field]: [value]
+- [field]: [value]
+YOUR_MOVE:
+1. [Step]
+2. [Step]
+3. [Step]
+DONE_WHEN: [crawl field check] + [manual verification step]
+RECHECK: [X] days
+CAVEAT: [Any edge case note, or "None"]
 PROMPT;
     }
 
@@ -368,7 +360,7 @@ PROMPT;
 
     private function synthesiseOutput(array $verdicts, array $consensus, array $rule): array
     {
-        // Use the highest-confidence LLM's output as the base, then merge
+        // Use the highest-confidence LLM's output as the base
         $best     = null;
         $bestConf = -1;
 
@@ -380,50 +372,97 @@ PROMPT;
         }
 
         if (!$best) {
-            return ['status' => 'NO_OUTPUT', 'raw' => ''];
+            return ['status' => 'NO_OUTPUT', 'raw' => '', 'briefs' => []];
         }
 
-        // Parse structured fields from the best LLM's raw output
-        $raw     = $best['raw'] ?? '';
-        $finding = $this->extractField($raw, 'FINDING');
-        $diag    = $this->extractField($raw, 'DIAGNOSIS');
-        $pages   = $this->extractPagesBlock($raw);
-        $priority= $this->extractField($raw, 'PRIORITY');
-        $verify  = $this->extractField($raw, 'VERIFY_IN');
-        $brook   = $this->extractField($raw, 'ROLE_BROOK');
-        $brad    = $this->extractField($raw, 'ROLE_BRAD');
-        $kalib   = $this->extractField($raw, 'ROLE_KALIB');
-        $jeanne  = $this->extractField($raw, 'ROLE_JEANNE');
-        $caveat  = $this->extractField($raw, 'CAVEAT');
+        $raw = $best['raw'] ?? '';
 
-        // Merge caveats from all LLMs if they differ
-        $allCaveats = [];
-        foreach ($verdicts as $llm => $v) {
-            $c = $this->extractField($v['raw'] ?? '', 'CAVEAT');
-            if ($c && strtolower($c) !== 'none' && !in_array($c, $allCaveats)) {
-                $allCaveats[] = $c;
+        // Parse PLAY_BRIEF blocks
+        $briefs = $this->parsePlayBriefs($raw);
+
+        // If best LLM produced no parseable briefs, try others
+        if (empty($briefs)) {
+            foreach ($verdicts as $llm => $v) {
+                $briefs = $this->parsePlayBriefs($v['raw'] ?? '');
+                if (!empty($briefs)) { $raw = $v['raw']; break; }
             }
         }
-        if (!empty($allCaveats)) {
-            $caveat = implode(' | ', $allCaveats);
+
+        // Merge caveats from all LLMs
+        $allCaveats = [];
+        foreach ($verdicts as $llm => $v) {
+            if (preg_match_all('/CAVEAT:\s*(.+)/i', $v['raw'] ?? '', $m)) {
+                foreach ($m[1] as $c) {
+                    $c = trim($c);
+                    if ($c && strtolower($c) !== 'none' && !in_array($c, $allCaveats)) {
+                        $allCaveats[] = $c;
+                    }
+                }
+            }
         }
 
         return [
-            'status'        => $consensus['status'],
-            'finding'       => $finding,
-            'diagnosis'     => $diag,
-            'pages'         => $pages,
-            'priority'      => $priority ?: $rule['priority'] ?? 'High',
-            'verify_in'     => $verify,
-            'role_brook'    => $brook,
-            'role_brad'     => $brad,
-            'role_kalib'    => $kalib,
-            'role_jeanne'   => $jeanne,
-            'caveat'        => $caveat ?: 'None',
-            'rounds_run'    => $consensus['rounds_run'] ?? 1,
-            'avg_conf'      => $consensus['avg_conf'],
-            'raw'           => $raw,
+            'status'     => $consensus['status'],
+            'briefs'     => $briefs,
+            'caveats'    => $allCaveats,
+            'rounds_run' => $consensus['rounds_run'] ?? 1,
+            'avg_conf'   => $consensus['avg_conf'],
+            'raw'        => $raw,
+            // Legacy fields for DB storage — flatten first brief for backwards compat
+            'finding'    => !empty($briefs) ? ($briefs[0]['title'] ?? '') : '',
+            'diagnosis'  => !empty($briefs) ? ($briefs[0]['current_state'] ?? '') : '',
+            'pages'      => array_map(fn($b) => ($b['url'] ?? '') . ' | ' . ($b['title'] ?? ''), $briefs),
+            'priority'   => !empty($briefs) ? ($briefs[0]['priority'] ?? 'High') : ($rule['priority'] ?? 'High'),
+            'verify_in'  => !empty($briefs) ? ($briefs[0]['recheck'] ?? '14') : '14',
+            'role_brook'  => null,
+            'role_brad'   => null,
+            'role_kalib'  => null,
+            'role_jeanne' => null,
+            'caveat'     => !empty($allCaveats) ? implode(' | ', $allCaveats) : 'None',
         ];
+    }
+
+    private function parsePlayBriefs(string $text): array
+    {
+        $briefs = [];
+        // Split on PLAY_BRIEF: headers
+        $blocks = preg_split('/\nPLAY_BRIEF:\s*/i', $text);
+
+        foreach ($blocks as $block) {
+            $block = trim($block);
+            if (empty($block)) continue;
+
+            $brief = [
+                'title'         => '',
+                'url'           => '',
+                'priority'      => '',
+                'current_state' => '',
+                'your_move'     => '',
+                'done_when'     => '',
+                'recheck'       => '',
+                'caveat'        => '',
+            ];
+
+            // Title is the first line
+            $lines = explode("\n", $block, 2);
+            $brief['title'] = trim($lines[0]);
+            $rest = $lines[1] ?? '';
+
+            $brief['url']           = $this->extractField($rest, 'URL') ?: $this->extractField($block, 'URL');
+            $brief['priority']      = $this->extractField($rest, 'PRIORITY') ?: $this->extractField($block, 'PRIORITY');
+            $brief['current_state'] = $this->extractField($rest, 'CURRENT_STATE') ?: $this->extractField($block, 'CURRENT_STATE');
+            $brief['your_move']     = $this->extractField($rest, 'YOUR_MOVE') ?: $this->extractField($block, 'YOUR_MOVE');
+            $brief['done_when']     = $this->extractField($rest, 'DONE_WHEN') ?: $this->extractField($block, 'DONE_WHEN');
+            $brief['recheck']       = $this->extractField($rest, 'RECHECK') ?: $this->extractField($block, 'RECHECK');
+            $brief['caveat']        = $this->extractField($rest, 'CAVEAT') ?: $this->extractField($block, 'CAVEAT');
+
+            // Only include if we got at minimum a URL or title
+            if ($brief['url'] || $brief['title']) {
+                $briefs[] = $brief;
+            }
+        }
+
+        return $briefs;
     }
 
     // ─────────────────────────────────────────────
@@ -437,40 +476,63 @@ PROMPT;
             return;
         }
 
+        $briefs = $oc['briefs'] ?? [];
+
+        if (empty($briefs)) {
+            $output->writeln("   [!] No play briefs parsed from LLM output.");
+            // Show raw output for debugging
+            if (!empty($oc['raw'])) {
+                $output->writeln("   [RAW] " . substr($oc['raw'], 0, 300) . "...");
+            }
+            return;
+        }
+
         $output->writeln('');
         $output->writeln('  ╔══════════════════════════════════════════════╗');
-        $output->writeln('  ║         LOGIRI AGREED OUTPUT FOR DDT         ║');
+        $output->writeln('  ║           LOGIRI PLAY BRIEFS                 ║');
         $output->writeln('  ╚══════════════════════════════════════════════╝');
-        $output->writeln('');
 
-        if ($oc['finding'])   $output->writeln("  FINDING:   " . $oc['finding']);
-        if ($oc['diagnosis']) $output->writeln("  DIAGNOSIS: " . $oc['diagnosis']);
+        foreach ($briefs as $i => $brief) {
+            $n = $i + 1;
+            $output->writeln('');
+            $output->writeln("  ── Play Brief #{$n} ────────────────────────────");
+            $output->writeln("  PLAY:     " . ($brief['title'] ?? '(no title)'));
+            $output->writeln("  URL:      " . ($brief['url'] ?? '(no url)'));
+            $output->writeln("  PRIORITY: " . ($brief['priority'] ?? 'High'));
+            $output->writeln('');
 
-        if (!empty($oc['pages'])) {
-            $output->writeln("  PAGES AFFECTED:");
-            foreach ($oc['pages'] as $p) {
-                $output->writeln("    • " . $p);
+            if ($brief['current_state'] ?? '') {
+                $output->writeln("  CURRENT STATE:");
+                foreach (explode("\n", $brief['current_state']) as $line) {
+                    $line = trim($line);
+                    if ($line) $output->writeln("    " . $line);
+                }
+                $output->writeln('');
+            }
+
+            if ($brief['your_move'] ?? '') {
+                $output->writeln("  YOUR MOVE:");
+                foreach (explode("\n", $brief['your_move']) as $line) {
+                    $line = trim($line);
+                    if ($line) $output->writeln("    " . $line);
+                }
+                $output->writeln('');
+            }
+
+            if ($brief['done_when'] ?? '') {
+                $output->writeln("  DONE WHEN: " . $brief['done_when']);
+            }
+
+            $recheck = trim(str_ireplace('days', '', $brief['recheck'] ?? '14'));
+            $output->writeln("  RECHECK:   {$recheck} days");
+
+            if (($brief['caveat'] ?? '') && strtolower($brief['caveat']) !== 'none') {
+                $output->writeln("  ⚠ CAVEAT:  " . $brief['caveat']);
             }
         }
 
         $output->writeln('');
-        $output->writeln("  PRIORITY:  " . ($oc['priority']  ?? 'High'));
-        $verifyIn = trim(str_ireplace('days', '', $oc['verify_in'] ?? '28'));
-        $output->writeln("  VERIFY IN: {$verifyIn} days");
-        $output->writeln('');
-        $output->writeln('  ── TEAM ACTIONS ──────────────────────────────');
-        if ($oc['role_brook'])  $output->writeln("  BROOK:  " . $oc['role_brook']);
-        if ($oc['role_brad'])   $output->writeln("  BRAD:   " . $oc['role_brad']);
-        if ($oc['role_kalib'])  $output->writeln("  KALIB:  " . $oc['role_kalib']);
-        if ($oc['role_jeanne']) $output->writeln("  JEANNE: " . $oc['role_jeanne']);
-
-        if ($oc['caveat'] && strtolower($oc['caveat']) !== 'none') {
-            $output->writeln('');
-            $output->writeln("  ⚠  CAVEAT: " . $oc['caveat']);
-        }
-
-        $output->writeln('');
-        $output->writeln("  Output agreed in " . ($oc['rounds_run'] ?? '?') . " round(s) | avg confidence: " . ($oc['avg_conf'] ?? '?') . "/10");
+        $output->writeln("  " . count($briefs) . " play brief(s) generated in " . ($oc['rounds_run'] ?? '?') . " round(s) | avg confidence: " . ($oc['avg_conf'] ?? '?') . "/10");
         $output->writeln('  ──────────────────────────────────────────────');
     }
 
@@ -689,7 +751,7 @@ PROMPT;
     //  CALL ALL THREE LLMs IN PARALLEL
     // ─────────────────────────────────────────────
 
-    private function callAllLLMs(string $prompt): array
+    private function callAllLLMs(string $prompt, int $maxTokens = 1500): array
     {
         $claudeKey = $_ENV['ANTHROPIC_API_KEY'] ?? '';
         $openaiKey = $_ENV['OPENAI_API_KEY']    ?? '';
@@ -703,7 +765,7 @@ PROMPT;
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => json_encode(['model' => 'claude-sonnet-4-6', 'max_tokens' => 1500, 'messages' => [['role' => 'user', 'content' => $prompt]]]),
+                CURLOPT_POSTFIELDS     => json_encode(['model' => 'claude-sonnet-4-6', 'max_tokens' => $maxTokens, 'messages' => [['role' => 'user', 'content' => $prompt]]]),
                 CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'x-api-key: ' . $claudeKey, 'anthropic-version: 2023-06-01'],
                 CURLOPT_TIMEOUT        => 60,
             ]);
@@ -716,7 +778,7 @@ PROMPT;
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => json_encode(['model' => 'gpt-4o', 'max_tokens' => 1500, 'messages' => [['role' => 'system', 'content' => 'You are an expert SEO strategist for a horse trailer manufacturer. Be specific, concise, and actionable.'], ['role' => 'user', 'content' => $prompt]]]),
+                CURLOPT_POSTFIELDS     => json_encode(['model' => 'gpt-4o', 'max_tokens' => $maxTokens, 'messages' => [['role' => 'system', 'content' => 'You are an expert SEO strategist for a horse trailer manufacturer. Be specific, concise, and actionable.'], ['role' => 'user', 'content' => $prompt]]]),
                 CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $openaiKey],
                 CURLOPT_TIMEOUT        => 60,
             ]);
@@ -729,7 +791,7 @@ PROMPT;
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => json_encode(['contents' => [['parts' => [['text' => $prompt]]]], 'generationConfig' => ['maxOutputTokens' => 1500]]),
+                CURLOPT_POSTFIELDS     => json_encode(['contents' => [['parts' => [['text' => $prompt]]]], 'generationConfig' => ['maxOutputTokens' => $maxTokens]]),
                 CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
                 CURLOPT_TIMEOUT        => 60,
             ]);
