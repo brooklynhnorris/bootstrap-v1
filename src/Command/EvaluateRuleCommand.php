@@ -9,19 +9,63 @@ use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
 
-#[AsCommand(name: 'app:evaluate-rule', description: 'Multi-LLM rule evaluation with 3-round deliberation + output consensus for DDT team')]
-class EvaluateRuleCommand extends Command
+#[AsCommand(name: 'app:crawl-pages', description: 'Crawl indexed pages and extract structural SEO signals')]
+class CrawlPagesCommand extends Command
 {
-    private const MAX_ROUNDS   = 3;
-    private const ASSET_FILTER = "url NOT LIKE '%.pdf' AND url NOT LIKE '%.doc' AND url NOT LIKE '%.docx' AND url NOT LIKE '%.xls' AND url NOT LIKE '%.xlsx' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.jpeg' AND url NOT LIKE '%.png' AND url NOT LIKE '%.zip'";
-    private const TIER4_URLS   = "'/contact-us/','/get-quote/','/trailer-finder/','/book-a-video-call/','/join-our-mailing-list/','/freebook/','/horse-trailer-safety-webinars/','/virtual-horse-trailer-safety-inspection/'";
+    private string $baseUrl = 'https://doubledtrailers.com';
 
-    // Team roster — used in output consensus prompts
-    private const TEAM = [
-        'Brook'  => 'SEO + Content — on-page fixes, FC rule violations, content rewrites',
-        'Brad'   => 'Developer — schema deployment, redirects, canonicals, technical fixes',
-        'Kalib'  => 'Design — UX, conversion path, page layout, CTA design',
-        'Jeanne' => 'Owner — rule review/approval, classification decisions, QA of AI findings',
+    private array $coreUrls = [
+        '/',
+        '/bumper-pull-horse-trailers/',
+        '/gooseneck-horse-trailers/',
+        '/living-quarters-horse-trailers/',
+        '/bumper-pull-2-horse-straight-load-trailer/',
+        '/one-horse-trailer-bumper-pull/',
+        '/bumper-pull-safetack-2-horse-slant-load-trailer/',
+        '/1-horse-bumper-pull-with-living-quarters/',
+        '/bumper-pull-3-horse-slant-load-trailer/',
+        '/bumper-pull-v-sport-2-horse-straight-load-trailer/',
+        '/bumper-pull-townsmand-2-horse-straight-load-trailer/',
+        '/gooseneck-3-horse-slant-load-trailer/',
+        '/gooseneck-4-horse-slant-load-trailer/',
+        '/2-plus-1-gooseneck-3-horse-straight-load-trailers/',
+        '/gooseneck-2-horse-slant-load-trailer/',
+        '/gooseneck-2-horse-straight-load-trailer/',
+        '/trail-blazer-living-quarters-horse-trailer/',
+        '/the-basics-living-quarters/',
+        '/safetack-reverse-living-quarters-horse-trailer/',
+        '/about/',
+        '/contact/',
+        '/contact-us/',
+        '/get-quote/',
+        '/dealers/',
+        '/financing/',
+        '/why-double-d/',
+        '/horse-trailers/',
+        '/trailer-finder/',
+        '/virtual-horse-trailer-safety-inspection/',
+        '/horse-trailer-safety-webinars/',
+        '/join-our-mailing-list/',
+        '/freebook/',
+        '/book-a-video-call/',
+    ];
+
+    // Pages that should never be flagged for content rules — utility/navigational pages
+    private array $utilityUrls = [
+        '/contact/', '/contact-us/', '/get-quote/', '/dealers/', '/financing/',
+        '/join-our-mailing-list/', '/freebook/', '/book-a-video-call/',
+        '/trailer-finder/', '/sitemap/', '/privacy-policy/', '/terms/',
+        '/search/', '/login/', '/logout/', '/cart/', '/checkout/',
+    ];
+
+    private array $outerPatterns = [
+        '/blog/', '/podcast/', '/video/', '/how-to', '/guide', '/tips', '/news/',
+    ];
+
+    // All known central entity variations for horse trailers
+    private array $centralEntityVariants = [
+        'horse trailer', 'horse trailers', 'trailer for horse', 'trailers for horse',
+        'equine trailer', 'livestock trailer', 'horse hauler',
     ];
 
     public function __construct(private Connection $db)
@@ -32,890 +76,455 @@ class EvaluateRuleCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('rule',        null, InputOption::VALUE_OPTIONAL, 'Specific rule ID (e.g. FC-R7). Omit to evaluate all firing rules.')
-            ->addOption('dry-run',     null, InputOption::VALUE_NONE,     'Show prompts without calling APIs')
-            ->addOption('verbose-llm', null, InputOption::VALUE_NONE,     'Show full LLM responses per round')
-            ->addOption('skip-output', null, InputOption::VALUE_NONE,     'Skip Stage 2 output consensus (run rule validation only)');
+            ->addOption('url', null, InputOption::VALUE_OPTIONAL, 'Crawl a single URL path')
+            ->addOption('limit', null, InputOption::VALUE_OPTIONAL, 'Max URLs to crawl', 200)
+            ->addOption('debug', null, InputOption::VALUE_NONE, 'Extra debug output');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $ruleFilter  = $input->getOption('rule');
-        $dryRun      = (bool) $input->getOption('dry-run');
-        $verboseLlm  = (bool) $input->getOption('verbose-llm');
-        $skipOutput  = (bool) $input->getOption('skip-output');
+        $singleUrl = $input->getOption('url');
+        $limit     = (int) $input->getOption('limit');
+        $debug     = (bool) $input->getOption('debug');
 
         $this->ensureSchema();
+        $overrides = $this->loadOverrides();
 
-        $rules = $this->loadRules();
-        if (empty($rules)) {
-            $output->writeln('[ERROR] Could not load rules from system-prompt.txt');
+        if ($singleUrl) {
+            $urls = [$singleUrl];
+            $output->writeln("Single URL mode: {$singleUrl}");
+        } else {
+            $urls = $this->getUrlsFromGsc($limit);
+            $output->writeln('Found ' . count($urls) . ' URLs from GSC snapshots.');
+        }
+
+        if (empty($urls)) {
+            $output->writeln('No URLs found. Run app:fetch-gsc first.');
             return Command::FAILURE;
         }
 
-        if ($ruleFilter) {
-            $rules = array_filter($rules, fn($r) => $r['id'] === strtoupper($ruleFilter));
-            if (empty($rules)) {
-                $output->writeln("[ERROR] Rule {$ruleFilter} not found in system-prompt.txt");
-                return Command::FAILURE;
-            }
+        if (!$singleUrl) {
+            $this->db->executeStatement('DELETE FROM page_crawl_snapshots');
+            $output->writeln('Cleared old crawl data.');
         }
 
-        $output->writeln('');
-        $output->writeln('+============================================+');
-        $output->writeln('|      LOGIRI MULTI-LLM RULE EVALUATOR       |');
-        $output->writeln('|  Stage 1: Rule Validation                  |');
-        $output->writeln('|  Stage 2: Output Consensus for DDT Team    |');
-        $output->writeln('+============================================+');
-        $output->writeln('');
+        $crawled = 0;
+        $failed  = 0;
+        $total   = count($urls);
 
-        $totalEvaluated = 0;
-        $totalFlagged   = 0;
+        foreach ($urls as $path) {
+            $fullUrl = $this->buildFullUrl($path);
+            $output->writeln("[{$crawled}/{$total}] Crawling: {$fullUrl}");
 
-        foreach ($rules as $rule) {
-            $firingPages = $this->getFiringPages($rule);
+            $result = $this->crawlPage($fullUrl, $path, $debug, $output);
 
-            if (empty($firingPages)) {
-                $output->writeln("[ ] {$rule['id']} -- no pages currently firing, skipping.");
-                continue;
+            if ($result === null) {
+                $output->writeln("  FAILED: {$fullUrl}");
+                $failed++;
+            } else {
+                $result = $this->applyOverrides($result, $overrides);
+                $this->db->executeStatement('DELETE FROM page_crawl_snapshots WHERE url = ?', [$path]);
+                $this->db->insert('page_crawl_snapshots', $result);
+
+                $overrideNote = isset($overrides[$path]) ? ' [OVERRIDE]' : '';
+                $output->writeln(
+                    "  OK{$overrideNote} | H1: " . ($result['h1'] ?? '(none)') .
+                    " | Words: {$result['word_count']}" .
+                    " | Entity: " . ($result['has_central_entity'] ? 'YES' : 'NO') .
+                    " | Core link: " . ($result['has_core_link'] ? 'YES' : 'NO') .
+                    " | Type: " . ($result['page_type'] ?? 'unknown')
+                );
+                $crawled++;
             }
 
-            $output->writeln(">> {$rule['id']}: {$rule['name']}");
-            $output->writeln("   Pages firing: " . count($firingPages));
-
-            if ($dryRun) {
-                $output->writeln("   [DRY RUN] Would send to LLMs. Skipping.");
-                $output->writeln('');
-                continue;
-            }
-
-            // ══════════════════════════════════════════
-            //  STAGE 1 — RULE VALIDATION DELIBERATION
-            // ══════════════════════════════════════════
-            $output->writeln("   -- Stage 1: Rule Validation --");
-
-            $basePrompt     = $this->buildValidationPrompt($rule, $firingPages);
-            $stage1Result   = $this->runDeliberation($basePrompt, $output, $verboseLlm, 'S1');
-            $finalVerdicts  = $stage1Result['verdicts'];
-            $finalConsensus = $stage1Result['consensus'];
-            $allRounds      = $stage1Result['rounds'];
-            $roundsRun      = $stage1Result['rounds_run'];
-
-            $this->displayValidationResults($output, $finalVerdicts, $finalConsensus, $allRounds, $roundsRun);
-
-            // ══════════════════════════════════════════
-            //  STAGE 2 — OUTPUT CONSENSUS FOR DDT TEAM
-            // ══════════════════════════════════════════
-            $outputConsensus = null;
-
-            if (!$skipOutput) {
-                $output->writeln('');
-                $output->writeln("   -- Stage 2: Output Consensus --");
-
-                $outputPrompt  = $this->buildOutputPrompt($rule, $firingPages, $finalConsensus, $finalVerdicts);
-                $stage2Result  = $this->runDeliberation($outputPrompt, $output, $verboseLlm, 'S2');
-                $outputConsensus = $this->synthesiseOutput($stage2Result['verdicts'], $stage2Result['consensus'], $rule);
-                $outputConsensus['rounds_run'] = $stage2Result['rounds_run'];
-
-                $this->displayOutputConsensus($output, $outputConsensus, $stage2Result['consensus']);
-            }
-
-            // Store both stages
-            $this->storeEvaluation($rule, $firingPages, $finalVerdicts, $finalConsensus, $allRounds, $roundsRun, $outputConsensus);
-
-            $totalEvaluated++;
-            if (in_array($finalConsensus['status'], ['FLAGGED', 'NEEDS_HUMAN_REVIEW'])) {
-                $totalFlagged++;
-            }
-
-            $output->writeln('');
-            $output->writeln(str_repeat('-', 50));
-            $output->writeln('');
+            usleep(500000);
         }
 
-        $output->writeln('==============================================');
-        $output->writeln("SUMMARY: {$totalEvaluated} rules evaluated | {$totalFlagged} flagged");
-        $output->writeln('');
-        $output->writeln("  View evaluations: SELECT * FROM rule_evaluations ORDER BY evaluated_at DESC;");
-        $output->writeln("  View outputs:     SELECT rule_id, output_finding, output_priority FROM rule_evaluations ORDER BY evaluated_at DESC;");
-
+        $output->writeln("Done. Crawled: {$crawled} | Failed: {$failed} | Total: {$total}");
         return Command::SUCCESS;
     }
 
-    // ─────────────────────────────────────────────
-    //  RUN DELIBERATION LOOP (shared by both stages)
-    // ─────────────────────────────────────────────
-
-    private function runDeliberation(string $basePrompt, OutputInterface $output, bool $verboseLlm, string $stagePrefix): array
+    private function crawlPage(string $fullUrl, string $path, bool $debug, OutputInterface $output): ?array
     {
-        $allRounds     = [];
-        $finalVerdicts = [];
-        $finalConsensus = null;
-        $roundsRun     = 0;
+        $context = stream_context_create([
+            'http' => [
+                'method'          => 'GET',
+                'header'          => "User-Agent: Mozilla/5.0 (compatible; LogiriBot/1.0)\r\nAccept: text/html",
+                'timeout'         => 15,
+                'follow_location' => 1,
+                'max_redirects'   => 3,
+                'ignore_errors'   => true,
+            ],
+        ]);
 
-        for ($round = 1; $round <= self::MAX_ROUNDS; $round++) {
-            $roundsRun = $round;
-            $output->writeln("   [{$stagePrefix}] Round {$round} of " . self::MAX_ROUNDS . "...");
+        $html = @file_get_contents($fullUrl, false, $context);
+        if ($html === false || empty($html)) return null;
 
-            $prompt = ($round === 1)
-                ? $basePrompt
-                : $this->buildDeliberationPrompt($basePrompt, $allRounds, $round);
+        $httpStatus = $this->parseHttpStatus($http_response_header ?? []);
+        if ($debug) $output->writeln("  [DEBUG] HTTP {$httpStatus}");
 
-            $responses     = $this->callAllLLMs($prompt);
-            $roundVerdicts = [];
+        $dom = new \DOMDocument();
+        libxml_use_internal_errors(true);
+        $dom->loadHTML($html, LIBXML_NOWARNING | LIBXML_NOERROR);
+        libxml_clear_errors();
+        $xpath = new \DOMXPath($dom);
 
-            foreach ($responses as $llm => $response) {
-                if (isset($response['error'])) {
-                    $output->writeln("   [!] {$llm}: API error -- {$response['error']}");
-                    if (isset($allRounds[$round - 1][$llm])) {
-                        $roundVerdicts[$llm] = $allRounds[$round - 1][$llm];
+        // ── Title ──
+        $titleNodes = $xpath->query('//title');
+        $titleTag   = $titleNodes->length > 0 ? trim($titleNodes->item(0)->textContent) : null;
+
+        // ── H1 ──
+        $h1Nodes = $xpath->query('//h1');
+        $h1      = $h1Nodes->length > 0 ? trim($h1Nodes->item(0)->textContent) : null;
+
+        // ── H2s ──
+        $h2Nodes = $xpath->query('//h2');
+        $h2s = [];
+        foreach ($h2Nodes as $h2) {
+            $t = trim($h2->textContent);
+            if ($t) $h2s[] = $t;
+        }
+
+        // ── Meta description ──
+        $metaNodes       = $xpath->query('//meta[@name="description"]/@content');
+        $metaDescription = $metaNodes->length > 0 ? trim($metaNodes->item(0)->textContent) : null;
+
+        // ── Canonical ──
+        $canonicalNodes = $xpath->query('//link[@rel="canonical"]/@href');
+        $canonicalUrl   = $canonicalNodes->length > 0 ? trim($canonicalNodes->item(0)->textContent) : null;
+
+        // ── Noindex ──
+        $robotsNodes = $xpath->query('//meta[@name="robots"]/@content');
+        $isNoindex   = false;
+        if ($robotsNodes->length > 0) {
+            $isNoindex = str_contains(strtolower($robotsNodes->item(0)->textContent), 'noindex');
+        }
+
+        // ── Schema types — handles both top-level @type and @graph arrays (Yoast/RankMath) ──
+        $schemaNodes = $xpath->query('//*[@type="application/ld+json"]');
+        $schemaTypes = [];
+        foreach ($schemaNodes as $node) {
+            $json = json_decode($node->textContent, true);
+            if (!$json) continue;
+            // Top-level @type
+            if (isset($json['@type'])) {
+                $schemaTypes[] = is_array($json['@type']) ? implode(',', $json['@type']) : $json['@type'];
+            }
+            // @graph array (Yoast SEO pattern)
+            if (isset($json['@graph']) && is_array($json['@graph'])) {
+                foreach ($json['@graph'] as $item) {
+                    if (isset($item['@type'])) {
+                        $schemaTypes[] = is_array($item['@type']) ? implode(',', $item['@type']) : $item['@type'];
                     }
-                    continue;
-                }
-                $roundVerdicts[$llm] = $this->parseVerdict($response['text']);
-                if ($verboseLlm) {
-                    $output->writeln("   [{$stagePrefix}:R{$round}:{$llm}] " . substr($response['text'], 0, 150));
                 }
             }
+        }
+        $schemaTypes = array_values(array_unique($schemaTypes));
 
-            $allRounds[$round] = $roundVerdicts;
-            $consensus         = $this->determineConsensus($roundVerdicts);
-            $passes            = $consensus['passes'];
-            $flags             = $consensus['flags'];
-            $total             = count($roundVerdicts);
+        // ── ACCURATE word count — strip nav/header/footer/aside/scripts/styles first ──
+        $wordCount = 0;
+        $bodyText  = '';
+        $mainContentSelectors = [
+            '//main',
+            '//article',
+            '//*[@id="content"]',
+            '//*[@id="main-content"]',
+            '//*[@class="entry-content"]',
+            '//*[@class="page-content"]',
+            '//*[@class="post-content"]',
+        ];
 
-            $output->writeln("   [{$stagePrefix}] Round {$round}: {$consensus['status']} (passes:{$passes} flags:{$flags} of {$total})");
-
-            if ($passes === $total || $flags === $total) {
-                $output->writeln("   [{$stagePrefix}] >> Unanimous -- stopping.");
-                $finalVerdicts  = $roundVerdicts;
-                $finalConsensus = $consensus;
+        $contentText = '';
+        foreach ($mainContentSelectors as $selector) {
+            $nodes = $xpath->query($selector);
+            if ($nodes->length > 0) {
+                $contentText = $this->extractCleanText($nodes->item(0), $xpath);
                 break;
             }
+        }
 
-            if ($round === self::MAX_ROUNDS) {
-                $output->writeln("   [{$stagePrefix}] >> Max rounds -- majority vote.");
-                $finalVerdicts  = $roundVerdicts;
-                $finalConsensus = $this->determineMajority($roundVerdicts, $allRounds);
+        // Fallback: strip noisy elements from body
+        if (empty(trim($contentText))) {
+            // Remove nav, header, footer, aside, scripts, styles, forms
+            $noiseSelectors = ['//nav', '//header', '//footer', '//aside',
+                               '//script', '//style', '//noscript',
+                               '//*[@class="menu"]', '//*[@id="menu"]',
+                               '//*[@class="navigation"]', '//*[@role="navigation"]',
+                               '//*[@class="sidebar"]', '//*[@id="sidebar"]',
+                               '//*[@class="widget"]', '//*[contains(@class,"cookie")]',
+                               '//*[@aria-label="breadcrumb"]'];
+            foreach ($noiseSelectors as $sel) {
+                $noiseNodes = $xpath->query($sel);
+                foreach ($noiseNodes as $noiseNode) {
+                    if ($noiseNode->parentNode) {
+                        $noiseNode->parentNode->removeChild($noiseNode);
+                    }
+                }
+            }
+            $bodyNodes = $xpath->query('//body');
+            if ($bodyNodes->length > 0) {
+                $contentText = $this->extractCleanText($bodyNodes->item(0), $xpath);
+            }
+        }
+
+        $bodyText  = $contentText;
+        $wordCount = $bodyText ? str_word_count(trim($bodyText)) : 0;
+
+        // ── Central entity check — multiple variants, minimum 2 occurrences for confidence ──
+        $bodyLower          = strtolower($bodyText);
+        $centralEntityCount = 0;
+        foreach ($this->centralEntityVariants as $variant) {
+            $centralEntityCount += substr_count($bodyLower, $variant);
+        }
+        $hasCentralEntity = $centralEntityCount >= 2; // Require at least 2 mentions
+
+        // ── Internal links + core link detection — BODY ONLY (excludes nav/footer) ──
+        $internalLinks  = [];
+        $coreLinksFound = [];
+        $hasCoreLink    = false;
+
+        // Only check links within main content areas, not nav/header/footer
+        $contentLinkSelectors = ['//main//a[@href]', '//article//a[@href]',
+                                  '//*[@class="entry-content"]//a[@href]',
+                                  '//*[@id="content"]//a[@href]'];
+        $linkNodes = null;
+        foreach ($contentLinkSelectors as $sel) {
+            $nodes = $xpath->query($sel);
+            if ($nodes->length > 0) {
+                $linkNodes = $nodes;
                 break;
             }
-
-            $output->writeln("   [{$stagePrefix}] >> No consensus -- Round " . ($round + 1) . " with peer review.");
         }
 
-        return ['verdicts' => $finalVerdicts, 'consensus' => $finalConsensus, 'rounds' => $allRounds, 'rounds_run' => $roundsRun];
-    }
+        // Fallback to all body links if no main content found
+        if ($linkNodes === null || $linkNodes->length === 0) {
+            $linkNodes = $xpath->query('//body//a[@href]');
+        }
 
-    // ─────────────────────────────────────────────
-    //  BUILD STAGE 1 — VALIDATION PROMPT
-    // ─────────────────────────────────────────────
-
-    private function buildValidationPrompt(array $rule, array $firingPages): string
-    {
-        $pageList = '';
-        foreach (array_slice($firingPages, 0, 5) as $page) {
-            $pageList .= "\n- URL: " . ($page['url'] ?? 'n/a');
-            foreach ($page as $key => $val) {
-                if ($key === 'url' || in_array($key, ['internal_links', 'crawled_at'])) continue;
-                $pageList .= " | {$key}: " . (is_null($val) ? 'NULL' : $val);
+        if ($linkNodes) {
+            foreach ($linkNodes as $link) {
+                $href = trim($link->getAttribute('href'));
+                if (str_starts_with($href, '/') || str_contains($href, 'doubledtrailers.com')) {
+                    $parsed = parse_url($href, PHP_URL_PATH);
+                    if ($parsed) {
+                        $internalLinks[] = $parsed;
+                        if ($this->isCoreUrl($parsed)) {
+                            $hasCoreLink      = true;
+                            $coreLinksFound[] = $parsed;
+                        }
+                    }
+                }
             }
         }
 
-        $total = count($firingPages);
+        $internalLinks  = array_values(array_unique($internalLinks));
+        $coreLinksFound = array_values(array_unique($coreLinksFound));
 
-        return <<<PROMPT
-You are an expert SEO architect evaluating whether an SEO rule is firing correctly.
+        // ── H1 vs title alignment — stricter: requires 70% overlap AND checks key noun match ──
+        $h1MatchesTitle = false;
+        if ($h1 && $titleTag) {
+            $stopWords  = ['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 'is', 'are', 'was', 'be'];
+            $h1Clean    = strtolower(preg_replace('/[^a-z0-9 ]/i', '', $h1));
+            $titleClean = strtolower(preg_replace('/[^a-z0-9 ]/i', '', $titleTag));
 
-SITE CONTEXT:
-- Domain: doubledtrailers.com
-- Business: Custom horse trailer manufacturer (Double D Trailers)
-- Central entity: horse trailer
+            $h1Words    = array_filter(explode(' ', $h1Clean), fn($w) => strlen($w) > 3 && !in_array($w, $stopWords));
+            $titleWords = array_filter(explode(' ', $titleClean), fn($w) => strlen($w) > 3 && !in_array($w, $stopWords));
 
-RULE BEING EVALUATED:
-ID: {$rule['id']}
-Name: {$rule['name']}
-Trigger condition: {$rule['trigger_condition']}
-Diagnosis: {$rule['diagnosis']}
-
-Full rule text:
-{$rule['full_text']}
-
-CURRENT FIRING DATA ({$total} pages triggering this rule):
-{$pageList}
-
-YOUR EVALUATION TASK:
-1. Is this rule firing correctly given the data above? (yes/no)
-2. Are there false positives -- pages flagged that shouldn't be? (yes/no, explain)
-3. Are there false negatives -- pages NOT flagged that should be? (yes/no, explain)
-4. Is the diagnosis accurate for the pages shown? (yes/no)
-5. Does the rule need adjustment? If yes, what specific change?
-6. Confidence score: how confident are you in this rule's accuracy? (1-10)
-7. Overall verdict: PASS (rule is working correctly) or FLAG (rule needs review)
-
-Respond in this exact format:
-FIRING_CORRECTLY: yes/no
-FALSE_POSITIVES: yes/no -- [explanation]
-FALSE_NEGATIVES: yes/no -- [explanation]
-DIAGNOSIS_ACCURATE: yes/no
-NEEDS_ADJUSTMENT: yes/no -- [specific suggested change or "none"]
-CONFIDENCE: [1-10]
-VERDICT: PASS/FLAG
-SUMMARY: [one sentence]
-PROMPT;
-    }
-
-    // ─────────────────────────────────────────────
-    //  BUILD STAGE 2 — OUTPUT CONSENSUS PROMPT
-    // ─────────────────────────────────────────────
-
-    private function buildOutputPrompt(array $rule, array $firingPages, array $stage1Consensus, array $stage1Verdicts): string
-    {
-        $pageList = '';
-        foreach (array_slice($firingPages, 0, 5) as $page) {
-            $pageList .= "\n- URL: " . ($page['url'] ?? 'n/a');
-            foreach ($page as $key => $val) {
-                if ($key === 'url' || in_array($key, ['internal_links', 'crawled_at'])) continue;
-                $pageList .= " | {$key}: " . (is_null($val) ? 'NULL' : $val);
+            if (count($h1Words) > 0 && count($titleWords) > 0) {
+                $matches = count(array_filter($h1Words, fn($w) => str_contains($titleClean, $w)));
+                $overlap = $matches / count($h1Words);
+                // 70% threshold (stricter than original 60%)
+                $h1MatchesTitle = $overlap >= 0.70;
             }
         }
 
-        $total       = count($firingPages);
-        $ruleStatus  = $stage1Consensus['status'];
-
-        // Summarise stage 1 findings for context
-        $s1Summary = '';
-        foreach ($stage1Verdicts as $llm => $v) {
-            $s1Summary .= "\n- " . strtoupper($llm) . ": {$v['verdict']} ({$v['confidence']}/10) — {$v['summary']}";
-            if ($v['needs_change'] === 'yes') {
-                $s1Summary .= "\n  Suggested: {$v['suggested']}";
-            }
-        }
-
-        $ruleNote = ($ruleStatus === 'VALIDATED')
-            ? "Rule validation: VALIDATED. The rule is firing correctly. Produce output for the team."
-            : "Rule validation: {$ruleStatus}. The rule may have false positives or need adjustment. Still produce the best-possible output for the team, but note any caveats.";
-
-        $teamRoster = '';
-        foreach (self::TEAM as $name => $role) {
-            $teamRoster .= "\n- {$name}: {$role}";
-        }
-
-        return <<<PROMPT
-You are an expert SEO strategist writing a finding report for the Double D Trailers (DDT) SEO team.
-
-SITE CONTEXT:
-- Domain: doubledtrailers.com
-- Business: Custom horse trailer manufacturer
-- Central entity: horse trailer
-- Audience: horse owners, equestrians, competitive riders
-
-TEAM ROSTER:{$teamRoster}
-
-RULE THAT FIRED:
-ID: {$rule['id']}
-Name: {$rule['name']}
-Trigger condition: {$rule['trigger_condition']}
-Diagnosis: {$rule['diagnosis']}
-
-PAGES AFFECTED ({$total} total):
-{$pageList}
-
-STAGE 1 VALIDATION CONTEXT:
-{$ruleNote}
-LLM assessments:{$s1Summary}
-
-YOUR TASK:
-Write the output that Logiri will display to the DDT team for this finding.
-The output must be specific to the ACTUAL pages listed above — not generic.
-Name the specific URLs. State the specific issue on each. Be direct and actionable.
-
-Produce output in this EXACT format:
-
-FINDING: [One sentence — what the rule found, naming the specific pages/issue]
-DIAGNOSIS: [2-3 sentences — why this matters for doubledtrailers.com specifically, business impact]
-PAGES:
-- [url] | Issue: [specific issue on this page]
-- [url] | Issue: [specific issue on this page]
-(list all affected pages)
-PRIORITY: [Critical / High / Medium / Low]
-VERIFY_IN: [number] days
-
-ROLE_BROOK: [Plain English action for Brook — content/on-page fixes. What to change, on which pages, and why. No jargon.]
-ROLE_BRAD: [Plain English action for Brad — technical implementation. Specific code/schema/redirect instructions if applicable. "No action needed" if not relevant.]
-ROLE_KALIB: [Plain English action for Kalib — design/UX changes if applicable. "No action needed" if not relevant.]
-ROLE_JEANNE: [One sentence business summary for Jeanne — impact on leads/rankings/revenue, decision needed if any.]
-
-CAVEAT: [Any false positive warnings or rule limitations the team should know. "None" if clean.]
-PROMPT;
-    }
-
-    // ─────────────────────────────────────────────
-    //  SYNTHESISE OUTPUT CONSENSUS
-    //  Merges 3 LLM outputs into a single agreed output
-    // ─────────────────────────────────────────────
-
-    private function synthesiseOutput(array $verdicts, array $consensus, array $rule): array
-    {
-        // Use the highest-confidence LLM's output as the base, then merge
-        $best     = null;
-        $bestConf = -1;
-
-        foreach ($verdicts as $llm => $v) {
-            if ($v['confidence'] > $bestConf) {
-                $bestConf = $v['confidence'];
-                $best     = $v;
-            }
-        }
-
-        if (!$best) {
-            return ['status' => 'NO_OUTPUT', 'raw' => ''];
-        }
-
-        // Parse structured fields from the best LLM's raw output
-        $raw     = $best['raw'] ?? '';
-        $finding = $this->extractField($raw, 'FINDING');
-        $diag    = $this->extractField($raw, 'DIAGNOSIS');
-        $pages   = $this->extractPagesBlock($raw);
-        $priority= $this->extractField($raw, 'PRIORITY');
-        $verify  = $this->extractField($raw, 'VERIFY_IN');
-        $brook   = $this->extractField($raw, 'ROLE_BROOK');
-        $brad    = $this->extractField($raw, 'ROLE_BRAD');
-        $kalib   = $this->extractField($raw, 'ROLE_KALIB');
-        $jeanne  = $this->extractField($raw, 'ROLE_JEANNE');
-        $caveat  = $this->extractField($raw, 'CAVEAT');
-
-        // Merge caveats from all LLMs if they differ
-        $allCaveats = [];
-        foreach ($verdicts as $llm => $v) {
-            $c = $this->extractField($v['raw'] ?? '', 'CAVEAT');
-            if ($c && strtolower($c) !== 'none' && !in_array($c, $allCaveats)) {
-                $allCaveats[] = $c;
-            }
-        }
-        if (!empty($allCaveats)) {
-            $caveat = implode(' | ', $allCaveats);
-        }
+        // ── Page type classification ──
+        $pageType = $this->classifyPageType($path);
 
         return [
-            'status'        => $consensus['status'],
-            'finding'       => $finding,
-            'diagnosis'     => $diag,
-            'pages'         => $pages,
-            'priority'      => $priority ?: $rule['priority'] ?? 'High',
-            'verify_in'     => $verify,
-            'role_brook'    => $brook,
-            'role_brad'     => $brad,
-            'role_kalib'    => $kalib,
-            'role_jeanne'   => $jeanne,
-            'caveat'        => $caveat ?: 'None',
-            'rounds_run'    => $consensus['rounds_run'] ?? 1,
-            'avg_conf'      => $consensus['avg_conf'],
-            'raw'           => $raw,
+            'url'                  => $path,
+            'http_status'          => $httpStatus,
+            'title_tag'            => $titleTag ? substr($titleTag, 0, 500) : null,
+            'h1'                   => $h1 ? substr($h1, 0, 500) : null,
+            'h2s'                  => json_encode(array_slice($h2s, 0, 20)),
+            'meta_description'     => $metaDescription ? substr($metaDescription, 0, 500) : null,
+            'word_count'           => $wordCount,
+            'has_central_entity'   => $hasCentralEntity ? true : false,
+            'central_entity_count' => $centralEntityCount,
+            'internal_links'       => json_encode(array_slice($internalLinks, 0, 100)),
+            'has_core_link'        => $hasCoreLink ? true : false,
+            'core_links_found'     => json_encode($coreLinksFound),
+            'h1_matches_title'     => $h1MatchesTitle ? true : false,
+            'schema_types'         => json_encode($schemaTypes),
+            'canonical_url'        => $canonicalUrl ? substr($canonicalUrl, 0, 500) : null,
+            'is_noindex'           => $isNoindex ? true : false,
+            'page_type'            => $pageType,
+            'is_utility'           => $this->isUtilityUrl($path) ? true : false,
+            'crawled_at'           => date('Y-m-d H:i:s'),
         ];
     }
 
-    // ─────────────────────────────────────────────
-    //  DISPLAY STAGE 2 OUTPUT CONSENSUS
-    // ─────────────────────────────────────────────
-
-    private function displayOutputConsensus(OutputInterface $output, array $oc, array $consensus): void
+    /**
+     * Extract clean text from a DOM node, stripping nested nav/scripts/styles
+     */
+    private function extractCleanText(\DOMNode $node, \DOMXPath $xpath): string
     {
-        if (($oc['status'] ?? '') === 'NO_OUTPUT') {
-            $output->writeln("   [!] Could not generate output consensus.");
-            return;
-        }
+        // Clone so we don't mutate the original DOM
+        $clone = $node->cloneNode(true);
+        $cloneDoc = new \DOMDocument();
+        $cloneDoc->appendChild($cloneDoc->importNode($clone, true));
+        $cloneXpath = new \DOMXPath($cloneDoc);
 
-        $output->writeln('');
-        $output->writeln('  ╔══════════════════════════════════════════════╗');
-        $output->writeln('  ║         LOGIRI AGREED OUTPUT FOR DDT         ║');
-        $output->writeln('  ╚══════════════════════════════════════════════╝');
-        $output->writeln('');
-
-        if ($oc['finding'])   $output->writeln("  FINDING:   " . $oc['finding']);
-        if ($oc['diagnosis']) $output->writeln("  DIAGNOSIS: " . $oc['diagnosis']);
-
-        if (!empty($oc['pages'])) {
-            $output->writeln("  PAGES AFFECTED:");
-            foreach ($oc['pages'] as $p) {
-                $output->writeln("    • " . $p);
+        $removeSelectors = ['//script', '//style', '//nav', '//header', '//footer',
+                            '//noscript', '//*[@aria-hidden="true"]'];
+        foreach ($removeSelectors as $sel) {
+            $nodes = $cloneXpath->query($sel);
+            foreach ($nodes as $n) {
+                if ($n->parentNode) $n->parentNode->removeChild($n);
             }
         }
 
-        $output->writeln('');
-        $output->writeln("  PRIORITY:  " . ($oc['priority']  ?? 'High'));
-        $verifyIn = trim(str_ireplace('days', '', $oc['verify_in'] ?? '28'));
-        $output->writeln("  VERIFY IN: {$verifyIn} days");
-        $output->writeln('');
-        $output->writeln('  ── TEAM ACTIONS ──────────────────────────────');
-        if ($oc['role_brook'])  $output->writeln("  BROOK:  " . $oc['role_brook']);
-        if ($oc['role_brad'])   $output->writeln("  BRAD:   " . $oc['role_brad']);
-        if ($oc['role_kalib'])  $output->writeln("  KALIB:  " . $oc['role_kalib']);
-        if ($oc['role_jeanne']) $output->writeln("  JEANNE: " . $oc['role_jeanne']);
-
-        if ($oc['caveat'] && strtolower($oc['caveat']) !== 'none') {
-            $output->writeln('');
-            $output->writeln("  ⚠  CAVEAT: " . $oc['caveat']);
-        }
-
-        $output->writeln('');
-        $output->writeln("  Output agreed in " . ($oc['rounds_run'] ?? '?') . " round(s) | avg confidence: " . ($oc['avg_conf'] ?? '?') . "/10");
-        $output->writeln('  ──────────────────────────────────────────────');
+        $text = strip_tags($cloneDoc->textContent ?? '');
+        return preg_replace('/\s+/', ' ', $text);
     }
 
-    // ─────────────────────────────────────────────
-    //  DISPLAY STAGE 1 VALIDATION RESULTS
-    // ─────────────────────────────────────────────
-
-    private function displayValidationResults(OutputInterface $output, array $verdicts, array $consensus, array $allRounds, int $roundsRun): void
-    {
-        $icon = $consensus['status'] === 'VALIDATED' ? '[PASS]' : '[FLAG]';
-        $output->writeln('');
-        $output->writeln("  {$icon} Rule Validation: {$consensus['status']} (avg conf: {$consensus['avg_conf']}/10) after {$roundsRun} round(s)");
-
-        foreach ($verdicts as $llm => $v) {
-            $vIcon   = $v['verdict'] === 'PASS' ? '[PASS]' : '[FLAG]';
-            $changed = '';
-            if ($roundsRun > 1 && isset($allRounds[1][$llm]) && $allRounds[1][$llm]['verdict'] !== $v['verdict']) {
-                $changed = " [changed from {$allRounds[1][$llm]['verdict']} in R1]";
-            }
-            $output->writeln("    {$vIcon} " . strtoupper($llm) . ": {$v['verdict']} ({$v['confidence']}/10){$changed}");
-            if ($v['summary']) $output->writeln("       -> " . $v['summary']);
-            if ($v['needs_change'] === 'yes' && $v['suggested'] !== 'none') {
-                $output->writeln("       SUGGESTED CHANGE: " . $v['suggested']);
-            }
-        }
-
-        if ($roundsRun > 1) {
-            $output->writeln("  Deliberation: " . implode(' → ', array_map(fn($r, $vs) =>
-                "R{$r}[" . implode('|', array_map(fn($l, $v) => strtoupper($l[0]) . ':' . $v['verdict'], array_keys($vs), $vs)) . "]",
-                array_keys($allRounds), $allRounds
-            )));
-        }
-    }
-
-    // ─────────────────────────────────────────────
-    //  FIELD EXTRACTION HELPERS
-    // ─────────────────────────────────────────────
-
-    private function extractField(string $text, string $field): string
-    {
-        // Multi-line field: capture until next ALL_CAPS field or end
-        if (preg_match('/' . preg_quote($field, '/') . '\s*:\s*(.*?)(?=\n[A-Z][A-Z_]{2,}\s*:|$)/s', $text, $m)) {
-            return trim($m[1]);
-        }
-        // Single line fallback
-        if (preg_match('/' . preg_quote($field, '/') . '\s*:\s*(.+)/i', $text, $m)) {
-            return trim($m[1]);
-        }
-        return '';
-    }
-
-    private function extractPagesBlock(string $text): array
-    {
-        $pages = [];
-        // Find PAGES: block
-        if (preg_match('/PAGES\s*:\s*\n(.*?)(?=\n[A-Z][A-Z_]{2,}\s*:|$)/s', $text, $m)) {
-            $lines = explode("\n", trim($m[1]));
-            foreach ($lines as $line) {
-                $line = trim($line);
-                if ($line && !preg_match('/^[A-Z][A-Z_]{2,}\s*:/', $line)) {
-                    $pages[] = ltrim($line, '-•* ');
-                }
-            }
-        }
-        return $pages;
-    }
-
-    // ─────────────────────────────────────────────
-    //  BUILD DELIBERATION PROMPT (Rounds 2 & 3)
-    // ─────────────────────────────────────────────
-
-    private function buildDeliberationPrompt(string $basePrompt, array $allRounds, int $currentRound): string
-    {
-        $prevRound    = $currentRound - 1;
-        $prevVerdicts = $allRounds[$prevRound] ?? [];
-        $isFinal      = ($currentRound === self::MAX_ROUNDS);
-
-        $peer  = "\n\n" . str_repeat('=', 60) . "\n";
-        $peer .= "PEER REVIEW -- Round {$prevRound} responses from your fellow evaluators:\n";
-        $peer .= str_repeat('=', 60) . "\n";
-
-        foreach ($prevVerdicts as $llm => $v) {
-            $peer .= "\n" . strtoupper($llm) . ": {$v['verdict']} (confidence: {$v['confidence']}/10)\n";
-            if ($v['summary'])  $peer .= "  Summary: {$v['summary']}\n";
-            if ($v['needs_change'] === 'yes' && $v['suggested'] !== 'none') {
-                $peer .= "  Suggested: {$v['suggested']}\n";
-            }
-        }
-
-        $peer .= "\n" . str_repeat('=', 60) . "\n";
-        $peer .= "ROUND {$currentRound} INSTRUCTIONS:\n";
-
-        if ($isFinal) {
-            $peer .= "This is the FINAL round. Commit to your final position.\n";
-            $peer .= "If changing your response, explain which peer argument convinced you.\n";
-            $peer .= "If maintaining your response, state that clearly.\n";
-        } else {
-            $peer .= "Consider the peer responses above. You may revise or maintain your position.\n";
-            $peer .= "If you revise, explain which peer argument convinced you.\n";
-        }
-
-        $peer .= "Respond in the SAME structured format as before.\n";
-        $peer .= str_repeat('=', 60);
-
-        return $basePrompt . $peer;
-    }
-
-    // ─────────────────────────────────────────────
-    //  MAJORITY VOTE
-    // ─────────────────────────────────────────────
-
-    private function determineMajority(array $finalVerdicts, array $allRounds): array
-    {
-        $passes = $flags = $totalConf = $count = $changed = 0;
-
-        foreach ($finalVerdicts as $v) {
-            if ($v['verdict'] === 'PASS') $passes++;
-            if ($v['verdict'] === 'FLAG') $flags++;
-            if ($v['confidence'] > 0) { $totalConf += $v['confidence']; $count++; }
-        }
-
-        foreach (array_keys($finalVerdicts) as $llm) {
-            $r1 = $allRounds[1][$llm]['verdict'] ?? 'UNKNOWN';
-            $rN = $finalVerdicts[$llm]['verdict'] ?? 'UNKNOWN';
-            if ($r1 !== $rN) $changed++;
-        }
-
-        $avgConf = $count > 0 ? round($totalConf / $count, 1) : 0;
-        $rounds  = self::MAX_ROUNDS;
-
-        if ($passes > $flags) {
-            $status = 'VALIDATED';
-            $reason = "Majority PASS after {$rounds} rounds ({$passes} pass, {$flags} flag). {$changed} LLM(s) changed position.";
-        } elseif ($flags > $passes) {
-            $status = 'FLAGGED';
-            $reason = "Majority FLAG after {$rounds} rounds ({$flags} flag, {$passes} pass). {$changed} LLM(s) changed position.";
-        } else {
-            $status = 'NEEDS_HUMAN_REVIEW';
-            $reason = "Deadlock after {$rounds} rounds. Human review required.";
-        }
-
-        return ['status' => $status, 'passes' => $passes, 'flags' => $flags, 'avg_conf' => $avgConf, 'reason' => $reason, 'majority' => true];
-    }
-
-    // ─────────────────────────────────────────────
-    //  LOAD RULES
-    // ─────────────────────────────────────────────
-
-    private function loadRules(): array
-    {
-        $promptPath = dirname(__DIR__, 2) . '/system-prompt.txt';
-        if (!file_exists($promptPath)) return [];
-
-        $content = file_get_contents($promptPath);
-        $rules   = [];
-
-        preg_match_all('/\n(FC-R\d+)\s*\|\s*([^\n]+)\n(.*?)(?=\nFC-R\d+|\nRESULTS VERIFICATION|\z)/s', $content, $matches, PREG_SET_ORDER);
-
-        foreach ($matches as $match) {
-            $ruleText         = trim($match[3]);
-            $triggerCondition = '';
-            $diagnosis        = '';
-            $priority         = '';
-
-            if (preg_match('/Trigger Condition:\s*([^\n]+)/', $ruleText, $m)) $triggerCondition = trim($m[1]);
-            if (preg_match('/Diagnosis:\s*([^\n]+)/',         $ruleText, $m)) $diagnosis        = trim($m[1]);
-            if (preg_match('/Priority:\s*([^\n]+)/',          $ruleText, $m)) $priority         = trim($m[1]);
-
-            $rules[] = [
-                'id'                => trim($match[1]),
-                'name'              => trim($match[2]),
-                'full_text'         => $ruleText,
-                'trigger_condition' => $triggerCondition,
-                'diagnosis'         => $diagnosis,
-                'priority'          => $priority,
-            ];
-        }
-
-        return $rules;
-    }
-
-    // ─────────────────────────────────────────────
-    //  GET FIRING PAGES
-    // ─────────────────────────────────────────────
-
-    private function getFiringPages(array $rule): array
+    private function loadOverrides(): array
     {
         try {
-            $af = self::ASSET_FILTER;
-            $t4 = self::TIER4_URLS;
+            $tables = $this->db->fetchFirstColumn(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_overrides'"
+            );
+            if (empty($tables)) return [];
 
-            $query = match($rule['id']) {
-                'FC-R1'  => "SELECT url, page_type, h1, title_tag, word_count, has_central_entity, central_entity_count FROM page_crawl_snapshots WHERE has_central_entity IS NOT TRUE AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) LIMIT 10",
-                'FC-R2'  => "SELECT url, page_type, h1, title_tag FROM page_crawl_snapshots WHERE (page_type IS NULL OR page_type NOT IN ('core','outer')) AND is_noindex IS NOT TRUE AND {$af} LIMIT 10",
-                'FC-R3'  => "SELECT url, page_type, word_count, h1, title_tag FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count < 500 AND is_noindex IS NOT TRUE LIMIT 10",
-                'FC-R5'  => "SELECT url, page_type, has_core_link, core_links_found FROM page_crawl_snapshots WHERE page_type = 'outer' AND has_core_link IS NOT TRUE AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) LIMIT 10",
-                'FC-R6'  => "SELECT url, page_type, word_count, h2s, schema_types FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count < 800 AND is_noindex IS NOT TRUE LIMIT 10",
-                'FC-R7'  => "SELECT url, page_type, h1, title_tag, h1_matches_title FROM page_crawl_snapshots WHERE (h1_matches_title IS NOT TRUE OR h1 IS NULL OR h1 = '') AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) LIMIT 10",
-                'FC-R8'  => "SELECT url, page_type, h2s, word_count FROM page_crawl_snapshots WHERE page_type = 'core' AND (h2s IS NULL OR h2s = '[]' OR h2s = '') AND is_noindex IS NOT TRUE AND url NOT IN ({$t4}) LIMIT 10",
-                'FC-R9'  => "SELECT url, page_type, schema_types, h1 FROM page_crawl_snapshots WHERE page_type = 'core' AND (schema_types IS NULL OR schema_types = '[]' OR schema_types = '') AND is_noindex IS NOT TRUE AND url NOT LIKE '%//' AND url NOT IN ({$t4}) LIMIT 10",
-                'FC-R10' => "SELECT p.url, p.page_type, p.has_core_link, g.impressions FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.has_core_link IS NOT TRUE AND g.impressions >= 100 AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 10",
-                default  => null,
-            };
-
-            if (!$query) return [];
-            return $this->db->fetchAllAssociative($query);
+            $rows = $this->db->fetchAllAssociative('SELECT url, field, override_value FROM user_overrides');
+            $overrides = [];
+            foreach ($rows as $row) {
+                $overrides[$row['url']][$row['field']] = $row['override_value'];
+            }
+            return $overrides;
         } catch (\Exception $e) {
             return [];
         }
     }
 
-    // ─────────────────────────────────────────────
-    //  CALL ALL THREE LLMs IN PARALLEL
-    // ─────────────────────────────────────────────
-
-    private function callAllLLMs(string $prompt): array
+    private function applyOverrides(array $result, array $overrides): array
     {
-        $claudeKey = $_ENV['ANTHROPIC_API_KEY'] ?? '';
-        $openaiKey = $_ENV['OPENAI_API_KEY']    ?? '';
-        $geminiKey = $_ENV['GEMINI_API_KEY']    ?? '';
-
-        $handles = [];
-        $mh      = curl_multi_init();
-
-        if ($claudeKey) {
-            $ch = curl_init('https://api.anthropic.com/v1/messages');
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => json_encode(['model' => 'claude-sonnet-4-6', 'max_tokens' => 1500, 'messages' => [['role' => 'user', 'content' => $prompt]]]),
-                CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'x-api-key: ' . $claudeKey, 'anthropic-version: 2023-06-01'],
-                CURLOPT_TIMEOUT        => 60,
-            ]);
-            $handles['claude'] = $ch;
-            curl_multi_add_handle($mh, $ch);
-        }
-
-        if ($openaiKey) {
-            $ch = curl_init('https://api.openai.com/v1/chat/completions');
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => json_encode(['model' => 'gpt-4o', 'max_tokens' => 1500, 'messages' => [['role' => 'system', 'content' => 'You are an expert SEO strategist for a horse trailer manufacturer. Be specific, concise, and actionable.'], ['role' => 'user', 'content' => $prompt]]]),
-                CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $openaiKey],
-                CURLOPT_TIMEOUT        => 60,
-            ]);
-            $handles['gpt4o'] = $ch;
-            curl_multi_add_handle($mh, $ch);
-        }
-
-        if ($geminiKey) {
-            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-05-06:generateContent?key={$geminiKey}");
-            curl_setopt_array($ch, [
-                CURLOPT_RETURNTRANSFER => true,
-                CURLOPT_POST           => true,
-                CURLOPT_POSTFIELDS     => json_encode(['contents' => [['parts' => [['text' => $prompt]]]], 'generationConfig' => ['maxOutputTokens' => 1500]]),
-                CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-                CURLOPT_TIMEOUT        => 60,
-            ]);
-            $handles['gemini'] = $ch;
-            curl_multi_add_handle($mh, $ch);
-        }
-
-        $running = null;
-        do { curl_multi_exec($mh, $running); curl_multi_select($mh); } while ($running > 0);
-
-        $results = [];
-        foreach ($handles as $llm => $ch) {
-            $raw     = curl_multi_getcontent($ch);
-            curl_multi_remove_handle($mh, $ch);
-            curl_close($ch);
-            $decoded = json_decode($raw, true);
-            $results[$llm] = match($llm) {
-                'claude' => isset($decoded['content'][0]['text'])                           ? ['text' => $decoded['content'][0]['text']]                           : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
-                'gpt4o'  => isset($decoded['choices'][0]['message']['content'])             ? ['text' => $decoded['choices'][0]['message']['content']]             : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
-                'gemini' => isset($decoded['candidates'][0]['content']['parts'][0]['text']) ? ['text' => $decoded['candidates'][0]['content']['parts'][0]['text']] : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
-                default  => ['error' => 'Unknown LLM'],
-            };
-        }
-
-        curl_multi_close($mh);
-        return $results;
-    }
-
-    // ─────────────────────────────────────────────
-    //  PARSE VERDICT
-    // ─────────────────────────────────────────────
-
-    private function parseVerdict(string $text): array
-    {
-        $verdict = 'UNKNOWN'; $confidence = 0; $summary = ''; $needsChange = 'no'; $suggested = 'none';
-
-        if (preg_match('/VERDICT\s*:\s*(PASS|FLAG)/i',                        $text, $m)) $verdict    = strtoupper(trim($m[1]));
-        if (preg_match('/SUMMARY\s*:\s*(.+)/i',                               $text, $m)) $summary    = trim($m[1]);
-        if (preg_match('/NEEDS_ADJUSTMENT\s*:\s*(yes|no)\s*[—\-–]\s*(.+)/i', $text, $m)) {
-            $needsChange = strtolower(trim($m[1]));
-            $suggested   = trim($m[2]);
-        }
-
-        // Confidence — runs always regardless of verdict format
-        if (preg_match('/CONFIDENCE\s*:\s*(\d+)/i',                           $text, $m)) $confidence = (int) $m[1];
-        if ($confidence === 0 && preg_match('/(\d+)\s*\/\s*10/i',             $text, $m)) $confidence = (int) $m[1];
-        if ($confidence === 0 && preg_match('/confidence[^.]{0,30}?(\d+)/i',  $text, $m)) $confidence = (int) $m[1];
-        // Gemini-specific: "Confidence Score: 8" or "confidence_score: 8" or "Rating: 8"
-        if ($confidence === 0 && preg_match('/confidence[_\s]score\s*:\s*(\d+)/i', $text, $m)) $confidence = (int) $m[1];
-        if ($confidence === 0 && preg_match('/rating\s*:\s*(\d+)/i',               $text, $m)) $confidence = (int) $m[1];
-        // Last resort: find any standalone digit 1-10 near the word "confidence" within 100 chars
-        if ($confidence === 0 && preg_match('/confidence.{0,100}?\b([1-9]|10)\b/is', $text, $m)) $confidence = (int) $m[1];
-
-        // Fallback verdict parsing for Gemini / prose responses
-        if ($verdict === 'UNKNOWN') {
-            $lower = strtolower($text);
-            if (preg_match('/firing_correctly\s*:\s*(yes|no)/i', $text, $m)) {
-                $fc    = strtolower(trim($m[1]));
-                $hasFP = (bool) preg_match('/false_positives\s*:\s*yes/i', $text);
-                $verdict = ($fc === 'yes' && !$hasFP) ? 'PASS' : 'FLAG';
-            } else {
-                $fS = ['false positive','not firing correctly','needs adjustment','should be revised','inaccurate','misclassified'];
-                $pS = ['firing correctly','accurate','no false positives','rule is correct','working as intended','correctly identifies'];
-                $fC = $pC = 0;
-                foreach ($fS as $s) { if (str_contains($lower, $s)) $fC++; }
-                foreach ($pS as $s) { if (str_contains($lower, $s)) $pC++; }
-                if ($fC > $pC) $verdict = 'FLAG';
-                elseif ($pC > 0) $verdict = 'PASS';
+        $url = $result['url'];
+        if (!isset($overrides[$url])) return $result;
+        foreach ($overrides[$url] as $field => $value) {
+            if (array_key_exists($field, $result)) {
+                $result[$field] = $value;
             }
         }
-
-        // Summary fallback — skip structured KEY: value lines
-        if (!$summary) {
-            $lines = preg_split('/\r?\n/', strip_tags($text));
-            foreach ($lines as $line) {
-                $line = trim($line);
-                if ($line === '') continue;
-                if (preg_match('/^[A-Z][A-Z_]{2,}\s*:/i', $line)) continue;
-                if (preg_match('/^[#\*\-]/', $line)) continue;
-                if (strlen($line) < 25) continue;
-                $summary = $line;
-                break;
-            }
-            if (!$summary) $summary = substr(strip_tags($text), 0, 120);
-        }
-
-        return ['verdict' => $verdict, 'confidence' => $confidence, 'summary' => $summary, 'needs_change' => $needsChange, 'suggested' => $suggested, 'raw' => $text];
+        return $result;
     }
 
-    // ─────────────────────────────────────────────
-    //  DETERMINE CONSENSUS (single round)
-    // ─────────────────────────────────────────────
-
-    private function determineConsensus(array $verdicts): array
+    private function getUrlsFromGsc(int $limit): array
     {
-        $passes = $flags = $totalConf = $count = 0;
-        foreach ($verdicts as $v) {
-            if ($v['verdict'] === 'PASS') $passes++;
-            if ($v['verdict'] === 'FLAG') $flags++;
-            if ($v['confidence'] > 0) { $totalConf += $v['confidence']; $count++; }
+        $rows = $this->db->fetchAllAssociative(
+            "SELECT DISTINCT page FROM gsc_snapshots
+             WHERE date_range = '28d' AND page LIKE '%doubledtrailers.com%'
+             ORDER BY page LIMIT ?",
+            [$limit]
+        );
+        $paths = [];
+        foreach ($rows as $row) {
+            $parsed = parse_url($row['page'], PHP_URL_PATH);
+            if ($parsed) $paths[] = $parsed;
         }
-        $avgConf = $count > 0 ? round($totalConf / $count, 1) : 0;
-        $status  = ($flags > 0 || $avgConf < 6) ? 'FLAGGED' : 'VALIDATED';
-        $reason  = $flags > 0 ? "{$flags} of " . count($verdicts) . " LLMs flagged this rule." : ($avgConf < 6 ? "Low avg confidence ({$avgConf}/10)." : 'All LLMs agree rule is firing correctly.');
-        return ['status' => $status, 'passes' => $passes, 'flags' => $flags, 'avg_conf' => $avgConf, 'reason' => $reason, 'majority' => false];
+
+        foreach ($this->coreUrls as $core) {
+            $paths[] = $core;
+        }
+
+        return array_slice(array_unique($paths), 0, $limit);
     }
 
-    // ─────────────────────────────────────────────
-    //  STORE EVALUATION (both stages)
-    // ─────────────────────────────────────────────
-
-    private function storeEvaluation(array $rule, array $firingPages, array $verdicts, array $consensus, array $allRounds, int $roundsRun, ?array $outputConsensus): void
+    private function buildFullUrl(string $path): string
     {
-        try {
-            $this->db->insert('rule_evaluations', [
-                'rule_id'            => $rule['id'],
-                'rule_name'          => $rule['name'],
-                'pages_firing'       => count($firingPages),
-                'sample_urls'        => json_encode(array_column(array_slice($firingPages, 0, 5), 'url')),
-                'claude_verdict'     => $verdicts['claude']['verdict']    ?? 'N/A',
-                'claude_conf'        => $verdicts['claude']['confidence'] ?? 0,
-                'claude_summary'     => $verdicts['claude']['summary']    ?? '',
-                'gpt4o_verdict'      => $verdicts['gpt4o']['verdict']     ?? 'N/A',
-                'gpt4o_conf'         => $verdicts['gpt4o']['confidence']  ?? 0,
-                'gpt4o_summary'      => $verdicts['gpt4o']['summary']     ?? '',
-                'gemini_verdict'     => $verdicts['gemini']['verdict']    ?? 'N/A',
-                'gemini_conf'        => $verdicts['gemini']['confidence'] ?? 0,
-                'gemini_summary'     => $verdicts['gemini']['summary']    ?? '',
-                'consensus_status'   => $consensus['status'],
-                'avg_confidence'     => $consensus['avg_conf'],
-                'consensus_reason'   => $consensus['reason'],
-                'rounds_run'         => $roundsRun,
-                'round_history'      => json_encode($allRounds),
-                // Stage 2 output fields
-                'output_finding'     => $outputConsensus['finding']    ?? null,
-                'output_diagnosis'   => $outputConsensus['diagnosis']  ?? null,
-                'output_pages'       => $outputConsensus['pages']      ? json_encode($outputConsensus['pages']) : null,
-                'output_priority'    => $outputConsensus['priority']   ?? null,
-                'output_verify_in'   => $outputConsensus['verify_in']  ?? null,
-                'output_brook'       => $outputConsensus['role_brook'] ?? null,
-                'output_brad'        => $outputConsensus['role_brad']  ?? null,
-                'output_kalib'       => $outputConsensus['role_kalib'] ?? null,
-                'output_jeanne'      => $outputConsensus['role_jeanne'] ?? null,
-                'output_caveat'      => $outputConsensus['caveat']     ?? null,
-                'output_conf'        => $outputConsensus['avg_conf']   ?? null,
-                'evaluated_at'       => date('Y-m-d H:i:s'),
-            ]);
-        } catch (\Exception $e) {
-            // Non-fatal
-        }
+        if (str_starts_with($path, 'http')) return $path;
+        return rtrim($this->baseUrl, '/') . '/' . ltrim($path, '/');
     }
 
-    // ─────────────────────────────────────────────
-    //  ENSURE DB SCHEMA
-    // ─────────────────────────────────────────────
+    private function isCoreUrl(string $path): bool
+    {
+        $n = '/' . trim($path, '/') . '/';
+        $n = str_replace('//', '/', $n);
+        foreach ($this->coreUrls as $core) {
+            $c = '/' . trim($core, '/') . '/';
+            $c = str_replace('//', '/', $c);
+            if ($n === $c) return true;
+        }
+        return false;
+    }
+
+    private function isUtilityUrl(string $path): bool
+    {
+        $n = '/' . trim($path, '/') . '/';
+        foreach ($this->utilityUrls as $util) {
+            $u = '/' . trim($util, '/') . '/';
+            if ($n === $u || str_starts_with($n, $u)) return true;
+        }
+        return false;
+    }
+
+    private function classifyPageType(string $path): string
+    {
+        if ($this->isUtilityUrl($path)) return 'utility';
+        if ($this->isCoreUrl($path)) return 'core';
+        foreach ($this->outerPatterns as $pattern) {
+            if (str_contains($path, $pattern)) return 'outer';
+        }
+        return 'outer';
+    }
+
+    private function parseHttpStatus(array $headers): ?int
+    {
+        if (isset($headers[0]) && preg_match('#HTTP/\d\.?\d? (\d{3})#', $headers[0], $m)) {
+            return (int) $m[1];
+        }
+        return null;
+    }
 
     private function ensureSchema(): void
     {
-        try {
+        $tables = $this->db->fetchFirstColumn(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+        );
+        if (!in_array('page_crawl_snapshots', $tables)) {
             $this->db->executeStatement("
-                CREATE TABLE IF NOT EXISTS rule_evaluations (
-                    id                  SERIAL PRIMARY KEY,
-                    rule_id             VARCHAR(20) NOT NULL,
-                    rule_name           TEXT,
-                    pages_firing        INT DEFAULT 0,
-                    sample_urls         TEXT,
-                    claude_verdict      VARCHAR(10),
-                    claude_conf         INT DEFAULT 0,
-                    claude_summary      TEXT,
-                    gpt4o_verdict       VARCHAR(10),
-                    gpt4o_conf          INT DEFAULT 0,
-                    gpt4o_summary       TEXT,
-                    gemini_verdict      VARCHAR(10),
-                    gemini_conf         INT DEFAULT 0,
-                    gemini_summary      TEXT,
-                    consensus_status    VARCHAR(30),
-                    avg_confidence      NUMERIC(4,1),
-                    consensus_reason    TEXT,
-                    rounds_run          INT DEFAULT 1,
-                    round_history       TEXT,
-                    output_finding      TEXT,
-                    output_diagnosis    TEXT,
-                    output_pages        TEXT,
-                    output_priority     VARCHAR(20),
-                    output_verify_in    VARCHAR(20),
-                    output_brook        TEXT,
-                    output_brad         TEXT,
-                    output_kalib        TEXT,
-                    output_jeanne       TEXT,
-                    output_caveat       TEXT,
-                    output_conf         NUMERIC(4,1),
-                    evaluated_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                CREATE TABLE page_crawl_snapshots (
+                    id                      SERIAL PRIMARY KEY,
+                    url                     TEXT NOT NULL,
+                    http_status             INT DEFAULT NULL,
+                    title_tag               TEXT DEFAULT NULL,
+                    h1                      TEXT DEFAULT NULL,
+                    h2s                     TEXT DEFAULT NULL,
+                    meta_description        TEXT DEFAULT NULL,
+                    word_count              INT DEFAULT 0,
+                    has_central_entity      BOOLEAN DEFAULT FALSE,
+                    central_entity_count    INT DEFAULT 0,
+                    internal_links          TEXT DEFAULT NULL,
+                    has_core_link           BOOLEAN DEFAULT FALSE,
+                    core_links_found        TEXT DEFAULT NULL,
+                    h1_matches_title        BOOLEAN DEFAULT FALSE,
+                    schema_types            TEXT DEFAULT NULL,
+                    canonical_url           TEXT DEFAULT NULL,
+                    is_noindex              BOOLEAN DEFAULT FALSE,
+                    page_type               VARCHAR(20) DEFAULT NULL,
+                    is_utility              BOOLEAN DEFAULT FALSE,
+                    crawled_at              TIMESTAMP NOT NULL
                 )
             ");
-            // Add columns to existing tables if missing
-            foreach (['rounds_run INT DEFAULT 1', 'round_history TEXT', 'output_finding TEXT', 'output_diagnosis TEXT', 'output_pages TEXT', 'output_priority VARCHAR(20)', 'output_verify_in VARCHAR(20)', 'output_brook TEXT', 'output_brad TEXT', 'output_kalib TEXT', 'output_jeanne TEXT', 'output_caveat TEXT', 'output_conf NUMERIC(4,1)'] as $col) {
-                $colName = explode(' ', $col)[0];
-                $this->db->executeStatement("ALTER TABLE rule_evaluations ADD COLUMN IF NOT EXISTS {$col}");
-            }
-        } catch (\Exception $e) {
-            // May already exist
+            $this->db->executeStatement('CREATE INDEX idx_crawl_url ON page_crawl_snapshots (url)');
+            $this->db->executeStatement('CREATE INDEX idx_crawl_page_type ON page_crawl_snapshots (page_type)');
+            $this->db->executeStatement('CREATE INDEX idx_crawl_has_core_link ON page_crawl_snapshots (has_core_link)');
+            $this->db->executeStatement('CREATE INDEX idx_crawl_central_entity ON page_crawl_snapshots (has_central_entity)');
+        } else {
+            // Add is_utility column if it doesn't exist yet
+            try {
+                $this->db->executeStatement('ALTER TABLE page_crawl_snapshots ADD COLUMN IF NOT EXISTS is_utility BOOLEAN DEFAULT FALSE');
+            } catch (\Exception $e) {}
         }
     }
 }
