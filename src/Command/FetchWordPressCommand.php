@@ -45,15 +45,16 @@ class FetchWordPressCommand extends Command
         '/join-our-mailing-list/', '/freebook/', '/book-a-video-call/',
         '/trailer-finder/', '/virtual-horse-trailer-safety-inspection/',
         '/horse-trailer-safety-webinars/',
-        // Site infrastructure
-        '/sitemap/', '/privacy-policy/', '/terms/',
+        // Site infrastructure & legal
+        '/sitemap/', '/privacy-policy/', '/terms/', '/terms-of-use/',
         '/search/', '/login/', '/logout/', '/cart/', '/checkout/',
+        '/payment-failed/', '/payment-success/',
         // Thank-you, confirmation, and submit pages
         '/thank-you/', '/thank_you/', '/thanks/',
         '/confirmation/', '/confirmed/',
         '/submit/', '/submitted/',
         // Promotional / interactive tools
-        '/prize-wheel/', '/review-builder/',
+        '/prize-wheel/', '/review-builder/', '/builder/',
     ];
 
     private array $outerPatterns = [
@@ -515,6 +516,10 @@ class FetchWordPressCommand extends Command
             '-submit', '-confirmation', '-confirmed',
             'prize-wheel', 'giveaway', 'contest',
             'review-builder', 'quiz-builder',
+            'payment-failed', 'payment-success',
+            'terms-of-use', 'privacy-policy',
+            '-signup', '-sign-up', '-register',
+            'affaire', // catches event signup pages like /ohioequineaffaire.../
         ];
         foreach ($utilityPatterns as $pattern) {
             if (str_contains($n, $pattern)) return true;

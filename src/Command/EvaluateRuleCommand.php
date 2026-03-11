@@ -662,8 +662,8 @@ PROMPT;
             $af = self::ASSET_FILTER;
             $t4 = self::TIER4_URLS;
 
-            // Shared filters — exclude utility, thank-you, promotional, and tool pages
-            $utilExclude = "AND is_utility IS NOT TRUE AND url NOT LIKE '%thank-you%' AND url NOT LIKE '%thank_you%' AND url NOT LIKE '%thanks%' AND url NOT LIKE '%-submit%' AND url NOT LIKE '%-confirmation%' AND url NOT LIKE '%-confirmed%' AND url NOT LIKE '%prize-wheel%' AND url NOT LIKE '%giveaway%' AND url NOT LIKE '%contest%' AND url NOT LIKE '%review-builder%'";
+            // Shared filters — exclude utility, thank-you, promotional, tool, payment, legal, and event pages
+            $utilExclude = "AND is_utility IS NOT TRUE AND url NOT LIKE '%thank-you%' AND url NOT LIKE '%thank_you%' AND url NOT LIKE '%thanks%' AND url NOT LIKE '%-submit%' AND url NOT LIKE '%-confirmation%' AND url NOT LIKE '%-confirmed%' AND url NOT LIKE '%prize-wheel%' AND url NOT LIKE '%giveaway%' AND url NOT LIKE '%contest%' AND url NOT LIKE '%review-builder%' AND url NOT LIKE '%payment-failed%' AND url NOT LIKE '%payment-success%' AND url NOT LIKE '%terms-of-use%' AND url NOT LIKE '%privacy-policy%' AND url NOT LIKE '%affaire%' AND url NOT LIKE '%/builder/%'";
 
             $query = match($rule['id']) {
                 'FC-R1'  => "SELECT url, page_type, h1, title_tag, word_count, has_central_entity, central_entity_count FROM page_crawl_snapshots WHERE has_central_entity IS NOT TRUE AND word_count > 0 AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) {$utilExclude} LIMIT 10",
@@ -674,7 +674,7 @@ PROMPT;
                 'FC-R7'  => "SELECT url, page_type, h1, title_tag, h1_matches_title FROM page_crawl_snapshots WHERE (h1_matches_title IS NOT TRUE OR h1 IS NULL OR h1 = '') AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) {$utilExclude} LIMIT 10",
                 'FC-R8'  => "SELECT url, page_type, h2s, word_count FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND (h2s IS NULL OR h2s = '[]' OR h2s = '') AND is_noindex IS NOT TRUE AND url NOT IN ({$t4}) LIMIT 10",
                 'FC-R9'  => "SELECT url, page_type, schema_types, h1 FROM page_crawl_snapshots WHERE page_type = 'core' AND (schema_types IS NULL OR schema_types = '[]' OR schema_types = '') AND is_noindex IS NOT TRUE AND url NOT LIKE '%//' AND url NOT IN ({$t4}) LIMIT 10",
-                'FC-R10' => "SELECT p.url, p.page_type, p.has_core_link, g.impressions FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.has_core_link IS NOT TRUE AND g.impressions >= 100 AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 10",
+                'FC-R10' => "SELECT p.url, p.page_type, p.has_core_link, MAX(g.impressions) as impressions FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.has_core_link IS NOT TRUE AND g.impressions >= 100 AND g.date_range = '28d' GROUP BY p.url, p.page_type, p.has_core_link ORDER BY impressions DESC LIMIT 10",
                 default  => null,
             };
 
@@ -934,3 +934,5 @@ PROMPT;
         }
     }
 }
+
+    
