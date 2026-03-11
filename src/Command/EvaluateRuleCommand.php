@@ -115,6 +115,7 @@ class EvaluateRuleCommand extends Command
                 $outputPrompt  = $this->buildOutputPrompt($rule, $firingPages, $finalConsensus, $finalVerdicts);
                 $stage2Result  = $this->runDeliberation($outputPrompt, $output, $verboseLlm, 'S2');
                 $outputConsensus = $this->synthesiseOutput($stage2Result['verdicts'], $stage2Result['consensus'], $rule);
+                $outputConsensus['rounds_run'] = $stage2Result['rounds_run'];
 
                 $this->displayOutputConsensus($output, $outputConsensus, $stage2Result['consensus']);
             }
@@ -442,7 +443,8 @@ PROMPT;
 
         $output->writeln('');
         $output->writeln("  PRIORITY:  " . ($oc['priority']  ?? 'High'));
-        $output->writeln("  VERIFY IN: " . ($oc['verify_in'] ?? '28') . " days");
+        $verifyIn = trim(str_ireplace('days', '', $oc['verify_in'] ?? '28'));
+        $output->writeln("  VERIFY IN: {$verifyIn} days");
         $output->writeln('');
         $output->writeln('  ── TEAM ACTIONS ──────────────────────────────');
         if ($oc['role_brook'])  $output->writeln("  BROOK:  " . $oc['role_brook']);
@@ -708,7 +710,7 @@ PROMPT;
         }
 
         if ($geminiKey) {
-            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={$geminiKey}");
+            $ch = curl_init("https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro-preview-05-06:generateContent?key={$geminiKey}");
             curl_setopt_array($ch, [
                 CURLOPT_RETURNTRANSFER => true,
                 CURLOPT_POST           => true,
@@ -757,9 +759,14 @@ PROMPT;
         }
 
         // Confidence — runs always regardless of verdict format
-        if (preg_match('/CONFIDENCE\s*:\s*(\d+)/i',                $text, $m)) $confidence = (int) $m[1];
-        if ($confidence === 0 && preg_match('/(\d+)\s*\/\s*10/i',  $text, $m)) $confidence = (int) $m[1];
-        if ($confidence === 0 && preg_match('/confidence[^.]{0,30}?(\d+)/i', $text, $m)) $confidence = (int) $m[1];
+        if (preg_match('/CONFIDENCE\s*:\s*(\d+)/i',                           $text, $m)) $confidence = (int) $m[1];
+        if ($confidence === 0 && preg_match('/(\d+)\s*\/\s*10/i',             $text, $m)) $confidence = (int) $m[1];
+        if ($confidence === 0 && preg_match('/confidence[^.]{0,30}?(\d+)/i',  $text, $m)) $confidence = (int) $m[1];
+        // Gemini-specific: "Confidence Score: 8" or "confidence_score: 8" or "Rating: 8"
+        if ($confidence === 0 && preg_match('/confidence[_\s]score\s*:\s*(\d+)/i', $text, $m)) $confidence = (int) $m[1];
+        if ($confidence === 0 && preg_match('/rating\s*:\s*(\d+)/i',               $text, $m)) $confidence = (int) $m[1];
+        // Last resort: find any standalone digit 1-10 near the word "confidence" within 100 chars
+        if ($confidence === 0 && preg_match('/confidence.{0,100}?\b([1-9]|10)\b/is', $text, $m)) $confidence = (int) $m[1];
 
         // Fallback verdict parsing for Gemini / prose responses
         if ($verdict === 'UNKNOWN') {
