@@ -217,7 +217,13 @@ class EvaluateRuleCommand extends Command
             $pageList .= "\n- URL: " . ($page['url'] ?? 'n/a');
             foreach ($page as $key => $val) {
                 if ($key === 'url' || in_array($key, ['internal_links', 'crawled_at'])) continue;
-                $pageList .= " | {$key}: " . (is_null($val) ? 'NULL' : $val);
+                // Boolean fields must display TRUE/FALSE explicitly (PHP false = empty string)
+                $boolFields = ['has_central_entity', 'has_core_link', 'h1_matches_title', 'is_noindex', 'is_utility'];
+                if (is_null($val)) { $display = 'NULL'; }
+                elseif (in_array($key, $boolFields)) { $display = ($val && $val !== 'f' && $val !== '0') ? 'TRUE' : 'FALSE'; }
+                elseif (is_bool($val)) { $display = $val ? 'TRUE' : 'FALSE'; }
+                else { $display = (string) $val; }
+                $pageList .= " | {$key}: " . $display;
             }
         }
 
@@ -275,7 +281,13 @@ PROMPT;
             $pageList .= "\n- URL: " . ($page['url'] ?? 'n/a');
             foreach ($page as $key => $val) {
                 if ($key === 'url' || in_array($key, ['internal_links', 'crawled_at'])) continue;
-                $pageList .= " | {$key}: " . (is_null($val) ? 'NULL' : $val);
+                // Boolean fields must display TRUE/FALSE explicitly (PHP false = empty string)
+                $boolFields = ['has_central_entity', 'has_core_link', 'h1_matches_title', 'is_noindex', 'is_utility'];
+                if (is_null($val)) { $display = 'NULL'; }
+                elseif (in_array($key, $boolFields)) { $display = ($val && $val !== 'f' && $val !== '0') ? 'TRUE' : 'FALSE'; }
+                elseif (is_bool($val)) { $display = $val ? 'TRUE' : 'FALSE'; }
+                else { $display = (string) $val; }
+                $pageList .= " | {$key}: " . $display;
             }
         }
 
