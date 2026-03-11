@@ -55,6 +55,10 @@ class FetchWordPressCommand extends Command
         '/join-our-mailing-list/', '/freebook/', '/book-a-video-call/',
         '/trailer-finder/', '/sitemap/', '/privacy-policy/', '/terms/',
         '/search/', '/login/', '/logout/', '/cart/', '/checkout/',
+        // Thank-you, confirmation, and submit pages — not real content pages
+        '/thank-you/', '/thank_you/', '/thanks/',
+        '/confirmation/', '/confirmed/',
+        '/submit/', '/submitted/',
     ];
 
     private array $outerPatterns = [
@@ -326,13 +330,13 @@ class FetchWordPressCommand extends Command
             }
         }
 
-        // ── Central entity check ──
+        // ── Central entity check — ≥1 mention sufficient (was ≥2, caused false positives on short pages) ──
         $bodyLower          = strtolower($bodyText);
         $centralEntityCount = 0;
         foreach ($this->centralEntityVariants as $variant) {
             $centralEntityCount += substr_count($bodyLower, $variant);
         }
-        $hasCentralEntity = $centralEntityCount >= 2;
+        $hasCentralEntity = $centralEntityCount >= 1;
 
         // ── Internal links from content body ──
         $internalLinks  = [];
@@ -503,10 +507,19 @@ class FetchWordPressCommand extends Command
     private function isUtilityUrl(string $path): bool
     {
         $n = '/' . trim($path, '/') . '/';
+
+        // Exact match or prefix match against known utility URLs
         foreach ($this->utilityUrls as $util) {
             $u = '/' . trim($util, '/') . '/';
             if ($n === $u || str_starts_with($n, $u)) return true;
         }
+
+        // Substring patterns — catch URLs like /inspection-thank-you-submit/
+        $utilityPatterns = ['thank-you', 'thank_you', 'thanks', '-submit', '-confirmation', '-confirmed'];
+        foreach ($utilityPatterns as $pattern) {
+            if (str_contains($n, $pattern)) return true;
+        }
+
         return false;
     }
 
