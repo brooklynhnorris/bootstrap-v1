@@ -35,30 +35,25 @@ class FetchWordPressCommand extends Command
         '/the-basics-living-quarters/',
         '/safetack-reverse-living-quarters-horse-trailer/',
         '/about/',
-        '/contact/',
-        '/contact-us/',
-        '/get-quote/',
-        '/dealers/',
-        '/financing/',
         '/why-double-d/',
         '/horse-trailers/',
-        '/trailer-finder/',
-        '/virtual-horse-trailer-safety-inspection/',
-        '/horse-trailer-safety-webinars/',
-        '/join-our-mailing-list/',
-        '/freebook/',
-        '/book-a-video-call/',
     ];
 
     private array $utilityUrls = [
+        // Contact & lead gen
         '/contact/', '/contact-us/', '/get-quote/', '/dealers/', '/financing/',
         '/join-our-mailing-list/', '/freebook/', '/book-a-video-call/',
-        '/trailer-finder/', '/sitemap/', '/privacy-policy/', '/terms/',
+        '/trailer-finder/', '/virtual-horse-trailer-safety-inspection/',
+        '/horse-trailer-safety-webinars/',
+        // Site infrastructure
+        '/sitemap/', '/privacy-policy/', '/terms/',
         '/search/', '/login/', '/logout/', '/cart/', '/checkout/',
-        // Thank-you, confirmation, and submit pages — not real content pages
+        // Thank-you, confirmation, and submit pages
         '/thank-you/', '/thank_you/', '/thanks/',
         '/confirmation/', '/confirmed/',
         '/submit/', '/submitted/',
+        // Promotional / interactive tools
+        '/prize-wheel/', '/review-builder/',
     ];
 
     private array $outerPatterns = [
@@ -514,8 +509,13 @@ class FetchWordPressCommand extends Command
             if ($n === $u || str_starts_with($n, $u)) return true;
         }
 
-        // Substring patterns — catch URLs like /inspection-thank-you-submit/
-        $utilityPatterns = ['thank-you', 'thank_you', 'thanks', '-submit', '-confirmation', '-confirmed'];
+        // Substring patterns — catch URLs like /inspection-thank-you-submit/, /prize-wheel-2024/, etc.
+        $utilityPatterns = [
+            'thank-you', 'thank_you', 'thanks',
+            '-submit', '-confirmation', '-confirmed',
+            'prize-wheel', 'giveaway', 'contest',
+            'review-builder', 'quiz-builder',
+        ];
         foreach ($utilityPatterns as $pattern) {
             if (str_contains($n, $pattern)) return true;
         }
@@ -633,5 +633,8 @@ class FetchWordPressCommand extends Command
         }
     }
 }
+
+    
+
 
     

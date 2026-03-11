@@ -662,11 +662,11 @@ PROMPT;
             $af = self::ASSET_FILTER;
             $t4 = self::TIER4_URLS;
 
-            // Shared filters
-            $utilExclude = "AND is_utility IS NOT TRUE AND url NOT LIKE '%thank-you%' AND url NOT LIKE '%thank_you%' AND url NOT LIKE '%thanks%' AND url NOT LIKE '%-submit%' AND url NOT LIKE '%-confirmation%' AND url NOT LIKE '%-confirmed%'";
+            // Shared filters — exclude utility, thank-you, promotional, and tool pages
+            $utilExclude = "AND is_utility IS NOT TRUE AND url NOT LIKE '%thank-you%' AND url NOT LIKE '%thank_you%' AND url NOT LIKE '%thanks%' AND url NOT LIKE '%-submit%' AND url NOT LIKE '%-confirmation%' AND url NOT LIKE '%-confirmed%' AND url NOT LIKE '%prize-wheel%' AND url NOT LIKE '%giveaway%' AND url NOT LIKE '%contest%' AND url NOT LIKE '%review-builder%'";
 
             $query = match($rule['id']) {
-                'FC-R1'  => "SELECT url, page_type, h1, title_tag, word_count, has_central_entity, central_entity_count FROM page_crawl_snapshots WHERE has_central_entity IS NOT TRUE AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) {$utilExclude} LIMIT 10",
+                'FC-R1'  => "SELECT url, page_type, h1, title_tag, word_count, has_central_entity, central_entity_count FROM page_crawl_snapshots WHERE has_central_entity IS NOT TRUE AND word_count > 0 AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) {$utilExclude} LIMIT 10",
                 'FC-R2'  => "SELECT url, page_type, h1, title_tag FROM page_crawl_snapshots WHERE (page_type IS NULL OR page_type NOT IN ('core','outer','utility')) AND is_noindex IS NOT TRUE AND {$af} LIMIT 10",
                 'FC-R3'  => "SELECT url, page_type, word_count, h1, title_tag FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND word_count < 500 AND is_noindex IS NOT TRUE LIMIT 10",
                 'FC-R5'  => "SELECT url, page_type, has_core_link, core_links_found FROM page_crawl_snapshots WHERE page_type = 'outer' AND has_core_link IS NOT TRUE AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) {$utilExclude} LIMIT 10",
@@ -934,5 +934,3 @@ PROMPT;
         }
     }
 }
-
-    
