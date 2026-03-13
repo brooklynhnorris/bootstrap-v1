@@ -466,8 +466,15 @@ PROMPT;
     {
         $rules = [];
 
-        // Split on RULE_ID: headers
-        $blocks = preg_split('/\nRULE_ID:\s*/i', $text);
+        // Normalize: strip Markdown formatting that wraps RULE_ID
+        // Handles: ## RULE_ID: AIS-001, **RULE_ID:** AIS-001, ### RULE_ID: AIS-001
+        $text = preg_replace('/^#{1,4}\s*/m', '', $text);
+        $text = str_replace(['**RULE_ID:**', '**RULE_ID**:'], 'RULE_ID:', $text);
+        $text = preg_replace('/\*\*([A-Z_]+):\*\*/', '$1:', $text);
+        $text = preg_replace('/\*\*([A-Z_]+)\*\*\s*:/', '$1:', $text);
+
+        // Split on RULE_ID: headers (with optional leading whitespace/newlines)
+        $blocks = preg_split('/\n\s*RULE_ID:\s*/i', $text);
 
         foreach ($blocks as $block) {
             $block = trim($block);
@@ -475,7 +482,7 @@ PROMPT;
 
             $rule = [];
             $lines = explode("\n", $block, 2);
-            $rule['rule_id'] = trim($lines[0]);
+            $rule['rule_id'] = trim(preg_replace('/^[\*#\s]+/', '', $lines[0]));
             $rest = $lines[1] ?? '';
 
             $rule['rule_name']           = $this->extractRuleField($rest, 'RULE_NAME');
@@ -501,11 +508,15 @@ PROMPT;
 
     private function extractRuleField(string $text, string $field): string
     {
+        // Strip markdown bold from field names in the text for matching
+        $cleanText = preg_replace('/\*\*([A-Z_]+):\*\*/', '$1:', $text);
+        $cleanText = preg_replace('/\*\*([A-Z_]+)\*\*\s*:/', '$1:', $cleanText);
+
         // Multi-line: capture until next FIELD_NAME: or end
-        if (preg_match('/' . preg_quote($field, '/') . '\s*:\s*(.*?)(?=\n[A-Z][A-Z_]{2,}\s*:|$)/s', $text, $m)) {
+        if (preg_match('/' . preg_quote($field, '/') . '\s*:\s*(.*?)(?=\n\s*[A-Z][A-Z_]{2,}\s*:|$)/s', $cleanText, $m)) {
             return trim($m[1]);
         }
-        if (preg_match('/' . preg_quote($field, '/') . '\s*:\s*(.+)/i', $text, $m)) {
+        if (preg_match('/' . preg_quote($field, '/') . '\s*:\s*(.+)/i', $cleanText, $m)) {
             return trim($m[1]);
         }
         return '';
@@ -771,3 +782,5 @@ PROMPT;
         return $results;
     }
 }
+
+    
