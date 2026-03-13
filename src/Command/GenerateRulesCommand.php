@@ -171,8 +171,10 @@ class GenerateRulesCommand extends Command
             // ── Round 2: Cross-review and merge ──
             $output->writeln("  Round 2: Cross-review and consensus...");
             $mergePrompt   = $this->buildMergePrompt($category, $r1Rules, $siteContext);
-            $r2Responses   = $this->callAllLLMs($mergePrompt, 4000);
+            $r2Responses   = $this->callAllLLMs($mergePrompt, 6000);
             $r2Rules       = [];
+            $bestR2Rules   = [];
+            $bestR2Count   = 0;
 
             foreach ($r2Responses as $llm => $response) {
                 if (isset($response['error'])) {
@@ -182,12 +184,17 @@ class GenerateRulesCommand extends Command
                 $parsed = $this->parseGeneratedRules($response['text']);
                 $r2Rules[$llm] = $parsed;
                 $output->writeln("    {$llm}: refined to " . count($parsed) . " rules");
+                // Track best R2 output as fallback
+                if (count($parsed) > $bestR2Count) {
+                    $bestR2Rules = $parsed;
+                    $bestR2Count = count($parsed);
+                }
             }
 
             // ── Round 3: Final synthesis — pick best version ──
             $output->writeln("  Round 3: Final synthesis...");
             $finalPrompt    = $this->buildFinalPrompt($category, $r2Rules, $existingRules);
-            $r3Responses    = $this->callAllLLMs($finalPrompt, 4000);
+            $r3Responses    = $this->callAllLLMs($finalPrompt, 8000);
             $bestRules      = [];
             $bestCount      = 0;
 
@@ -199,6 +206,12 @@ class GenerateRulesCommand extends Command
                     $bestRules = $parsed;
                     $bestCount = count($parsed);
                 }
+            }
+
+            // Fallback: if Round 3 produced fewer rules than Round 2 (truncation), use Round 2
+            if ($bestCount < $bestR2Count && $bestR2Count >= 3) {
+                $output->writeln("  [!] Round 3 truncated ({$bestCount} rules) — using Round 2 output ({$bestR2Count} rules)");
+                $bestRules = $bestR2Rules;
             }
 
             // ── Display results ──
@@ -469,6 +482,8 @@ Produce the FINAL 5-8 rules. For each rule:
 4. Every rule must have an AI_SEARCH_RELEVANCE line explaining how it affects AI citation eligibility
 5. Rules must cover BOTH traditional search ranking AND AI search citation
 6. All examples must use REAL Double D Trailers product names and terminology only
+
+CRITICAL: You MUST output ALL 5-8 rules. Keep each rule's ACTION_OUTPUT to 3-5 bullet points maximum — do NOT write full essays per rule. The DIAGNOSIS should be 1-2 sentences. Be concise so you have room for all rules.
 
 This is the production ruleset. Be precise. Be specific to custom horse trailers. Output in the exact RULE_ID/RULE_NAME/TRIGGER_SOURCE/etc format.
 PROMPT;
