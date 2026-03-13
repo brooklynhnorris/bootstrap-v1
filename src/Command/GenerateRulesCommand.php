@@ -318,18 +318,25 @@ class GenerateRulesCommand extends Command
     {
         $siteData = $this->formatSiteContext($siteContext);
         $existingList = $this->formatExistingRules($existingRules);
+        $brandContext = $this->buildBrandContext($siteContext);
 
         return <<<PROMPT
 You are a senior SEO architect designing a comprehensive rule engine FROM SCRATCH for doubledtrailers.com.
 
 IMPORTANT: You are building an entirely new ruleset. Ignore any existing rules. Design the optimal rules based purely on your expert knowledge of SEO — both traditional search and AI search (Google AI Overviews, Perplexity, ChatGPT search).
 
+⚠️ CRITICAL — BRAND ACCURACY RULES:
+When writing examples, diagnoses, or action outputs, you MUST ONLY use the real product names, real brand terminology, and real specifications listed below. DO NOT invent product names, model names, or brand terminology. If you need an example and aren't sure of the exact name, use a generic placeholder like "[Product Model Name]" or "[Core Page URL]" — never fabricate a name.
+
+BRAND FACTS — DOUBLE D TRAILERS:
+{$brandContext}
+
 SITE CONTEXT:
 - Domain: doubledtrailers.com
 - Business: Custom horse trailer manufacturer (Double D Trailers)
 - Central entity: horse trailer
 - Audience: horse owners, equestrians, competitive riders
-- Business model: High-ticket custom manufacturing ($15K–$80K per trailer)
+- Business model: High-ticket custom manufacturing (custom quotes per trailer)
 - Goal: Rank #1 in traditional search AND get cited in AI search
 
 SITE DATA:
@@ -398,6 +405,8 @@ PROMPT;
         return <<<PROMPT
 You are reviewing SEO rule proposals from multiple AI models for doubledtrailers.com.
 
+⚠️ BRAND ACCURACY: Double D Trailers builds custom horse trailers using Z-Frame (high-tensile, zinc-infused material — NOT aluminum, NOT traditional steel). Real brand terms: Z-Frame (not Z-Bar), SafeTack (patented reverse-load with swing-out rear tack), SafeBump (single-piece molded fiber composite roof), SafeKick (recycled plastic/rubber wall panels). Do NOT invent product names or pricing. If you need an example, use "[Product Model Name]" as a placeholder or reference a real URL from the site data.
+
 CATEGORY: {$category['name']}
 SCOPE: {$category['scope']}
 
@@ -408,13 +417,13 @@ YOUR TASK:
 1. Identify the BEST rules across all proposals — rules that are most specific, most measurable, and most impactful for doubledtrailers.com
 2. Merge overlapping rules into single, stronger versions
 3. Eliminate rules that are too generic or unmeasurable
-4. Add any critical gaps that ALL models missed
+4. Remove any rules that reference incorrect brand terminology (aluminum, Z-Bar, SafeKill, etc.)
 5. Ensure every rule has a clear trigger condition with real field names
 6. Ensure every rule addresses AI search citation eligibility
 
 OUTPUT: 5-8 refined rules in the EXACT same format as Round 1 (RULE_ID, RULE_NAME, TRIGGER_SOURCE, TRIGGER_CONDITION, etc.)
 
-Be ruthless — only keep rules that would genuinely move rankings for a custom horse trailer manufacturer.
+Be ruthless — only keep rules that would genuinely move rankings for a custom horse trailer manufacturer using Z-Frame construction.
 PROMPT;
     }
 
@@ -443,6 +452,12 @@ FINAL ROUND: Produce the definitive rule set for category "{$category['name']}" 
 
 This is a FROM-SCRATCH ruleset design. No existing rules to consider — build the best possible rules.
 
+⚠️ BRAND ACCURACY CHECK — Before finalizing, verify:
+- Double D Trailers builds custom horse trailers using Z-Frame (high-tensile, zinc-infused — NOT aluminum, NOT traditional steel)
+- Real terms: Z-Frame (construction material), SafeTack (patented reverse-load, swing-out rear tack), SafeBump (molded fiber composite roof with Z-Frame tubing every 16"), SafeKick (recycled plastic/rubber wall panels)
+- Do NOT reference: "Z-Bar", "aluminum", "steel", "SafeKill", or any invented product names or pricing
+- When using examples, reference real URLs from the site or use "[Product Model Name]" placeholder
+
 REFINED PROPOSALS FROM ROUND 2:
 {$refined}
 
@@ -453,8 +468,9 @@ Produce the FINAL 5-8 rules. For each rule:
 3. If the rule needs a data source that doesn't exist yet, clearly state it in NEEDS_NEW_DATA
 4. Every rule must have an AI_SEARCH_RELEVANCE line explaining how it affects AI citation eligibility
 5. Rules must cover BOTH traditional search ranking AND AI search citation
+6. All examples must use REAL Double D Trailers product names and terminology only
 
-This is the production ruleset. Be precise. Be specific to horse trailers. Output in the exact RULE_ID/RULE_NAME/TRIGGER_SOURCE/etc format.
+This is the production ruleset. Be precise. Be specific to custom horse trailers. Output in the exact RULE_ID/RULE_NAME/TRIGGER_SOURCE/etc format.
 PROMPT;
     }
 
@@ -520,6 +536,64 @@ PROMPT;
             return trim($m[1]);
         }
         return '';
+    }
+
+    // ─────────────────────────────────────────────
+    //  BUILD BRAND CONTEXT (prevents hallucination)
+    // ─────────────────────────────────────────────
+
+    private function buildBrandContext(array $siteContext): string
+    {
+        $lines = [];
+
+        // Hard facts about the brand — these NEVER change based on data
+        $lines[] = "Company: Double D Trailers (DDT)";
+        $lines[] = "Founded: 1997 in Pink Hill, NC";
+        $lines[] = "Current headquarters: Wilmington, NC";
+        $lines[] = "What they build: Custom-built horse trailers";
+        $lines[] = "Construction: Z-Frame — a high-tensile, zinc-infused material (NOT aluminum, NOT steel in the traditional sense)";
+        $lines[] = "";
+        $lines[] = "REAL BRAND TERMINOLOGY (use ONLY these terms):";
+        $lines[] = "- Z-Frame: DDT's proprietary construction material — high-tensile, zinc-infused. This is what the trailers are made of. NOT 'Z-Bar', NOT aluminum, NOT traditional steel.";
+        $lines[] = "- SafeTack: DDT's patented reverse-load design with swing-out rear tack. NOT 'safe tack', NOT 'SafeTrack'.";
+        $lines[] = "- SafeBump: DDT's single-piece molded fiber composite roof reinforced with Z-Frame tubing every 16 inches. Protects horses' heads. NOT 'safe bump', NOT 'SafeKill'.";
+        $lines[] = "- SafeKick: DDT's flexible, durable wall panel made of a combination of recycled plastic and rubber compound. NOT 'safe kick'.";
+        $lines[] = "";
+        $lines[] = "TRAILER CATEGORIES:";
+        $lines[] = "- Bumper Pull horse trailers (smaller, pulled from vehicle bumper hitch)";
+        $lines[] = "- Gooseneck horse trailers (larger, pulled from truck bed hitch)";
+        $lines[] = "- Living Quarters horse trailers (have living space for humans)";
+        $lines[] = "";
+        $lines[] = "DO NOT reference or invent:";
+        $lines[] = "- 'Aluminum' construction (DDT does NOT build aluminum trailers)";
+        $lines[] = "- 'Steel' construction (DDT uses Z-Frame, not traditional steel)";
+        $lines[] = "- 'Z-Bar' (the correct term is Z-Frame)";
+        $lines[] = "- 'SafeKill' or 'safe kill' (does not exist)";
+        $lines[] = "- Any product name not listed in the REAL PRODUCT PAGES below";
+        $lines[] = "- Any made-up pricing (DDT does custom quotes, do not invent price ranges)";
+        $lines[] = "";
+
+        // Pull REAL product pages from the database
+        if (!empty($siteContext['core_pages'])) {
+            $lines[] = "REAL PRODUCT PAGES (use ONLY these names and URLs):";
+            foreach ($siteContext['core_pages'] as $p) {
+                $title = $p['title_tag'] ?? '(no title)';
+                $h1    = $p['h1'] ?? '(no h1)';
+                $url   = $p['url'] ?? '';
+                $lines[] = "- URL: {$url}";
+                $lines[] = "  Title: {$title}";
+                $lines[] = "  H1: {$h1}";
+            }
+        }
+
+        $lines[] = "";
+        $lines[] = "TEAM (for rule assignment):";
+        $lines[] = "- Brook: SEO + Content (40 hrs/week) — content writing, keyword strategy, on-page fixes";
+        $lines[] = "- Brad: Developer (40 hrs/week) — schema, redirects, technical fixes, crawl commands";
+        $lines[] = "- Kalib: Design (40 hrs/week) — UX, CTA design, page layout, conversion path";
+        $lines[] = "- Jeanne: Owner (10 hrs/week) — strategic decisions, approvals, QA";
+
+        return implode("\n", $lines);
     }
 
     // ─────────────────────────────────────────────
