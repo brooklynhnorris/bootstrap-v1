@@ -108,9 +108,10 @@ class GenerateRulesCommand extends Command
         $output->writeln('Gathering site data context...');
         $siteContext = $this->gatherSiteContext($output);
 
-        // ── Load existing rules for reference ──
+        // ── Existing rules loaded but NOT used as constraints — from-scratch design ──
         $existingRules = $this->loadExistingRules();
-        $output->writeln('Loaded ' . count($existingRules) . ' existing rules from system-prompt.txt');
+        $output->writeln('Mode: FROM SCRATCH — designing optimal ruleset with pure AI SEO knowledge');
+        $output->writeln('(' . count($existingRules) . ' existing rules loaded for reference only, not as constraints)');
 
         // ── Filter categories ──
         $categories = self::CATEGORIES;
@@ -319,7 +320,9 @@ class GenerateRulesCommand extends Command
         $existingList = $this->formatExistingRules($existingRules);
 
         return <<<PROMPT
-You are a senior SEO architect designing a comprehensive rule engine for doubledtrailers.com.
+You are a senior SEO architect designing a comprehensive rule engine FROM SCRATCH for doubledtrailers.com.
+
+IMPORTANT: You are building an entirely new ruleset. Ignore any existing rules. Design the optimal rules based purely on your expert knowledge of SEO — both traditional search and AI search (Google AI Overviews, Perplexity, ChatGPT search).
 
 SITE CONTEXT:
 - Domain: doubledtrailers.com
@@ -327,7 +330,7 @@ SITE CONTEXT:
 - Central entity: horse trailer
 - Audience: horse owners, equestrians, competitive riders
 - Business model: High-ticket custom manufacturing ($15K–$80K per trailer)
-- Goal: Rank #1 in traditional search AND get cited in AI search (Google AI Overviews, Perplexity, ChatGPT search)
+- Goal: Rank #1 in traditional search AND get cited in AI search
 
 SITE DATA:
 {$siteData}
@@ -336,22 +339,19 @@ DATA SOURCES AVAILABLE:
 - page_crawl_snapshots: url, title_tag, h1, h2s, meta_description, word_count, has_central_entity, central_entity_count, internal_links, has_core_link, core_links_found, h1_matches_title, schema_types, canonical_url, is_noindex, page_type, is_utility
 - gsc_snapshots: query, page, clicks, impressions, ctr, position, date_range
 - WordPress REST API: full page/post content, Yoast SEO data (title, description, canonical, robots, schema)
-- Future data sources (flag if rule needs these): Core Web Vitals API, SEMrush API, Google Rich Results API, backlink data
-
-EXISTING RULES (do not duplicate these):
-{$existingList}
+- Future data sources (flag if rule needs these): Core Web Vitals API, SEMrush API, Google Rich Results API, backlink data, competitor SERP data
 
 YOUR TASK:
-Generate 5-8 NEW rules for the category: {$category['name']}
+Design 5-8 rules for the category: {$category['name']}
 Scope: {$category['scope']}
 
 Each rule must:
 1. Be measurable with the available data sources (or clearly flag what new data source is needed)
 2. Have a specific trigger condition with actual field names and thresholds
 3. Include concrete investigation steps
-4. Include a play-brief-style action output (not a report — a task ticket)
+4. Include a play-brief-style action output (not a report — a task ticket with specific steps, code snippets where relevant, and verification criteria)
 5. Specify priority and which team member handles it (Brook=SEO/Content, Brad=Dev, Kalib=Design, Jeanne=Owner)
-6. NOT duplicate any existing rule
+6. Address BOTH traditional search ranking AND AI search citation eligibility
 
 FORMAT EACH RULE EXACTLY LIKE THIS:
 
@@ -372,7 +372,7 @@ PRIORITY: [Critical / High / Medium / Low]
 ASSIGNED: [Brook / Brad / Kalib / Jeanne]
 AI_SEARCH_RELEVANCE: [How this rule affects AI search citation eligibility — one sentence]
 
-Generate rules that would make a REAL difference for this specific site, not generic SEO advice.
+Design rules that would make a REAL difference for this specific site. Think like the world's best SEO strategist building a system to dominate both Google and AI search for horse trailers.
 PROMPT;
     }
 
@@ -438,16 +438,13 @@ PROMPT;
             }
         }
 
-        $existingList = $this->formatExistingRules($existingRules);
-
         return <<<PROMPT
 FINAL ROUND: Produce the definitive rule set for category "{$category['name']}" on doubledtrailers.com.
 
+This is a FROM-SCRATCH ruleset design. No existing rules to consider — build the best possible rules.
+
 REFINED PROPOSALS FROM ROUND 2:
 {$refined}
-
-EXISTING RULES (do not duplicate):
-{$existingList}
 
 YOUR TASK:
 Produce the FINAL 5-8 rules. For each rule:
@@ -455,7 +452,7 @@ Produce the FINAL 5-8 rules. For each rule:
 2. The action output must be in play-brief format (current state → your move → done when → recheck)
 3. If the rule needs a data source that doesn't exist yet, clearly state it in NEEDS_NEW_DATA
 4. Every rule must have an AI_SEARCH_RELEVANCE line explaining how it affects AI citation eligibility
-5. No overlap with existing rules
+5. Rules must cover BOTH traditional search ranking AND AI search citation
 
 This is the production ruleset. Be precise. Be specific to horse trailers. Output in the exact RULE_ID/RULE_NAME/TRIGGER_SOURCE/etc format.
 PROMPT;
@@ -774,5 +771,3 @@ PROMPT;
         return $results;
     }
 }
-
-    
