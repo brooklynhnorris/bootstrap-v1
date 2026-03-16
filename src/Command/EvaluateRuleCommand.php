@@ -738,11 +738,13 @@ PROMPT;
             $ruleText         = trim($match[3]);
             $triggerCondition = '';
             $triggerSql       = '';
+            $triggerSource    = '';
             $diagnosis        = '';
             $priority         = '';
             $assigned         = '';
             $threshold        = '';
 
+            if (preg_match('/Trigger Source:\s*([^\n]+)/', $ruleText, $m)) $triggerSource = trim($m[1]);
             if (preg_match('/Trigger Condition:\s*(.*?)(?=\nThreshold:|$)/s', $ruleText, $m)) {
                 $triggerCondition = trim($m[1]);
                 // Extract SQL if present (may be on multiple lines)
@@ -761,6 +763,7 @@ PROMPT;
                 'id'                => trim($match[1]),
                 'name'              => trim($match[2]),
                 'full_text'         => $ruleText,
+                'trigger_source'    => $triggerSource,
                 'trigger_condition' => $triggerCondition,
                 'trigger_sql'       => $triggerSql,
                 'threshold'         => $threshold,
@@ -817,17 +820,43 @@ PROMPT;
                 return $this->db->fetchAllAssociative($query);
             }
 
-            // If no SQL and no legacy match, try to build a basic query from the trigger condition text
-            // This handles rules like: page_type = 'core' AND word_count = 0
-            if ($tc && str_contains(strtolower($tc), 'page_crawl_snapshots')) {
-                // Extract the WHERE clause portion
-                if (preg_match('/WHERE\s+(.*)/is', $tc, $m)) {
-                    $where = trim($m[1]);
-                    $where = preg_replace('/LIMIT\s+\d+/i', '', $where);
+            // If no SQL and no legacy match, the trigger_condition is likely a bare WHERE clause
+            // (e.g., "page_type IN ('core') AND (word_count = 0 OR word_count IS NULL) AND is_noindex = FALSE")
+            // Determine the source table from the rule's trigger_source field or default to page_crawl_snapshots
+            if ($tc) {
+                $tc = trim($tc);
+                // Strip any "WHERE" prefix if present
+                $where = preg_replace('/^\s*WHERE\s+/i', '', $tc);
+                // Strip any LIMIT clause
+                $where = preg_replace('/\s+LIMIT\s+\d+/i', '', $where);
+
+                // Determine table from trigger_source
+                $triggerSource = strtolower($rule['trigger_source'] ?? '');
+                $needsJoin = str_contains($triggerSource, 'gsc_snapshots');
+
+                if ($needsJoin) {
+                    // JOIN query for rules that need GSC data
                     return $this->db->fetchAllAssociative(
-                        "SELECT url, page_type, word_count, h1, title_tag, has_central_entity, central_entity_count, schema_types, h1_matches_title, h2s, has_core_link, canonical_url, is_noindex FROM page_crawl_snapshots WHERE {$where} LIMIT 15"
+                        "SELECT p.url, p.page_type, p.word_count, p.h1, p.title_tag, p.has_central_entity,
+                                p.central_entity_count, p.schema_types, p.h1_matches_title, p.h2s,
+                                p.has_core_link, p.canonical_url, p.is_noindex,
+                                g.impressions, g.clicks, g.position, g.ctr
+                         FROM page_crawl_snapshots p
+                         LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url)
+                         WHERE {$where}
+                         LIMIT 15"
                     );
                 }
+
+                // Default: page_crawl_snapshots only
+                return $this->db->fetchAllAssociative(
+                    "SELECT url, page_type, word_count, h1, title_tag, has_central_entity,
+                            central_entity_count, schema_types, h1_matches_title, h2s,
+                            has_core_link, canonical_url, is_noindex
+                     FROM page_crawl_snapshots
+                     WHERE {$where}
+                     LIMIT 15"
+                );
             }
 
             return [];
@@ -1218,3 +1247,5 @@ GLOSSARY;
         }
     }
 }
+
+    
