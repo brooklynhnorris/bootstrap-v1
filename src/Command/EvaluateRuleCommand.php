@@ -113,7 +113,7 @@ class EvaluateRuleCommand extends Command
                 $output->writeln("   -- Stage 2: Output Consensus --");
 
                 $outputPrompt  = $this->buildOutputPrompt($rule, $firingPages, $finalConsensus, $finalVerdicts);
-                $stage2Result  = $this->runDeliberation($outputPrompt, $output, $verboseLlm, 'S2', 3000);
+                $stage2Result  = $this->runDeliberation($outputPrompt, $output, $verboseLlm, 'S2', 8000);
                 $outputConsensus = $this->synthesiseOutput($stage2Result['verdicts'], $stage2Result['consensus'], $rule);
                 $outputConsensus['rounds_run'] = $stage2Result['rounds_run'];
 
