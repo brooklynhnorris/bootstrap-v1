@@ -229,6 +229,16 @@ class EvaluateRuleCommand extends Command
 
         $total = count($firingPages);
 
+        // Pull Jeanne's past reviews for this rule (feedback learning loop)
+        $ownerFeedback = $this->getOwnerFeedback($rule['id']);
+        $feedbackSection = '';
+        if ($ownerFeedback) {
+            $feedbackSection = "\n\nOWNER FEEDBACK HISTORY (from Jeanne, the business owner — take this seriously):\n{$ownerFeedback}\n";
+        }
+
+        // Brand glossary
+        $brandGlossary = $this->getBrandGlossary();
+
         return <<<PROMPT
 You are an expert SEO architect evaluating whether an SEO rule is firing correctly.
 
@@ -236,6 +246,9 @@ SITE CONTEXT:
 - Domain: doubledtrailers.com
 - Business: Custom horse trailer manufacturer (Double D Trailers)
 - Central entity: horse trailer
+
+BRAND TERMINOLOGY (use ONLY these terms):
+{$brandGlossary}
 
 RULE BEING EVALUATED:
 ID: {$rule['id']}
@@ -245,7 +258,7 @@ Diagnosis: {$rule['diagnosis']}
 
 Full rule text:
 {$rule['full_text']}
-
+{$feedbackSection}
 CURRENT FIRING DATA ({$total} pages triggering this rule):
 {$pageList}
 
@@ -306,10 +319,23 @@ PROMPT;
         $corePages = $this->getCorePageList();
         $coreList  = implode("\n", array_map(fn($p) => "- {$p['url']} | {$p['title_tag']}", $corePages));
 
+        // Brand glossary
+        $brandGlossary = $this->getBrandGlossary();
+
+        // Owner feedback history
+        $ownerFeedback = $this->getOwnerFeedback($rule['id']);
+        $feedbackSection = '';
+        if ($ownerFeedback) {
+            $feedbackSection = "\nOWNER FEEDBACK ON THIS RULE (from Jeanne — incorporate her corrections into your output):\n{$ownerFeedback}\n";
+        }
+
         return <<<PROMPT
 You are Logiri, an SEO intelligence engine for doubledtrailers.com (Double D Trailers — custom horse trailer manufacturer).
 
 Your job: produce ONE PLAY BRIEF per affected page. A play brief is a task ticket — specific, actionable, copy-paste ready.
+
+BRAND TERMINOLOGY (use ONLY these terms — do NOT invent product names):
+{$brandGlossary}
 
 RULE THAT FIRED:
 ID: {$rule['id']}
@@ -317,9 +343,12 @@ Name: {$rule['name']}
 Trigger: {$rule['trigger_condition']}
 Diagnosis: {$rule['diagnosis']}
 
+Full rule context:
+{$rule['full_text']}
+
 VALIDATION: {$ruleNote}
 LLM assessments:{$s1Summary}
-
+{$feedbackSection}
 REAL CORE PAGES ON THIS SITE (use ONLY these URLs when suggesting Core link targets):
 {$coreList}
 
@@ -329,7 +358,7 @@ DATA FOR AFFECTED PAGES ({$total} total):
 INSTRUCTIONS:
 Write one PLAY_BRIEF block per page. Each brief must include:
 1. CURRENT STATE — the exact data fields from the crawl that triggered this rule. Use the actual values above. Format as bullet points.
-2. YOUR MOVE — numbered steps the person should take. Be surgical. If the fix involves code (schema, meta tags, HTML), include the actual code snippet. If it involves copy changes, write the actual new copy or give a specific before→after example. Reference the exact URL, exact field values, exact text.
+2. YOUR MOVE — numbered steps the person should take. Be surgical. If the fix involves code (schema, meta tags, HTML), include the actual code snippet. If it involves copy changes, write the actual new copy or give a specific before/after example. Reference the exact URL, exact field values, exact text.
 3. DONE WHEN — the specific crawl field check that confirms the fix worked, plus any manual verification step (e.g. "Run Google Rich Results Test — 0 errors, Product detected").
 4. RECHECK — number of days until recheck.
 
@@ -337,17 +366,22 @@ CRITICAL RULES FOR OUTPUT:
 - Do NOT write a report or analysis. Write task tickets.
 - Do NOT split by team role. One unified brief per page.
 - Include actual code snippets where relevant (JSON-LD, meta tags, HTML).
-- Include actual copy rewrites where relevant (before→after).
+- Include actual copy rewrites where relevant (before/after).
 - Reference the EXACT data values from the crawl data above.
 - When suggesting Core page link targets, use ONLY URLs from the REAL CORE PAGES list above. Do not invent URLs.
 - Keep each brief under 300 words.
 - If a page is a false positive or edge case, say so in a CAVEAT line and suggest skipping or reclassifying instead of fixing.
+- Product pages: body text must NOT exceed 500 words. MSE elements (images, attributes, CTAs, reviews, FAQs) carry the page.
+- Outer pages: minimum 1000 words. Below that = thin content, recommend merge into relevant HSV page.
+- Max 3 internal links per page. Zero external links (replace with citation mentions).
+- First sentence under any heading must directly answer the heading's implied question.
 
 FORMAT (repeat for each page):
 
 PLAY_BRIEF: [Short title — verb + what + where]
 URL: [exact url path]
 PRIORITY: [Critical / High / Medium / Low]
+ASSIGNED: [Brook / Brad / Kalib / Jeanne]
 CURRENT_STATE:
 - [field]: [value]
 - [field]: [value]
@@ -697,25 +731,42 @@ PROMPT;
         $content = file_get_contents($promptPath);
         $rules   = [];
 
-        preg_match_all('/\n(FC-R\d+)\s*\|\s*([^\n]+)\n(.*?)(?=\nFC-R\d+|\nRESULTS VERIFICATION|\z)/s', $content, $matches, PREG_SET_ORDER);
+        // Match any rule ID pattern: OPQ-R1, TECH-R1, AIS-001, SCH-001, etc.
+        preg_match_all('/\n([A-Z][A-Z0-9]+-R?\d+)\s*\|\s*([^\n]+)\n(.*?)(?=\n[A-Z][A-Z0-9]+-R?\d+\s*\||\nSECTION\s+\d+|\nRESULTS VERIFICATION|\n={10,}|\z)/s', $content, $matches, PREG_SET_ORDER);
 
         foreach ($matches as $match) {
             $ruleText         = trim($match[3]);
             $triggerCondition = '';
+            $triggerSql       = '';
             $diagnosis        = '';
             $priority         = '';
+            $assigned         = '';
+            $threshold        = '';
 
-            if (preg_match('/Trigger Condition:\s*([^\n]+)/', $ruleText, $m)) $triggerCondition = trim($m[1]);
-            if (preg_match('/Diagnosis:\s*([^\n]+)/',         $ruleText, $m)) $diagnosis        = trim($m[1]);
-            if (preg_match('/Priority:\s*([^\n]+)/',          $ruleText, $m)) $priority         = trim($m[1]);
+            if (preg_match('/Trigger Condition:\s*(.*?)(?=\nThreshold:|$)/s', $ruleText, $m)) {
+                $triggerCondition = trim($m[1]);
+                // Extract SQL if present (may be on multiple lines)
+                $triggerSql = $triggerCondition;
+                // Clean SQL markers
+                $triggerSql = preg_replace('/```sql\s*/', '', $triggerSql);
+                $triggerSql = preg_replace('/```\s*/', '', $triggerSql);
+                $triggerSql = trim($triggerSql);
+            }
+            if (preg_match('/Threshold:\s*(.*?)(?=\nCrawl Parameter:|$)/s', $ruleText, $m)) $threshold = trim($m[1]);
+            if (preg_match('/Diagnosis:\s*(.*?)(?=\nAction Output:|$)/s',   $ruleText, $m)) $diagnosis = trim($m[1]);
+            if (preg_match('/Priority:\s*([^\n]+)/',                         $ruleText, $m)) $priority  = trim($m[1]);
+            if (preg_match('/Assigned:\s*([^\n]+)/',                         $ruleText, $m)) $assigned  = trim($m[1]);
 
             $rules[] = [
                 'id'                => trim($match[1]),
                 'name'              => trim($match[2]),
                 'full_text'         => $ruleText,
                 'trigger_condition' => $triggerCondition,
+                'trigger_sql'       => $triggerSql,
+                'threshold'         => $threshold,
                 'diagnosis'         => $diagnosis,
                 'priority'          => $priority,
+                'assigned'          => $assigned,
             ];
         }
 
@@ -730,11 +781,25 @@ PROMPT;
     {
         try {
             $af = self::ASSET_FILTER;
+            $utilExclude = "AND is_utility IS NOT TRUE AND url NOT LIKE '%thank-you%' AND url NOT LIKE '%thank_you%' AND url NOT LIKE '%thanks%' AND url NOT LIKE '%-submit%' AND url NOT LIKE '%-confirmation%' AND url NOT LIKE '%prize-wheel%' AND url NOT LIKE '%payment-failed%' AND url NOT LIKE '%payment-success%' AND url NOT LIKE '%terms-of-use%' AND url NOT LIKE '%privacy-policy%'";
+
+            // Try to extract executable SQL from the rule's trigger condition
+            $sql = $rule['trigger_sql'] ?? '';
+
+            // If the trigger_sql looks like a valid SELECT, execute it directly
+            if ($sql && preg_match('/^\s*SELECT\s/i', $sql)) {
+                // Ensure LIMIT is present
+                if (!preg_match('/LIMIT\s+\d+/i', $sql)) {
+                    $sql .= ' LIMIT 15';
+                }
+                return $this->db->fetchAllAssociative($sql);
+            }
+
+            // Fallback: build query from trigger_condition field (simple field = value conditions)
+            $tc = $rule['trigger_condition'];
+
+            // Legacy FC-R rules (backward compatibility)
             $t4 = self::TIER4_URLS;
-
-            // Shared filters — exclude utility, thank-you, promotional, tool, payment, legal, and event pages
-            $utilExclude = "AND is_utility IS NOT TRUE AND url NOT LIKE '%thank-you%' AND url NOT LIKE '%thank_you%' AND url NOT LIKE '%thanks%' AND url NOT LIKE '%-submit%' AND url NOT LIKE '%-confirmation%' AND url NOT LIKE '%-confirmed%' AND url NOT LIKE '%prize-wheel%' AND url NOT LIKE '%giveaway%' AND url NOT LIKE '%contest%' AND url NOT LIKE '%review-builder%' AND url NOT LIKE '%payment-failed%' AND url NOT LIKE '%payment-success%' AND url NOT LIKE '%terms-of-use%' AND url NOT LIKE '%privacy-policy%' AND url NOT LIKE '%affaire%' AND url NOT LIKE '%/builder/%'";
-
             $query = match($rule['id']) {
                 'FC-R1'  => "SELECT url, page_type, h1, title_tag, word_count, has_central_entity, central_entity_count FROM page_crawl_snapshots WHERE has_central_entity IS NOT TRUE AND word_count > 0 AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) {$utilExclude} LIMIT 10",
                 'FC-R2'  => "SELECT url, page_type, h1, title_tag FROM page_crawl_snapshots WHERE (page_type IS NULL OR page_type NOT IN ('core','outer','utility')) AND is_noindex IS NOT TRUE AND {$af} LIMIT 10",
@@ -748,8 +813,24 @@ PROMPT;
                 default  => null,
             };
 
-            if (!$query) return [];
-            return $this->db->fetchAllAssociative($query);
+            if ($query) {
+                return $this->db->fetchAllAssociative($query);
+            }
+
+            // If no SQL and no legacy match, try to build a basic query from the trigger condition text
+            // This handles rules like: page_type = 'core' AND word_count = 0
+            if ($tc && str_contains(strtolower($tc), 'page_crawl_snapshots')) {
+                // Extract the WHERE clause portion
+                if (preg_match('/WHERE\s+(.*)/is', $tc, $m)) {
+                    $where = trim($m[1]);
+                    $where = preg_replace('/LIMIT\s+\d+/i', '', $where);
+                    return $this->db->fetchAllAssociative(
+                        "SELECT url, page_type, word_count, h1, title_tag, has_central_entity, central_entity_count, schema_types, h1_matches_title, h2s, has_core_link, canonical_url, is_noindex FROM page_crawl_snapshots WHERE {$where} LIMIT 15"
+                    );
+                }
+            }
+
+            return [];
         } catch (\Exception $e) {
             return [];
         }
@@ -771,15 +852,82 @@ PROMPT;
     }
 
     // ─────────────────────────────────────────────
-    //  CALL ALL THREE LLMs IN PARALLEL
+    //  GET OWNER FEEDBACK (Jeanne's past reviews for this rule)
+    // ─────────────────────────────────────────────
+
+    private function getOwnerFeedback(string $ruleId): string
+    {
+        try {
+            $reviews = $this->db->fetchAllAssociative(
+                "SELECT verdict, feedback, corrections, reviewed_at, reviewed_by
+                 FROM rule_reviews
+                 WHERE rule_id = :rule_id
+                 ORDER BY reviewed_at DESC
+                 LIMIT 5",
+                ['rule_id' => $ruleId]
+            );
+
+            if (empty($reviews)) return '';
+
+            $lines = [];
+            foreach ($reviews as $r) {
+                $date    = $r['reviewed_at'] ? substr($r['reviewed_at'], 0, 10) : 'unknown';
+                $by      = $r['reviewed_by'] ?? 'Unknown';
+                $verdict = $r['verdict'] ?? 'no verdict';
+                $fb      = $r['feedback'] ?? '';
+                $corr    = $r['corrections'] ?? '';
+
+                $line = "- [{$date}] {$by}: {$verdict}";
+                if ($fb) $line .= " — {$fb}";
+                if ($corr) {
+                    $corrections = json_decode($corr, true);
+                    if (is_array($corrections) && !empty($corrections)) {
+                        $corrTexts = [];
+                        foreach ($corrections as $c) {
+                            $corrTexts[] = ($c['url'] ?? '?') . ' should be ' . ($c['override'] ?? '?') . ($c['reason'] ? " ({$c['reason']})" : '');
+                        }
+                        $line .= " | Corrections: " . implode('; ', $corrTexts);
+                    }
+                }
+                $lines[] = $line;
+            }
+
+            return implode("\n", $lines);
+        } catch (\Exception $e) {
+            return '';
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    //  BRAND GLOSSARY (prevents hallucination in LLM output)
+    // ─────────────────────────────────────────────
+
+    private function getBrandGlossary(): string
+    {
+        return <<<GLOSSARY
+- Company: Double D Trailers (DDT), founded 1997 in Pink Hill NC, HQ Wilmington NC
+- Construction: Z-Frame — high-tensile, zinc-infused material (NOT aluminum, NOT traditional steel)
+- SafeTack: Patented reverse-load design with swing-out rear tack (NOT SafeTrack, NOT safe tack)
+- SafeBump: Single-piece molded fiber composite roof reinforced with Z-Frame tubing every 16 inches (NOT SafeKill)
+- SafeKick: Flexible wall panel made of recycled plastic and rubber compound
+- DO NOT reference: aluminum, Z-Bar, SafeKill, or any invented product names or pricing
+- Product pages: max 500 words body text. MSE elements carry the page.
+- Outer pages: min 1000 words. Below that = thin content.
+- Max 3 internal links per page. Zero external links.
+GLOSSARY;
+    }
+
+    // ─────────────────────────────────────────────
+    //  CALL ALL FIVE LLMs IN PARALLEL
     // ─────────────────────────────────────────────
 
     private function callAllLLMs(string $prompt, int $maxTokens = 1500): array
     {
-        $claudeKey = $_ENV['ANTHROPIC_API_KEY'] ?? '';
-        $openaiKey = $_ENV['OPENAI_API_KEY']    ?? '';
-        $geminiKey = $_ENV['GEMINI_API_KEY']    ?? '';
-        $grokKey   = $_ENV['XAI_API_KEY']       ?? '';
+        $claudeKey     = $_ENV['ANTHROPIC_API_KEY']  ?? '';
+        $openaiKey     = $_ENV['OPENAI_API_KEY']     ?? '';
+        $geminiKey     = $_ENV['GEMINI_API_KEY']     ?? '';
+        $grokKey       = $_ENV['XAI_API_KEY']        ?? '';
+        $perplexityKey = $_ENV['PERPLEXITY_API_KEY'] ?? '';
 
         $handles = [];
         $mh      = curl_multi_init();
@@ -791,7 +939,7 @@ PROMPT;
                 CURLOPT_POST           => true,
                 CURLOPT_POSTFIELDS     => json_encode(['model' => 'claude-sonnet-4-6', 'max_tokens' => $maxTokens, 'messages' => [['role' => 'user', 'content' => $prompt]]]),
                 CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'x-api-key: ' . $claudeKey, 'anthropic-version: 2023-06-01'],
-                CURLOPT_TIMEOUT        => 60,
+                CURLOPT_TIMEOUT        => 90,
             ]);
             $handles['claude'] = $ch;
             curl_multi_add_handle($mh, $ch);
@@ -804,7 +952,7 @@ PROMPT;
                 CURLOPT_POST           => true,
                 CURLOPT_POSTFIELDS     => json_encode(['model' => 'gpt-4o', 'max_tokens' => $maxTokens, 'messages' => [['role' => 'system', 'content' => 'You are an expert SEO strategist for a horse trailer manufacturer. Be specific, concise, and actionable.'], ['role' => 'user', 'content' => $prompt]]]),
                 CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $openaiKey],
-                CURLOPT_TIMEOUT        => 60,
+                CURLOPT_TIMEOUT        => 90,
             ]);
             $handles['gpt4o'] = $ch;
             curl_multi_add_handle($mh, $ch);
@@ -817,7 +965,7 @@ PROMPT;
                 CURLOPT_POST           => true,
                 CURLOPT_POSTFIELDS     => json_encode(['contents' => [['parts' => [['text' => $prompt]]]], 'generationConfig' => ['maxOutputTokens' => $maxTokens]]),
                 CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-                CURLOPT_TIMEOUT        => 60,
+                CURLOPT_TIMEOUT        => 90,
             ]);
             $handles['gemini'] = $ch;
             curl_multi_add_handle($mh, $ch);
@@ -830,9 +978,22 @@ PROMPT;
                 CURLOPT_POST           => true,
                 CURLOPT_POSTFIELDS     => json_encode(['model' => 'grok-3-fast', 'max_tokens' => $maxTokens, 'messages' => [['role' => 'system', 'content' => 'You are an expert SEO strategist for a horse trailer manufacturer. Be specific, concise, and actionable.'], ['role' => 'user', 'content' => $prompt]]]),
                 CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $grokKey],
-                CURLOPT_TIMEOUT        => 60,
+                CURLOPT_TIMEOUT        => 90,
             ]);
             $handles['grok'] = $ch;
+            curl_multi_add_handle($mh, $ch);
+        }
+
+        if ($perplexityKey) {
+            $ch = curl_init('https://api.perplexity.ai/chat/completions');
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => json_encode(['model' => 'sonar-pro', 'max_tokens' => $maxTokens, 'messages' => [['role' => 'system', 'content' => 'You are an expert SEO strategist for a horse trailer manufacturer. Be specific, concise, and actionable.'], ['role' => 'user', 'content' => $prompt]]]),
+                CURLOPT_HTTPHEADER     => ['Content-Type: application/json', 'Authorization: Bearer ' . $perplexityKey],
+                CURLOPT_TIMEOUT        => 90,
+            ]);
+            $handles['perplexity'] = $ch;
             curl_multi_add_handle($mh, $ch);
         }
 
@@ -846,11 +1007,12 @@ PROMPT;
             curl_close($ch);
             $decoded = json_decode($raw, true);
             $results[$llm] = match($llm) {
-                'claude' => isset($decoded['content'][0]['text'])                           ? ['text' => $decoded['content'][0]['text']]                           : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
-                'gpt4o'  => isset($decoded['choices'][0]['message']['content'])             ? ['text' => $decoded['choices'][0]['message']['content']]             : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
-                'gemini' => isset($decoded['candidates'][0]['content']['parts'][0]['text']) ? ['text' => $decoded['candidates'][0]['content']['parts'][0]['text']] : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
-                'grok'   => isset($decoded['choices'][0]['message']['content'])             ? ['text' => $decoded['choices'][0]['message']['content']]             : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
-                default  => ['error' => 'Unknown LLM'],
+                'claude'     => isset($decoded['content'][0]['text'])                           ? ['text' => $decoded['content'][0]['text']]                           : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
+                'gpt4o'      => isset($decoded['choices'][0]['message']['content'])             ? ['text' => $decoded['choices'][0]['message']['content']]             : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
+                'gemini'     => isset($decoded['candidates'][0]['content']['parts'][0]['text']) ? ['text' => $decoded['candidates'][0]['content']['parts'][0]['text']] : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
+                'grok'       => isset($decoded['choices'][0]['message']['content'])             ? ['text' => $decoded['choices'][0]['message']['content']]             : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
+                'perplexity' => isset($decoded['choices'][0]['message']['content'])             ? ['text' => $decoded['choices'][0]['message']['content']]             : ['error' => $decoded['error']['message'] ?? 'Unknown error'],
+                default      => ['error' => 'Unknown LLM'],
             };
         }
 
@@ -945,40 +1107,44 @@ PROMPT;
     {
         try {
             $this->db->insert('rule_evaluations', [
-                'rule_id'            => $rule['id'],
-                'rule_name'          => $rule['name'],
-                'pages_firing'       => count($firingPages),
-                'sample_urls'        => json_encode(array_column(array_slice($firingPages, 0, 5), 'url')),
-                'claude_verdict'     => $verdicts['claude']['verdict']    ?? 'N/A',
-                'claude_conf'        => $verdicts['claude']['confidence'] ?? 0,
-                'claude_summary'     => $verdicts['claude']['summary']    ?? '',
-                'gpt4o_verdict'      => $verdicts['gpt4o']['verdict']     ?? 'N/A',
-                'gpt4o_conf'         => $verdicts['gpt4o']['confidence']  ?? 0,
-                'gpt4o_summary'      => $verdicts['gpt4o']['summary']     ?? '',
-                'gemini_verdict'     => $verdicts['gemini']['verdict']    ?? 'N/A',
-                'gemini_conf'        => $verdicts['gemini']['confidence'] ?? 0,
-                'gemini_summary'     => $verdicts['gemini']['summary']    ?? '',
-                'grok_verdict'       => $verdicts['grok']['verdict']      ?? 'N/A',
-                'grok_conf'          => $verdicts['grok']['confidence']   ?? 0,
-                'grok_summary'       => $verdicts['grok']['summary']      ?? '',
-                'consensus_status'   => $consensus['status'],
-                'avg_confidence'     => $consensus['avg_conf'],
-                'consensus_reason'   => $consensus['reason'],
-                'rounds_run'         => $roundsRun,
-                'round_history'      => json_encode($allRounds),
-                // Stage 2 output fields
-                'output_finding'     => $outputConsensus['finding']    ?? null,
-                'output_diagnosis'   => $outputConsensus['diagnosis']  ?? null,
-                'output_pages'       => $outputConsensus['pages']      ? json_encode($outputConsensus['pages']) : null,
-                'output_priority'    => $outputConsensus['priority']   ?? null,
-                'output_verify_in'   => $outputConsensus['verify_in']  ?? null,
-                'output_brook'       => $outputConsensus['role_brook'] ?? null,
-                'output_brad'        => $outputConsensus['role_brad']  ?? null,
-                'output_kalib'       => $outputConsensus['role_kalib'] ?? null,
-                'output_jeanne'      => $outputConsensus['role_jeanne'] ?? null,
-                'output_caveat'      => $outputConsensus['caveat']     ?? null,
-                'output_conf'        => $outputConsensus['avg_conf']   ?? null,
-                'evaluated_at'       => date('Y-m-d H:i:s'),
+                'rule_id'              => $rule['id'],
+                'rule_name'            => $rule['name'],
+                'pages_firing'         => count($firingPages),
+                'sample_urls'          => json_encode(array_column(array_slice($firingPages, 0, 5), 'url')),
+                'claude_verdict'       => $verdicts['claude']['verdict']       ?? 'N/A',
+                'claude_conf'          => $verdicts['claude']['confidence']    ?? 0,
+                'claude_summary'       => $verdicts['claude']['summary']       ?? '',
+                'gpt4o_verdict'        => $verdicts['gpt4o']['verdict']        ?? 'N/A',
+                'gpt4o_conf'           => $verdicts['gpt4o']['confidence']     ?? 0,
+                'gpt4o_summary'        => $verdicts['gpt4o']['summary']        ?? '',
+                'gemini_verdict'       => $verdicts['gemini']['verdict']       ?? 'N/A',
+                'gemini_conf'          => $verdicts['gemini']['confidence']    ?? 0,
+                'gemini_summary'       => $verdicts['gemini']['summary']       ?? '',
+                'grok_verdict'         => $verdicts['grok']['verdict']         ?? 'N/A',
+                'grok_conf'            => $verdicts['grok']['confidence']      ?? 0,
+                'grok_summary'         => $verdicts['grok']['summary']         ?? '',
+                'perplexity_verdict'   => $verdicts['perplexity']['verdict']   ?? 'N/A',
+                'perplexity_conf'      => $verdicts['perplexity']['confidence'] ?? 0,
+                'perplexity_summary'   => $verdicts['perplexity']['summary']   ?? '',
+                'consensus_status'     => $consensus['status'],
+                'avg_confidence'       => $consensus['avg_conf'],
+                'consensus_reason'     => $consensus['reason'],
+                'rounds_run'           => $roundsRun,
+                'round_history'        => json_encode($allRounds),
+                // Stage 2 output — unified play brief
+                'play_brief'           => $outputConsensus['raw'] ?? null,
+                'output_finding'       => $outputConsensus['finding']    ?? null,
+                'output_diagnosis'     => $outputConsensus['diagnosis']  ?? null,
+                'output_pages'         => $outputConsensus['pages']      ? json_encode($outputConsensus['pages']) : null,
+                'output_priority'      => $outputConsensus['priority']   ?? null,
+                'output_verify_in'     => $outputConsensus['verify_in']  ?? null,
+                'output_brook'         => $outputConsensus['role_brook'] ?? null,
+                'output_brad'          => $outputConsensus['role_brad']  ?? null,
+                'output_kalib'         => $outputConsensus['role_kalib'] ?? null,
+                'output_jeanne'        => $outputConsensus['role_jeanne'] ?? null,
+                'output_caveat'        => $outputConsensus['caveat']     ?? null,
+                'output_conf'          => $outputConsensus['avg_conf']   ?? null,
+                'evaluated_at'         => date('Y-m-d H:i:s'),
             ]);
         } catch (\Exception $e) {
             // Non-fatal
@@ -1011,11 +1177,15 @@ PROMPT;
                     grok_verdict        VARCHAR(10),
                     grok_conf           INT DEFAULT 0,
                     grok_summary        TEXT,
+                    perplexity_verdict  VARCHAR(10),
+                    perplexity_conf     INT DEFAULT 0,
+                    perplexity_summary  TEXT,
                     consensus_status    VARCHAR(30),
                     avg_confidence      NUMERIC(4,1),
                     consensus_reason    TEXT,
                     rounds_run          INT DEFAULT 1,
                     round_history       TEXT,
+                    play_brief          TEXT,
                     output_finding      TEXT,
                     output_diagnosis    TEXT,
                     output_pages        TEXT,
@@ -1031,8 +1201,16 @@ PROMPT;
                 )
             ");
             // Add columns to existing tables if missing
-            foreach (['rounds_run INT DEFAULT 1', 'round_history TEXT', 'output_finding TEXT', 'output_diagnosis TEXT', 'output_pages TEXT', 'output_priority VARCHAR(20)', 'output_verify_in VARCHAR(20)', 'output_brook TEXT', 'output_brad TEXT', 'output_kalib TEXT', 'output_jeanne TEXT', 'output_caveat TEXT', 'output_conf NUMERIC(4,1)', 'grok_verdict VARCHAR(10)', 'grok_conf INT DEFAULT 0', 'grok_summary TEXT'] as $col) {
-                $colName = explode(' ', $col)[0];
+            $newCols = [
+                'rounds_run INT DEFAULT 1', 'round_history TEXT', 'play_brief TEXT',
+                'output_finding TEXT', 'output_diagnosis TEXT', 'output_pages TEXT',
+                'output_priority VARCHAR(20)', 'output_verify_in VARCHAR(20)',
+                'output_brook TEXT', 'output_brad TEXT', 'output_kalib TEXT',
+                'output_jeanne TEXT', 'output_caveat TEXT', 'output_conf NUMERIC(4,1)',
+                'grok_verdict VARCHAR(10)', 'grok_conf INT DEFAULT 0', 'grok_summary TEXT',
+                'perplexity_verdict VARCHAR(10)', 'perplexity_conf INT DEFAULT 0', 'perplexity_summary TEXT',
+            ];
+            foreach ($newCols as $col) {
                 $this->db->executeStatement("ALTER TABLE rule_evaluations ADD COLUMN IF NOT EXISTS {$col}");
             }
         } catch (\Exception $e) {
@@ -1040,5 +1218,3 @@ PROMPT;
         }
     }
 }
-
-    
