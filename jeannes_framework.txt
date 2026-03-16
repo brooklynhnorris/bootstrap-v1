@@ -1,0 +1,233 @@
+JEANNE'S SEO FRAMEWORK — DOUBLE D TRAILERS
+============================================================
+This framework is the doctrinal foundation for ALL rule generation and evaluation.
+Every rule must be consistent with these principles. Do NOT contradict them.
+
+============================================================
+SECTION 1: PAGE CLASSIFICATION SYSTEM (Macro / Micro / Outer)
+============================================================
+
+Every page on doubledtrailers.com falls into one of four categories.
+Rules must reference these categories correctly.
+
+MACRO PAGES — Business identity, primary offerings, conversion points.
+- Homepage, About, Contact, Get Quote, Dealers, Financing, Why Double D
+- Primary product overview pages (e.g., /horse-trailers/)
+- Criteria: Represents the brand entity, has transactional CTAs, contains "we/our" language
+- Content signals: Brand name prominent, Organization/LocalBusiness schema, pricing/quote CTAs
+- These pages answer: "Who is this business?" and "What do they sell?"
+
+MICRO PAGES — Specific product types, features, audience segments, social proof.
+- Individual trailer model pages (e.g., /gooseneck-trailers/, /2-horse-bumper-pull/)
+- Feature pages (e.g., /safebump/, /z-frame-construction/)
+- Audience-specific pages (e.g., /trailers-for-show-horses/)
+- Reviews, testimonials, case studies, comparisons, warranty, customization
+- These pages answer: "What types/models do they offer?" and "What makes them special?"
+
+OUTER PAGES — Educational/informational content that builds topical authority.
+- Blog posts, guides, how-tos, horse breed content, activity content
+- Industry news, events, podcasts, videos
+- Resource pages, checklists, glossaries
+- These pages answer questions users have BEFORE buying.
+- Outer pages MUST link to relevant macro or micro pages.
+
+UTILITY PAGES — Functional pages excluded from content strategy.
+- Privacy policy, terms of service, sitemap, login, cart, checkout, thank-you
+- Classification: noindex where appropriate, exclude from SEO rules.
+
+CLASSIFICATION DECISION TREE:
+1. Utility page? → UTILITY
+2. Homepage? → MACRO
+3. Represents the business entity? → MACRO
+4. Primary goal is conversion/lead capture? → MACRO
+5. Describes specific product type/model/variant? → MICRO
+6. Describes features/attributes of main product? → MICRO
+7. Review/testimonial/case study? → MICRO
+8. Audience-specific for main product? → MICRO
+9. Educational/informational about related topics? → OUTER
+10. Blog/podcast/video/news? → OUTER
+11. Unclear? → Default to OUTER, flag for manual review.
+
+============================================================
+SECTION 2: CONTENT STRUCTURE — MACRO vs MICRO CONTEXT WITHIN A PAGE
+============================================================
+
+Every page has internal macro and micro context sections:
+
+- MACRO CONTEXT (75% of page content): The primary topic, directly answering the page's central search intent. This is the main content that addresses why the user landed on the page.
+
+- MICRO/SUPPLEMENTARY CONTEXT (25% of page content): Supporting details, side-topics, related information. This section appears at the bottom of the page.
+
+- CONTEXTUAL BRIDGE: On informational core content, a bridge paragraph may be needed to transition from macro to supplementary context.
+
+HEADING FLOW RULE: All headings must demonstrate contextual flow from macro context to micro context. Headings alone should accurately summarize the entire page's content — search engines and AI bots must be able to make an accurate assumption of the page's content just by reading the headings.
+
+============================================================
+SECTION 3: MOST SIGNIFICANT ELEMENT (MSE) — Patent-Based Layout Rules
+============================================================
+
+Based on Google patents: VISION-BASED DOCUMENT SEGMENTATION (US 7,428,700 B2)
+and LAYOUT APPROXIMATION (US 2008/0033996 A1).
+
+Search engines do NOT render pages visually. They analyze the DOM tree structure
+to approximate layout and find the Most Significant Element (MSE).
+
+KEY PRINCIPLES:
+
+1. CONTENT PLACEMENT: Place the most important content near the vertical center of the page. Content at the very top is penalized as "noise" (nav, ads). Content too far down receives extremely low weight.
+
+2. CONTENT DENSITY: The MSE is found by calculating a weighted sum of word count + image dimensions. Primary content must be densely grouped together so its "true-content" value beats surrounding noise.
+
+3. HTML FORMATTING: Search engines assign higher weight to text in formatting tags like <B>, <H1>, <SMALL>. Use these deliberately.
+
+4. PARAGRAPH PURITY: A <P> node containing only text receives maximum "Degree of Coherence" score (10/10). Keep paragraph structures pure.
+
+5. TABLE NESTING: Content buried too deeply inside sub-tables will not be identified as the MSE. Avoid deep nesting.
+
+6. VISUAL SEPARATORS: Use background colors, font size changes, and blank space to signal topic boundaries. <HR> tags receive very high separation weight (50).
+
+7. NAVIGATION DETECTION: Elements with height > 2x width and width < 200px are classified as navigation noise. Keywords in nav areas are ignored.
+
+FOR PRODUCT PAGES (MSE requirements):
+- Main product image (compelling, showing main benefits)
+- Key attributes with unique differentiators: product name (e.g., "SafeTack 2 Horse Bumper Pull 2026 Series"), proprietary features (Z-Frame, SafeBump), size, dimensions, color, price
+- Functionality elements: buy button, call/request a quote CTA
+- Reviews
+- Additional product photos/media
+- FAQs specific to the product using long-tail, human-generated queries
+
+============================================================
+SECTION 4: PREDICATE RULES — Entity + Predicate Alignment
+============================================================
+
+Every page has a central entity and a main predicate. These must align with search intent.
+
+ENTITY: The primary subject of the page (e.g., "SafeTack 2 Horse Bumper Pull")
+PREDICATE: The action/intent word that defines what the user wants to do.
+
+PREDICATE ALIGNMENT BY PAGE TYPE:
+- TRANSACTIONAL/PURCHASE pages: "buy" "order" "customize" "design" "build"
+- INFORMATIONAL PRODUCT pages: "learn" "compare" "find" "explore" "discover"
+- EDUCATIONAL/OUTER pages: "understand" "how to" "what is" "guide"
+
+RULES:
+- The main predicate must appear in the H1 title
+- The main predicate must be repeated near CTAs
+- Predicates and their synonyms must directly relate to the central search intent
+- CTAs must use predicates matching the TARGET page's intent (e.g., "Learn More About Horse Trailers for Buckskin Horses" must go to an informational page about horse trailers for that breed, NOT a breed-only page)
+
+============================================================
+SECTION 5: HEADING STRUCTURE RULES
+============================================================
+
+1. Headings must demonstrate contextual flow: macro context → micro context
+2. Use question format for informational content headings (mimicking real human search queries)
+3. Consider search volume: headings addressing zero-volume keywords should be recommended for deletion or demotion to supplementary context
+4. H1, H2s, and H3s must act as a complete summary of the page — bots should understand the page from headings alone
+5. Always use the "p" element after the "h" element — never bring images before the first paragraph under a heading
+
+============================================================
+SECTION 6: IMAGE RULES
+============================================================
+
+1. Important, contextually relevant images MUST contain:
+   - Proper <img> element with src and alt attributes (NOT srcset, NOT div-wrapped, NOT JS-rendered)
+   - Alt text with brand logo reference and target keywords
+   - IPTC metadata
+   - URL containing the main entity
+2. Faces and products in images should be unique (no stock repetition)
+3. Place images at the END of a section, after all answers to the heading
+4. Always use "p" element after "h" element — image comes after text content
+5. Generic/unimportant images (decorative) may skip these rules
+6. Do NOT use div elements or JavaScript for rendering images that need to be indexed
+
+============================================================
+SECTION 7: INTERNAL AND EXTERNAL LINK RULES
+============================================================
+
+1. Limit internal links on a page to a maximum of 3
+2. Internal link targets must be based on closest entity, attribute, and function to the current page:
+   - Example: "2-horse gooseneck slant load" page links to "gooseneck slant load" page (NOT "bumper pull slant load")
+   - Link to comparison pages of the same category (NOT cross-category)
+   - Link to customization page for THIS product (NOT general models page)
+3. Do NOT use text in the first paragraph as anchor text
+4. Do NOT use the first word of any paragraph as anchor text
+5. For links to different contexts or side-topics, use paragraphs in the Supplementary Content (micro context, bottom 25%) section
+6. Use synonyms for topics when creating anchor texts
+7. Verify that anchor text keywords exist in the target page's content AND the source heading's text
+8. For external citations: use the most popular/high-ranking works. Specify author, title, date.
+   - Do NOT provide external links — this reduces PageRank. If the citation is clear and popular enough, search engine bots will reconcile it on their own.
+9. Use the most relevant descriptions within the 5 words before and after anchor text to reinforce relevance
+10. For internal links that are not highly relevant to content but critical for conversions: use onclick or JavaScript instead of <a> anchor tags — bots won't read it as a link, preserving PageRank
+
+============================================================
+SECTION 8: FIRST-SENTENCE AND INTRODUCTION RULES
+============================================================
+
+INTRODUCTION:
+- Limit introductory paragraph to 100 words or less
+
+FIRST-SENTENCE STRUCTURE:
+- The first sentence under any heading must directly answer the implied question of that heading.
+
+CORRECT PATTERNS:
+- Heading: "How to Do X" → First sentence: "To do X..."
+- Heading: "What are the benefits of X" → First sentence: "[Item 1] and [Item 2] are the benefits of X" or "The 5 benefits of X are..."
+
+INCORRECT PATTERNS:
+- Heading: "How to Do X" → First sentence: "X is..." (WRONG — doesn't answer "how")
+- Heading: "What are the benefits of X" → First sentence: "People love X..." (WRONG — delays the answer)
+
+ENTITY POSITION IN SENTENCES:
+The main entity's position in a sentence affects how search engines interpret context.
+- "Firefighters rescued the horses" → Main context: Firefighters
+- "The horses were rescued by firefighters" → Main context: Horses' experience
+Choose sentence structure deliberately based on what you want search engines to identify as the primary topic.
+
+============================================================
+SECTION 9: CONTENT VOLUME RULES
+============================================================
+
+PRODUCT PAGES (Transactional/Core):
+- Word count should NOT exceed 500 words for body text
+- MSE elements (images, attributes, CTAs, reviews, FAQs) carry the page, not word volume
+- Must include: reviews, product photos/media, FAQs with long-tail human-generated queries
+
+INFORMATIONAL PAGES (Outer):
+- Minimum 1000 words for main content
+- Pages with less than 1000 words = "thin content"
+- Thin content should be merged into the most relevant high-search-volume page
+
+LOW SEARCH VOLUME (LSV) CONTENT:
+- Pages with topics that have low to zero search volume should be placed as sections in high-search-volume (HSV) pages
+- The content of LSV pages should be transferred and matched to the most relevant HSV page
+- Once LSV content is merged into an HSV page, a new on-page content quality assessment must be run
+
+============================================================
+SECTION 10: CTA AND CONVERSION RULES
+============================================================
+
+1. CTA anchor phrases and buttons must use predicates matching the search intent of the TARGET page:
+   - "Learn More About Horse Trailers for Buckskin Horses" → MUST link to an informational page about horse trailers for that breed
+   - "Order Your 3-Horse Living Quarters Horse Trailer" → MUST link to a purchase/product page
+2. Mismatched CTAs (informational predicate → transactional page, or vice versa) are flagged for correction
+
+============================================================
+SECTION 11: MIXED SIGNAL RULES
+============================================================
+
+1. Detect any links on the page with HTTP URLs (non-HTTPS) and broken links → recommend for updating
+2. Do NOT use div elements or JavaScript to render critical links at the top of the page — use proper <a> tags where crawlability matters
+3. For conversion-critical but content-irrelevant links, use onclick/JavaScript to hide from bots
+
+============================================================
+SECTION 12: TRANSACTIONAL PAGE LAYOUT (Sales Pages)
+============================================================
+
+1. Top 25% of the page: compelling product image representing main benefits to users
+2. H1 title: model name of the product (entity) + results-driven adjective phrase (attribute/predicate)
+3. Key attributes section with unique differentiators
+4. Functionality section (buy button, quote CTA)
+5. Reviews section
+6. Additional media (photos, videos)
+7. FAQ section with product-specific, long-tail human queries (from actual customer questions, Reddit, FB groups, AI-anticipated queries)

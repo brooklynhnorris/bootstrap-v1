@@ -332,6 +332,7 @@ class GenerateRulesCommand extends Command
         $siteData = $this->formatSiteContext($siteContext);
         $existingList = $this->formatExistingRules($existingRules);
         $brandContext = $this->buildBrandContext($siteContext);
+        $framework = $this->loadFramework();
 
         return <<<PROMPT
 You are a senior SEO architect designing a comprehensive rule engine FROM SCRATCH for doubledtrailers.com.
@@ -340,6 +341,11 @@ IMPORTANT: You are building an entirely new ruleset. Ignore any existing rules. 
 
 ⚠️ CRITICAL — BRAND ACCURACY RULES:
 When writing examples, diagnoses, or action outputs, you MUST ONLY use the real product names, real brand terminology, and real specifications listed below. DO NOT invent product names, model names, or brand terminology. If you need an example and aren't sure of the exact name, use a generic placeholder like "[Product Model Name]" or "[Core Page URL]" — never fabricate a name.
+
+⚠️ CRITICAL — SEO FRAMEWORK:
+All rules MUST be consistent with the following SEO framework. Do NOT contradict these principles. Rules that conflict with this framework will be rejected.
+
+{$framework}
 
 BRAND FACTS — DOUBLE D TRAILERS:
 {$brandContext}
@@ -433,6 +439,7 @@ YOUR TASK:
 4. Remove any rules that reference incorrect brand terminology (aluminum, Z-Bar, SafeKill, etc.)
 5. Ensure every rule has a clear trigger condition with real field names
 6. Ensure every rule addresses AI search citation eligibility
+7. Ensure every rule is CONSISTENT with the SEO framework provided in Round 1 (macro/micro/outer classification, MSE placement, predicate alignment, heading flow, image rules, link rules, content volume limits, first-sentence structure)
 
 OUTPUT: 5-8 refined rules in the EXACT same format as Round 1 (RULE_ID, RULE_NAME, TRIGGER_SOURCE, TRIGGER_CONDITION, etc.)
 
@@ -484,6 +491,8 @@ Produce the FINAL 5-8 rules. For each rule:
 6. All examples must use REAL Double D Trailers product names and terminology only
 
 CRITICAL: You MUST output ALL 5-8 rules. Keep each rule's ACTION_OUTPUT to 3-5 bullet points maximum — do NOT write full essays per rule. The DIAGNOSIS should be 1-2 sentences. Be concise so you have room for all rules.
+
+FRAMEWORK COMPLIANCE: Every rule must be consistent with the SEO framework (macro/micro/outer page classification, MSE placement, predicate alignment, 75/25 macro-micro content split, heading contextual flow, image placement rules, max 3 internal links, first-sentence-answers-heading pattern, 100-word intro limit, product page max 500 words body text, outer page min 1000 words).
 
 This is the production ruleset. Be precise. Be specific to custom horse trailers. Output in the exact RULE_ID/RULE_NAME/TRIGGER_SOURCE/etc format.
 PROMPT;
@@ -551,6 +560,19 @@ PROMPT;
             return trim($m[1]);
         }
         return '';
+    }
+
+    // ─────────────────────────────────────────────
+    //  LOAD SEO FRAMEWORK (Jeanne's methodology)
+    // ─────────────────────────────────────────────
+
+    private function loadFramework(): string
+    {
+        $path = __DIR__ . '/../../jeannes_framework.txt';
+        if (file_exists($path)) {
+            return file_get_contents($path);
+        }
+        return '(Framework file not found at ' . $path . ')';
     }
 
     // ─────────────────────────────────────────────
