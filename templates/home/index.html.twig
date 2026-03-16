@@ -826,6 +826,36 @@
         .panel-btn.done:hover { background: var(--accent-green); color: white; }
         .recheck-modal { display: none; }
         input#recheck-modal-taskid { display: none; }
+        /* ── ACTIVITY FEED ── */
+        .activity-item {
+            display: flex; gap: 8px; padding: 8px 14px;
+            border-bottom: 1px solid var(--border-subtle);
+            font-size: 12px;
+        }
+        .activity-icon {
+            flex-shrink: 0; width: 20px; text-align: center;
+            font-size: 12px; color: var(--accent-blue); margin-top: 1px;
+        }
+        .activity-body { flex: 1; min-width: 0; }
+        .activity-actor { font-weight: 600; color: var(--text-primary); }
+        .activity-action { color: var(--text-secondary); }
+        .activity-target {
+            color: var(--text-primary); font-weight: 500;
+            display: block; white-space: nowrap; overflow: hidden;
+            text-overflow: ellipsis; margin-top: 2px;
+        }
+        .activity-details {
+            font-size: 11px; color: var(--text-muted);
+            margin-top: 2px; font-style: italic;
+        }
+        .activity-time { font-size: 10px; color: var(--text-muted); margin-top: 3px; }
+
+        /* ── ADD RULE MODAL ── */
+        #add-rule-modal {
+            display: none; position: fixed; inset: 0; z-index: 200;
+            background: rgba(0,0,0,0.25); align-items: center; justify-content: center;
+        }
+        #add-rule-modal.open { display: flex; }
     </style>
 </head>
 <body>
@@ -876,6 +906,7 @@
     <div class="sidebar-tabs">
         <div class="sidebar-tab active" id="tab-history" onclick="switchTab('history')">History</div>
         <div class="sidebar-tab" id="tab-rechecks" onclick="switchTab('rechecks')">Rechecks</div>
+        <div class="sidebar-tab" id="tab-activity" onclick="switchTab('activity')">Activity</div>
     </div>
     <div id="sidebar-scroll">
         <div id="panel-history">
@@ -915,6 +946,14 @@
                 </div>
             </div>
         </div>
+        <div id="panel-activity" style="display:none;">
+            <div class="sidebar-section" style="border-bottom:none;">
+                <div class="sidebar-section-title">Team Activity</div>
+                <div id="activity-list">
+                    <div class="task-empty">Loading activity...</div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -946,6 +985,7 @@
             <button class="topbar-filter-btn" id="filter-all"  onclick="setBoardFilter('all')">All</button>
         </div>
         <button class="topbar-filter-btn" onclick="openAddTask()" style="margin-left:4px;">+ Play</button>
+        <button class="topbar-filter-btn" onclick="openAddRule()" style="margin-left:2px;background:var(--accent-purple-dim);color:var(--accent-purple);border-color:#c4b5fd;">+ Rule</button>
     </div>
 
     <!-- BOARD VIEW -->
@@ -1019,6 +1059,74 @@
         <div class="modal-actions">
             <button class="modal-btn cancel" onclick="closeAddTask()">Cancel</button>
             <button class="modal-btn save" onclick="submitNewTask()">Queue Play</button>
+        </div>
+    </div>
+</div>
+
+<!-- ── ADD RULE MODAL ──────────────────────────── -->
+<div id="add-rule-modal">
+    <div class="modal-box" style="width:520px;">
+        <div class="modal-title">Add Custom Rule</div>
+        <div class="modal-field">
+            <div class="modal-label">Rule ID</div>
+            <input type="text" id="new-rule-id" class="modal-input" placeholder="e.g. CUSTOM-R1">
+        </div>
+        <div class="modal-field">
+            <div class="modal-label">Rule Name</div>
+            <input type="text" id="new-rule-name" class="modal-input" placeholder="e.g. Core pages missing reviews section">
+        </div>
+        <div class="modal-field">
+            <div class="modal-label">Category</div>
+            <select id="new-rule-category" class="modal-select">
+                <option value="On-Page Content Quality">On-Page Content Quality</option>
+                <option value="Technical SEO">Technical SEO</option>
+                <option value="Schema & Structured Data">Schema & Structured Data</option>
+                <option value="Internal Link Architecture">Internal Link Architecture</option>
+                <option value="AI Search & Citation">AI Search & Citation</option>
+                <option value="E-E-A-T & Trust Signals">E-E-A-T & Trust Signals</option>
+                <option value="Conversion Path & CTA">Conversion Path & CTA</option>
+                <option value="Custom">Custom</option>
+            </select>
+        </div>
+        <div class="modal-field">
+            <div class="modal-label">Trigger Condition (SQL WHERE clause or description)</div>
+            <textarea id="new-rule-trigger" class="modal-input" rows="3" placeholder="e.g. page_type = 'core' AND schema_types NOT LIKE '%Review%'"></textarea>
+        </div>
+        <div class="modal-field">
+            <div class="modal-label">Threshold</div>
+            <input type="text" id="new-rule-threshold" class="modal-input" placeholder="e.g. Any core page missing reviews section">
+        </div>
+        <div class="modal-field">
+            <div class="modal-label">Diagnosis (why this matters)</div>
+            <textarea id="new-rule-diagnosis" class="modal-input" rows="2" placeholder="What's the impact of this violation?"></textarea>
+        </div>
+        <div class="modal-field">
+            <div class="modal-label">Action Output (what to fix)</div>
+            <textarea id="new-rule-action" class="modal-input" rows="2" placeholder="Steps to resolve this violation"></textarea>
+        </div>
+        <div style="display:flex;gap:12px;">
+            <div class="modal-field" style="flex:1;">
+                <div class="modal-label">Priority</div>
+                <select id="new-rule-priority" class="modal-select">
+                    <option value="critical">Critical</option>
+                    <option value="high" selected>High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                </select>
+            </div>
+            <div class="modal-field" style="flex:1;">
+                <div class="modal-label">Assigned To</div>
+                <select id="new-rule-assigned" class="modal-select">
+                    <option value="Brook">Brook</option>
+                    <option value="Brad">Brad</option>
+                    <option value="Kalib">Kalib</option>
+                    <option value="Jeanne">Jeanne</option>
+                </select>
+            </div>
+        </div>
+        <div class="modal-actions">
+            <button class="modal-btn cancel" onclick="closeAddRule()">Cancel</button>
+            <button class="modal-btn save" onclick="submitNewRule()">Save Rule</button>
         </div>
     </div>
 </div>
@@ -1099,10 +1207,96 @@
     // Sidebar Tabs (History + Rechecks only)
     function switchTab(tab) {
         activeSidebarTab = tab;
-        ['history','rechecks'].forEach(t => {
-            document.getElementById('tab-' + t).classList.toggle('active', t === tab);
-            document.getElementById('panel-' + t).style.display = t === tab ? 'block' : 'none';
+        ['history','rechecks','activity'].forEach(t => {
+            const tabEl = document.getElementById('tab-' + t);
+            const panelEl = document.getElementById('panel-' + t);
+            if (tabEl) tabEl.classList.toggle('active', t === tab);
+            if (panelEl) panelEl.style.display = t === tab ? 'block' : 'none';
         });
+        if (tab === 'activity') loadActivityFeed();
+    }
+
+    async function loadActivityFeed() {
+        const list = document.getElementById('activity-list');
+        if (!list) return;
+        try {
+            const res = await fetch('/api/activity?limit=30');
+            const data = await res.json();
+            if (!data || data.length === 0) {
+                list.innerHTML = '<div class="task-empty">No activity yet</div>';
+                return;
+            }
+            list.innerHTML = data.map(a => {
+                const time = new Date(a.created_at).toLocaleString('en-US', {month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+                const icon = {
+                    'started_task': '▶',
+                    'completed_task': '✓',
+                    'reset_task': '↩',
+                    'reviewed_rule': '⚖',
+                    'created_rule': '＋',
+                    'updated_rule': '✎',
+                    'deleted_rule': '✕',
+                }[a.action] || '•';
+                const actionText = {
+                    'started_task': 'started',
+                    'completed_task': 'completed',
+                    'reset_task': 'reset',
+                    'reviewed_rule': 'reviewed',
+                    'created_rule': 'created rule',
+                    'updated_rule': 'updated rule',
+                    'deleted_rule': 'removed rule',
+                }[a.action] || a.action;
+                const title = a.target_title ? escapeHtml(a.target_title).substring(0, 60) : '';
+                return '<div class="activity-item">' +
+                    '<span class="activity-icon">' + icon + '</span>' +
+                    '<div class="activity-body">' +
+                    '<span class="activity-actor">' + escapeHtml(a.actor) + '</span> ' +
+                    '<span class="activity-action">' + actionText + '</span> ' +
+                    (title ? '<span class="activity-target">' + title + '</span>' : '') +
+                    (a.details ? '<div class="activity-details">' + escapeHtml(a.details).substring(0, 100) + '</div>' : '') +
+                    '<div class="activity-time">' + time + '</div>' +
+                    '</div></div>';
+            }).join('');
+        } catch(e) {
+            list.innerHTML = '<div class="task-empty">Could not load activity</div>';
+        }
+    }
+
+    // Rule Modal
+    function openAddRule()  { document.getElementById('add-rule-modal').classList.add('open'); }
+    function closeAddRule() { document.getElementById('add-rule-modal').classList.remove('open'); }
+    async function submitNewRule() {
+        const rule = {
+            rule_id:           document.getElementById('new-rule-id').value.trim(),
+            rule_name:         document.getElementById('new-rule-name').value.trim(),
+            category:          document.getElementById('new-rule-category').value,
+            trigger_condition: document.getElementById('new-rule-trigger').value.trim(),
+            threshold:         document.getElementById('new-rule-threshold').value.trim(),
+            diagnosis:         document.getElementById('new-rule-diagnosis').value.trim(),
+            action_output:     document.getElementById('new-rule-action').value.trim(),
+            priority:          document.getElementById('new-rule-priority').value,
+            assigned_to:       document.getElementById('new-rule-assigned').value,
+        };
+        if (!rule.rule_id || !rule.rule_name) { alert('Rule ID and Name are required'); return; }
+        try {
+            const res = await fetch('/api/rules', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(rule)
+            });
+            const data = await res.json();
+            if (data.error) { alert('Error: ' + data.error); return; }
+            closeAddRule();
+            document.getElementById('new-rule-id').value = '';
+            document.getElementById('new-rule-name').value = '';
+            document.getElementById('new-rule-trigger').value = '';
+            document.getElementById('new-rule-threshold').value = '';
+            document.getElementById('new-rule-diagnosis').value = '';
+            document.getElementById('new-rule-action').value = '';
+            showNotification('Rule ' + rule.rule_id + ' created', 'green');
+        } catch(e) {
+            alert('Failed to create rule: ' + e.message);
+        }
     }
 
     // Task Filter

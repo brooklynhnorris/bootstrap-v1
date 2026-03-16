@@ -24,17 +24,14 @@ class HomeController extends AbstractController
             $this->db->executeStatement('CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY, conversation_id INT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role VARCHAR(20) NOT NULL, content TEXT NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
             $this->db->executeStatement('CREATE TABLE IF NOT EXISTS rule_reviews (id SERIAL PRIMARY KEY, conversation_id INT DEFAULT NULL REFERENCES conversations(id) ON DELETE SET NULL, rule_id VARCHAR(20) NOT NULL, verdict VARCHAR(30) NOT NULL, feedback TEXT DEFAULT NULL, reviewed_by VARCHAR(100) DEFAULT NULL, reviewed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
             $this->db->executeStatement('CREATE TABLE IF NOT EXISTS user_overrides (id SERIAL PRIMARY KEY, url TEXT NOT NULL, field VARCHAR(50) NOT NULL, original_value TEXT DEFAULT NULL, override_value TEXT NOT NULL, reason TEXT DEFAULT NULL, overridden_by VARCHAR(100) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(url, field))');
+            $this->db->executeStatement('CREATE TABLE IF NOT EXISTS activity_log (id SERIAL PRIMARY KEY, actor VARCHAR(100) NOT NULL, action VARCHAR(50) NOT NULL, target_type VARCHAR(50), target_id INT, target_title TEXT, details TEXT, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
+            $this->db->executeStatement('CREATE TABLE IF NOT EXISTS custom_rules (id SERIAL PRIMARY KEY, rule_id VARCHAR(20) NOT NULL UNIQUE, rule_name TEXT NOT NULL, category VARCHAR(100), trigger_condition TEXT, threshold TEXT, diagnosis TEXT, action_output TEXT, priority VARCHAR(20) DEFAULT \'medium\', assigned_to VARCHAR(100), created_by VARCHAR(100), status VARCHAR(20) DEFAULT \'active\', created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
             $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages (conversation_id)');
             $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_overrides_url ON user_overrides (url)');
+            $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log (created_at DESC)');
             $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_days INT DEFAULT NULL');
             $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_criteria TEXT DEFAULT NULL');
-        // Add persona_name to existing conversations table if missing
             $this->db->executeStatement("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS persona_name VARCHAR(50) DEFAULT NULL");
-            // One-time cleanup: remove tasks with no assigned_to (legacy unscoped tasks)
-            $this->db->executeStatement("DELETE FROM tasks WHERE assigned_to IS NULL OR assigned_to = ''");
-            // One-time cleanup: remove conversations with no persona_name older than 7 days
-            $this->db->executeStatement("DELETE FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE persona_name IS NULL AND created_at < NOW() - INTERVAL '7 days')");
-            $this->db->executeStatement("DELETE FROM conversations WHERE persona_name IS NULL AND created_at < NOW() - INTERVAL '7 days'");
         } catch (\Exception $e) {
             // Tables already exist or DB not ready — fail silently
         }
@@ -527,6 +524,9 @@ class HomeController extends AbstractController
             $overridesApplied++;
         }
 
+        // Log activity
+        $this->logActivity($userName, 'reviewed_rule', 'rule', null, $ruleId, "{$verdict}" . ($feedback ? " — {$feedback}" : ''));
+
         return new JsonResponse([
             'ok'               => true,
             'overrides_applied' => $overridesApplied,
@@ -649,6 +649,11 @@ class HomeController extends AbstractController
             'recheck_criteria' => $recheckCriteria,
         ], ['id' => $id]);
 
+        // Log activity
+        $session = $this->requestStack->getSession();
+        $actor   = $session->get('persona_name', 'Unknown');
+        $this->logActivity($actor, 'completed_task', 'task', $id, $task['title'] ?? '', "Recheck in {$recheckDays} days");
+
         return new JsonResponse([
             'task'             => $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]),
             'recheck_date'     => $recheckDate,
@@ -682,8 +687,22 @@ class HomeController extends AbstractController
     #[Route('/api/tasks/{id}/status', name: 'api_tasks_status', methods: ['POST'])]
     public function updateTaskStatus(int $id, Request $request): JsonResponse
     {
-        $body = json_decode($request->getContent(), true);
-        $this->db->update('tasks', ['status' => $body['status'] ?? 'pending'], ['id' => $id]);
+        $body   = json_decode($request->getContent(), true);
+        $status = $body['status'] ?? 'pending';
+        $task   = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
+        $this->db->update('tasks', ['status' => $status], ['id' => $id]);
+
+        // Log activity
+        $session = $this->requestStack->getSession();
+        $actor   = $session->get('persona_name', 'Unknown');
+        $action  = match($status) {
+            'in_progress' => 'started_task',
+            'done'        => 'completed_task',
+            'pending'     => 'reset_task',
+            default       => 'updated_task',
+        };
+        $this->logActivity($actor, $action, 'task', $id, $task['title'] ?? '');
+
         return new JsonResponse($this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]));
     }
 
@@ -714,6 +733,123 @@ class HomeController extends AbstractController
         return new JsonResponse($this->db->fetchAllAssociative(
             "SELECT * FROM tasks WHERE status = 'done' AND recheck_date IS NOT NULL AND recheck_verified = false ORDER BY recheck_date ASC"
         ));
+    }
+
+    // ─────────────────────────────────────────────
+    //  ACTIVITY LOG
+    // ─────────────────────────────────────────────
+
+    #[Route('/api/activity', name: 'api_activity_list', methods: ['GET'])]
+    public function listActivity(Request $request): JsonResponse
+    {
+        $limit = min((int) ($request->query->get('limit') ?? 30), 100);
+        return new JsonResponse($this->db->fetchAllAssociative(
+            "SELECT * FROM activity_log ORDER BY created_at DESC LIMIT ?", [$limit]
+        ));
+    }
+
+    private function logActivity(string $actor, string $action, ?string $targetType = null, ?int $targetId = null, ?string $targetTitle = null, ?string $details = null): void
+    {
+        try {
+            $this->db->insert('activity_log', [
+                'actor'        => $actor,
+                'action'       => $action,
+                'target_type'  => $targetType,
+                'target_id'    => $targetId,
+                'target_title' => $targetTitle,
+                'details'      => $details,
+                'created_at'   => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Exception $e) {
+            // Non-fatal
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    //  CUSTOM RULES (manual rule entry)
+    // ─────────────────────────────────────────────
+
+    #[Route('/api/rules', name: 'api_rules_list', methods: ['GET'])]
+    public function listRules(): JsonResponse
+    {
+        try {
+            $rules = $this->db->fetchAllAssociative(
+                "SELECT * FROM custom_rules WHERE status = 'active' ORDER BY created_at DESC"
+            );
+            return new JsonResponse($rules);
+        } catch (\Exception $e) {
+            return new JsonResponse([]);
+        }
+    }
+
+    #[Route('/api/rules', name: 'api_rules_create', methods: ['POST'])]
+    public function createRule(Request $request): JsonResponse
+    {
+        $body = json_decode($request->getContent(), true);
+        $session = $this->requestStack->getSession();
+        $actor   = $session->get('persona_name', 'Unknown');
+
+        $ruleId = strtoupper(trim($body['rule_id'] ?? ''));
+        if (!$ruleId) {
+            return new JsonResponse(['error' => 'rule_id is required'], 400);
+        }
+
+        try {
+            $this->db->insert('custom_rules', [
+                'rule_id'           => $ruleId,
+                'rule_name'         => $body['rule_name'] ?? 'Untitled Rule',
+                'category'          => $body['category'] ?? 'Custom',
+                'trigger_condition'  => $body['trigger_condition'] ?? null,
+                'threshold'         => $body['threshold'] ?? null,
+                'diagnosis'         => $body['diagnosis'] ?? null,
+                'action_output'     => $body['action_output'] ?? null,
+                'priority'          => $body['priority'] ?? 'medium',
+                'assigned_to'       => $body['assigned_to'] ?? null,
+                'created_by'        => $actor,
+                'status'            => 'active',
+                'created_at'        => date('Y-m-d H:i:s'),
+                'updated_at'        => date('Y-m-d H:i:s'),
+            ]);
+
+            $this->logActivity($actor, 'created_rule', 'rule', null, $ruleId, $body['rule_name'] ?? '');
+
+            $rule = $this->db->fetchAssociative('SELECT * FROM custom_rules WHERE rule_id = ?', [$ruleId]);
+            return new JsonResponse($rule, 201);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    #[Route('/api/rules/{ruleId}', name: 'api_rules_update', methods: ['POST'])]
+    public function updateRule(string $ruleId, Request $request): JsonResponse
+    {
+        $body    = json_decode($request->getContent(), true);
+        $session = $this->requestStack->getSession();
+        $actor   = $session->get('persona_name', 'Unknown');
+
+        $updates = [];
+        foreach (['rule_name', 'category', 'trigger_condition', 'threshold', 'diagnosis', 'action_output', 'priority', 'assigned_to', 'status'] as $field) {
+            if (isset($body[$field])) $updates[$field] = $body[$field];
+        }
+        $updates['updated_at'] = date('Y-m-d H:i:s');
+
+        $this->db->update('custom_rules', $updates, ['rule_id' => strtoupper($ruleId)]);
+        $this->logActivity($actor, 'updated_rule', 'rule', null, $ruleId, json_encode($updates));
+
+        $rule = $this->db->fetchAssociative('SELECT * FROM custom_rules WHERE rule_id = ?', [strtoupper($ruleId)]);
+        return new JsonResponse($rule);
+    }
+
+    #[Route('/api/rules/{ruleId}', name: 'api_rules_delete', methods: ['DELETE'])]
+    public function deleteRule(string $ruleId): JsonResponse
+    {
+        $session = $this->requestStack->getSession();
+        $actor   = $session->get('persona_name', 'Unknown');
+
+        $this->db->update('custom_rules', ['status' => 'inactive'], ['rule_id' => strtoupper($ruleId)]);
+        $this->logActivity($actor, 'deleted_rule', 'rule', null, $ruleId);
+
+        return new JsonResponse(['ok' => true]);
     }
 
     // ─────────────────────────────────────────────
