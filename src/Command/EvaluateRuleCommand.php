@@ -107,6 +107,7 @@ class EvaluateRuleCommand extends Command
             //  STAGE 2 — OUTPUT CONSENSUS FOR DDT TEAM
             // ══════════════════════════════════════════
             $outputConsensus = null;
+            $tasksCreated    = 0;
 
             if (!$skipOutput) {
                 $output->writeln('');
@@ -118,6 +119,109 @@ class EvaluateRuleCommand extends Command
                 $outputConsensus['rounds_run'] = $stage2Result['rounds_run'];
 
                 $this->displayOutputConsensus($output, $outputConsensus, $stage2Result['consensus']);
+
+                // ── CREATE TASKS FROM PLAY BRIEFS ──
+                $briefs = $outputConsensus['briefs'] ?? [];
+                foreach ($briefs as $brief) {
+                    $title = $brief['title'] ?? '';
+                    $url   = $brief['url'] ?? '';
+                    if (!$title || !$url) continue;
+
+                    // Skip meta-commentary briefs (LLM explaining its process instead of an actual task)
+                    if (str_contains(strtolower($title), 'maintaining my response') || str_contains(strtolower($title), 'peer summaries')) continue;
+
+                    // Check for duplicate — don't create if same rule+url task already exists and is not done
+                    $existing = $this->db->fetchAssociative(
+                        "SELECT id FROM tasks WHERE rule_id = :rule AND title LIKE :url AND status != 'done'",
+                        ['rule' => $rule['id'], 'url' => '%' . $url . '%']
+                    );
+                    if ($existing) continue;
+
+                    // Determine priority — normalize LLM output
+                    $rawPriority = strtolower(trim($brief['priority'] ?? $rule['priority'] ?? 'high'));
+                    $priority = match(true) {
+                        str_contains($rawPriority, 'critical'), str_contains($rawPriority, 'urgent') => 'critical',
+                        str_contains($rawPriority, 'high') => 'high',
+                        str_contains($rawPriority, 'medium') => 'medium',
+                        str_contains($rawPriority, 'low') => 'low',
+                        default => 'high',
+                    };
+
+                    // Determine assignee from brief or rule
+                    $assigned = '';
+                    if (!empty($brief['assigned'])) {
+                        $assigned = $brief['assigned'];
+                    } elseif (!empty($rule['assigned'])) {
+                        $assigned = $rule['assigned'];
+                    }
+                    // Extract first name if multiple (e.g., "Brook (content), Brad (schema)")
+                    if (preg_match('/^(Brook|Brad|Kalib|Jeanne)/i', $assigned, $am)) {
+                        $assigned = ucfirst(strtolower($am[1]));
+                    }
+
+                    // Build description from play brief fields
+                    $descParts = [];
+                    if ($brief['current_state']) $descParts[] = "CURRENT STATE:\n" . $brief['current_state'];
+                    if ($brief['your_move'])     $descParts[] = "YOUR MOVE:\n" . $brief['your_move'];
+                    if ($brief['done_when'])     $descParts[] = "DONE WHEN: " . $brief['done_when'];
+                    if ($brief['caveat'] && strtolower($brief['caveat']) !== 'none') {
+                        $descParts[] = "CAVEAT: " . $brief['caveat'];
+                    }
+                    $description = implode("\n\n", $descParts);
+
+                    // Estimate hours based on priority
+                    $hours = match($priority) {
+                        'critical' => 4,
+                        'high'     => 2,
+                        'medium'   => 1,
+                        default    => 1,
+                    };
+
+                    // Determine recheck type from rule ID prefix
+                    $recheckType = match(true) {
+                        str_starts_with($rule['id'], 'OPQ')  => 'on_page_fix',
+                        str_starts_with($rule['id'], 'TECH') => 'schema_fix',
+                        str_starts_with($rule['id'], 'AIS')  => 'on_page_fix',
+                        default => 'on_page_fix',
+                    };
+
+                    // Parse recheck days
+                    $recheckDays = 14;
+                    if ($brief['recheck']) {
+                        if (preg_match('/(\d+)/', $brief['recheck'], $rm)) {
+                            $recheckDays = (int) $rm[1];
+                        }
+                    }
+
+                    // Task title format: [Rule ID] Brief title — URL
+                    $taskTitle = "[{$rule['id']}] {$title}";
+                    if ($url && !str_contains($taskTitle, $url)) {
+                        $taskTitle .= " — {$url}";
+                    }
+
+                    try {
+                        $this->db->insert('tasks', [
+                            'title'           => substr($taskTitle, 0, 500),
+                            'description'     => $description,
+                            'rule_id'         => $rule['id'],
+                            'assigned_to'     => $assigned ?: null,
+                            'assigned_role'   => null,
+                            'status'          => 'pending',
+                            'priority'        => $priority,
+                            'estimated_hours' => $hours,
+                            'logged_hours'    => 0,
+                            'recheck_type'    => $recheckType,
+                            'created_at'      => date('Y-m-d H:i:s'),
+                        ]);
+                        $tasksCreated++;
+                    } catch (\Exception $e) {
+                        // Non-fatal — task creation failure doesn't block evaluation
+                    }
+                }
+
+                if ($tasksCreated > 0) {
+                    $output->writeln("  >> {$tasksCreated} task(s) added to Playbook Board");
+                }
             }
 
             // Store both stages
@@ -478,6 +582,7 @@ PROMPT;
                 'title'         => '',
                 'url'           => '',
                 'priority'      => '',
+                'assigned'      => '',
                 'current_state' => '',
                 'your_move'     => '',
                 'done_when'     => '',
@@ -492,6 +597,7 @@ PROMPT;
 
             $brief['url']           = $this->extractField($rest, 'URL') ?: $this->extractField($block, 'URL');
             $brief['priority']      = $this->extractField($rest, 'PRIORITY') ?: $this->extractField($block, 'PRIORITY');
+            $brief['assigned']      = $this->extractField($rest, 'ASSIGNED') ?: $this->extractField($block, 'ASSIGNED');
             $brief['current_state'] = $this->extractField($rest, 'CURRENT_STATE') ?: $this->extractField($block, 'CURRENT_STATE');
             $brief['your_move']     = $this->extractField($rest, 'YOUR_MOVE') ?: $this->extractField($block, 'YOUR_MOVE');
             $brief['done_when']     = $this->extractField($rest, 'DONE_WHEN') ?: $this->extractField($block, 'DONE_WHEN');
