@@ -1,4 +1,4 @@
-LOGIRI RULES ENGINE — DOUBLE D TRAILERS
+LOGIRI RULES ENGINE -- DOUBLE D TRAILERS
 Last updated: March 2026
 
 DOMAIN: doubledtrailers.com
@@ -16,158 +16,29 @@ BRAND FACTS:
 
 CONTENT SOURCES: GSC (gsc_snapshots), GA4 (ga4_snapshots), Page Crawl (page_crawl_snapshots)
 
+HARD LIMITS (non-negotiable):
+- Product/core pages: max 500 words body text. MSE elements carry the page.
+- Outer/informational pages: min 1000 words. Below 1000 = thin content.
+- Internal links: max 3 per page.
+- External links: zero. Citation mentions only (author, title, date).
+
 ============================================================
-SECTION 1: JEANNE'S SEO FRAMEWORK
+SECTION 1: JEANNE'S SEO FRAMEWORK (Summary)
 ============================================================
 
-All rules, evaluations, and play briefs MUST be consistent with this framework.
-Do NOT contradict these principles.
+Full framework in jeannes_framework.txt (25 sections, 38K words).
+Key principles that ALL rules must follow:
 
-------------------------------------------------------------
-1A: PAGE CLASSIFICATION (Macro / Micro / Outer)
-------------------------------------------------------------
-
-MACRO PAGES -- Business identity, primary offerings, conversion points.
-- Homepage, About, Contact, Get Quote, Dealers, Financing, Why Double D
-- Primary product overview pages (e.g., /horse-trailers/)
-- Criteria: Represents the brand entity, has transactional CTAs, contains "we/our" language
-- Content signals: Brand name prominent, Organization/LocalBusiness schema, pricing/quote CTAs
-- These pages answer: "Who is this business?" and "What do they sell?"
-
-MICRO PAGES -- Specific product types, features, audience segments, social proof.
-- Individual trailer model pages (e.g., /gooseneck-trailers/, /2-horse-bumper-pull/)
-- Feature pages (e.g., /safebump/, /z-frame-construction/)
-- Audience-specific pages (e.g., /trailers-for-show-horses/)
-- Reviews, testimonials, case studies, comparisons, warranty, customization
-- These pages answer: "What types/models do they offer?" and "What makes them special?"
-
-OUTER PAGES -- Educational/informational content that builds topical authority.
-- Blog posts, guides, how-tos, horse breed content, activity content
-- Industry news, events, podcasts, videos
-- Resource pages, checklists, glossaries
-- These pages answer questions users have BEFORE buying.
-- Outer pages MUST link to relevant macro or micro pages.
-
-UTILITY PAGES -- Functional pages excluded from content strategy.
-- Privacy policy, terms of service, sitemap, login, cart, checkout, thank-you
-- Classification: noindex where appropriate, exclude from SEO rules.
-
-CLASSIFICATION DECISION TREE:
-1. Utility page? -> UTILITY
-2. Homepage? -> MACRO
-3. Represents the business entity? -> MACRO
-4. Primary goal is conversion/lead capture? -> MACRO
-5. Describes specific product type/model/variant? -> MICRO
-6. Describes features/attributes of main product? -> MICRO
-7. Review/testimonial/case study? -> MICRO
-8. Audience-specific for main product? -> MICRO
-9. Educational/informational about related topics? -> OUTER
-10. Blog/podcast/video/news? -> OUTER
-11. Unclear? -> Default to OUTER, flag for manual review.
-
-------------------------------------------------------------
-1B: CONTENT STRUCTURE -- MACRO vs MICRO CONTEXT WITHIN A PAGE
-------------------------------------------------------------
-
-Every page has internal macro and micro context sections:
-
-- MACRO CONTEXT (75% of page content): The primary topic, directly answering the page's central search intent. This is the main content that addresses why the user landed on the page.
-
-- MICRO/SUPPLEMENTARY CONTEXT (25% of page content): Supporting details, side-topics, related information. This section appears at the bottom of the page.
-
-- CONTEXTUAL BRIDGE: On informational core content, a bridge paragraph may be needed to transition from macro to supplementary context.
-
-HEADING FLOW RULE: All headings must demonstrate contextual flow from macro context to micro context. Headings alone should accurately summarize the entire page's content -- search engines and AI bots must be able to make an accurate assumption of the page's content just by reading the headings.
-
-------------------------------------------------------------
-1C: MOST SIGNIFICANT ELEMENT (MSE) -- Patent-Based Layout Rules
-------------------------------------------------------------
-
-Based on Google patents: VISION-BASED DOCUMENT SEGMENTATION (US 7,428,700 B2)
-and LAYOUT APPROXIMATION (US 2008/0033996 A1).
-
-Search engines do NOT render pages visually. They analyze the DOM tree structure
-to approximate layout and find the Most Significant Element (MSE).
-
-KEY PRINCIPLES:
-
-1. CONTENT PLACEMENT: Place the most important content near the vertical center of the page. Content at the very top is penalized as "noise" (nav, ads). Content too far down receives extremely low weight.
-
-2. CONTENT DENSITY: The MSE is found by calculating a weighted sum of word count + image dimensions. Primary content must be densely grouped together so its "true-content" value beats surrounding noise.
-
-3. HTML FORMATTING: Search engines assign higher weight to text in formatting tags like <B>, <H1>, <SMALL>. Use these deliberately.
-
-4. PARAGRAPH PURITY: A <P> node containing only text receives maximum "Degree of Coherence" score (10/10). Keep paragraph structures pure.
-
-5. TABLE NESTING: Content buried too deeply inside sub-tables will not be identified as the MSE. Avoid deep nesting.
-
-6. VISUAL SEPARATORS: Use background colors, font size changes, and blank space to signal topic boundaries. <HR> tags receive very high separation weight (50).
-
-7. NAVIGATION DETECTION: Elements with height > 2x width and width < 200px are classified as navigation noise. Keywords in nav areas are ignored.
-
-FOR PRODUCT PAGES (MSE requirements):
-- Main product image (compelling, showing main benefits)
-- Key attributes with unique differentiators: product name (e.g., "SafeTack 2 Horse Bumper Pull 2026 Series"), proprietary features (Z-Frame, SafeBump), size, dimensions, color, price
-- Functionality elements: buy button, call/request a quote CTA
-- Reviews
-- Additional product photos/media
-- FAQs specific to the product using long-tail, human-generated queries (from actual customer questions, Reddit, FB groups, AI-anticipated queries)
-
-FOR WEB DEVELOPERS (Code Structure):
-- Use HTML formatting tags deliberately (<B>, <H1>, <SMALL> carry weight)
-- Keep paragraph structures pure (<P> with only text = max coherence score)
-- Avoid burying content in nested tables (prevents MSE identification)
-- Use <HR> tags to force topic breaks (high separation weight)
-
-FOR SEO (Content & Placement):
-- Place most important content near vertical center
-- Consolidate true-content densely (word count + image area must beat noise)
-- Do not rely on keywords in nav menus (classified as noise)
-
-FOR DESIGN (Visual Cues):
-- Use background colors to separate distinct topics
-- Use contrasting font sizes to create boundaries
-- Maintain visual consistency within a single topic
-- Use blank space strategically (pixel distance = separator weight)
-
-------------------------------------------------------------
-1D: PREDICATE RULES -- Entity + Predicate Alignment
-------------------------------------------------------------
-
-Every page has a central entity and a main predicate. These must align with search intent.
-
-ENTITY: The primary subject of the page (e.g., "SafeTack 2 Horse Bumper Pull")
-PREDICATE: The action/intent word that defines what the user wants to do.
-
-PREDICATE ALIGNMENT BY PAGE TYPE:
-- TRANSACTIONAL/PURCHASE pages: "buy" "order" "customize" "design" "build"
-- INFORMATIONAL PRODUCT pages: "learn" "compare" "find" "explore" "discover"
-- EDUCATIONAL/OUTER pages: "understand" "how to" "what is" "guide"
-
-RULES:
-- The main predicate must appear in the H1 title
-- The main predicate must be repeated near CTAs
-- Predicates and their synonyms must directly relate to the central search intent
-- CTAs must use predicates matching the TARGET page's intent
-
-------------------------------------------------------------
-1E: CONTENT VOLUME RULES
-------------------------------------------------------------
-
-PRODUCT PAGES (Transactional/Core Micro):
-- Word count should NOT exceed 500 words for body text
-- MSE elements (images, attributes, CTAs, reviews, FAQs) carry the page, not word volume
-- Must include: reviews, product photos/media, FAQs with long-tail human-generated queries
-
-INFORMATIONAL PAGES (Outer):
-- Minimum 1000 words for main content
-- Pages with less than 1000 words = "thin content"
-- Thin content should be merged into the most relevant high-search-volume page
-
-LOW SEARCH VOLUME (LSV) CONTENT:
-- Pages with topics that have low to zero search volume should be placed as sections in high-search-volume (HSV) pages
-- The content of LSV pages should be transferred and matched to the most relevant HSV page
-- Once LSV content is merged into an HSV page, a new on-page content quality assessment must be run
+1A: PAGE CLASSIFICATION: Macro (business identity, conversion) / Micro (products, features) / Outer (educational) / Utility (functional, excluded)
+1B: CONTENT STRUCTURE: 75% macro context (primary topic) / 25% micro context (supplementary, bottom of page)
+1C: MSE (Most Significant Element): Per Google Patent US 7,428,700 B2 -- search engines find the MSE by weighted sum of word count + image dimensions near vertical center. Product pages: hero image, attributes, CTA, reviews, media, FAQ.
+1D: PREDICATES: Transactional pages use buy/order/customize. Informational use learn/compare/find. Main predicate in H1 and near CTAs. CTAs must match TARGET page's intent.
+1E: CONTENT VOLUME: Product pages max 500 words. Outer pages min 1000 words. LSV content merged into HSV pages.
+1F: HEADINGS: Macro-to-micro flow. Question format for informational. Zero-volume headings demoted. Headings alone must summarize the page.
+1G: IMAGES: Proper <img> with alt text + brand terms. IPTC metadata. Entity in URL. Images after paragraph text, not before.
+1H: LINKS: Max 3 internal links. No external links. Closest entity/attribute/function targeting. No first-paragraph anchor text.
+1I: FIRST SENTENCE: Must directly answer the heading's implied question. Entity position in sentences determines primary topic interpretation.
+1J: TRANSACTIONAL LAYOUT: Hero image top 25% -> H1 entity+predicate -> attributes -> CTA -> reviews -> media -> FAQ
 
 ============================================================
 SECTION 2: CORE URL LIST
@@ -179,327 +50,2643 @@ Tier 3 Models: /bumper-pull-2-horse-straight-load-trailer/, /one-horse-trailer-b
 Tier 4 Conversion: /contact-us/, /get-quote/, /trailer-finder/, /virtual-horse-trailer-safety-inspection/, /horse-trailer-safety-webinars/, /join-our-mailing-list/, /freebook/, /book-a-video-call/
 
 ============================================================
-SECTION 3: APPROVED RULES
+SECTION 3: APPROVED RULES (61 rules across 13 categories)
 ============================================================
 
 ------------------------------------------------------------
-ON-PAGE CONTENT QUALITY RULES
+ON-PAGE CONTENT QUALITY RULES (4 rules)
 ------------------------------------------------------------
 
-OPQ-R1 | Core Product Pages Below Content Threshold
+OPQ-001 | Core Page Zero Body Text Emergency
 Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type IN ('core') AND (word_count = 0 OR word_count IS NULL OR word_count > 500) AND is_noindex = FALSE
-Threshold: Product pages cannot have 0 word count. Word count must not exceed 500 words for a product sales page.
-Crawl Parameter: word_count, page_type, url, is_noindex
-Notes from Owner: A product page cannot have 0 word count. Word count limit cannot exceed 500 words for a product sales page. The MSE (Most Significant Element) carries these pages -- main product image, key attributes with unique differentiators (product name, proprietary features like Z-Frame/SafeBump, size, dimensions, color, price), buy/quote CTAs, reviews, additional media, and FAQs with long-tail human-generated queries.
-Diagnosis: Core product pages with zero content are invisible to all search and AI systems. Product pages exceeding 500 words are over-indexing on body text when the MSE elements (images, attributes, CTAs, reviews, FAQs) should carry the page's ranking signal.
-Action Output: If word_count = 0: Write product content up to 500 words covering entity name, Z-Frame construction, key SafeTack/SafeBump/SafeKick features, and primary use case. Add Product schema, reviews section, FAQ section with human-generated queries. If word_count > 500: Trim body text to 500 words maximum; ensure MSE elements (product image, attributes, CTAs, reviews, media, FAQs) are present and carry the page.
+Trigger Condition: ```sql
+SELECT
+  url,
+  word_count,
+  page_type,
+  has_central_entity,
+  schema_types,
+  is_noindex
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND word_count = 0
+  AND is_noindex = FALSE
+```
+Threshold: word_count = 0 (any indexed core page with no body text fires immediately)
+Data Fields:
+Needs New Data: None. All fields (`word_count`, `page_type`, `is_noindex`) are standard crawl outputs.
+Investigation Steps:
+
+Diagnosis: An indexed core page with zero body text is invisible to both crawlers and AI citation systems     MSE elements alone cannot carry a page that has no parseable text whatsoever. This is a critical content void, not a style choice.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** Indexed core page has 0 body words; crawlers find no text signal; AI systems have no extractable content to cite; product context (Z-Frame construction, SafeTack configuration, SafeBump roof specification) is completely absent.
+- **Your move    ** Add a minimum 50-word, maximum 500-word body block. Open with a first sentence that names the trailer model and its defining system (e.g., "The [Model Name] is built on Double D Trailers' Z-Frame     high-tensile, zinc-infused construction welded into a single torsion unit"). Follow the first-sentence-answers-heading pattern. Place one SafeTack, SafeBump, or SafeKick term in body if applicable to the model.
+- **Done when    ** `word_count` is between 50 and 500 AND `has_central_entity = TRUE` on next crawl snapshot.
+- **Recheck    ** 48 hours post-publish crawl confirmation; re-run this query weekly as a standing zero-content sentinel.
+Action Output:
 Priority: Critical
-Assigned: Brook (content), Brad (schema)
+Assigned:
+AI Search Relevance: AI citation systems (Google AI Overviews, Perplexity, ChatGPT Browse) require extractable prose to quote, paraphrase, or cite. A zero-text core page cannot be cited for any query variant of "custom horse trailers," "safest horse trailer construction," or "Z-Frame trailer." Even one well-formed sentence containing a named entity (Z-Frame, SafeTack) makes the page citable. This rule prevents complete AI invisibility.
 
-OPQ-R2 | Central Entity and Predicate Alignment on Core Pages
+---
+
+---
+
+RULE 2
+
+---
+
+---
+
+OPQ-002 | Core Page Word Count Overlimit Enforcer
 Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type = 'core' AND (has_central_entity = FALSE OR central_entity_count < 10) AND is_noindex = FALSE
-Threshold: Central entity "horse trailer" must appear with appropriate predicates. Entity count minimum 10 on core pages.
-Crawl Parameter: has_central_entity, central_entity_count, page_type, url, h1, word_count
-Notes from Owner: This rule must include instructions pertaining to predicates appearing next to the central entity. The main predicate of the page must appear in the H1 title and repeated near CTAs. Predicates and synonyms must directly relate to the central search intent. For purchase pages: "buy" "order" "customize" "design." For informational product pages: "learn" "compare" "find."
-Diagnosis: Core pages missing the central entity "horse trailer" or lacking proper predicate alignment cannot be topically anchored by search engines or AI systems. Without predicates next to entities, the page fails to signal user intent.
-Action Output: Add "horse trailer" with appropriate predicates throughout the page. Ensure main predicate appears in H1 and near CTAs. For transactional pages use: buy, order, customize, design. For informational product pages use: learn, compare, find. Minimum 10 entity mentions across the page with predicates.
-Priority: High
-Assigned: Brook
+Trigger Condition: ```sql
+SELECT
+  url,
+  word_count,
+  page_type,
+  has_central_entity
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND word_count > 500
+  AND is_noindex = FALSE
+```
+Threshold: word_count > 500 on any indexed core page
+Data Fields:
+Needs New Data: None.
+Investigation Steps:
 
-OPQ-R3 | Heading Structure -- Contextual Flow and Search Volume Alignment
+Diagnosis: Core pages exceeding 500 body words dilute the MSE-first content architecture     search engines read prose competition against structured elements, and AI systems may extract the wrong content block as the "answer" when body text is overlong and unanchored.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** Core page body text exceeds 500 words; MSE elements (spec tables, image galleries, configuration options) are visually and structurally subordinated to prose; page reads as an article, not a product page.
+- **Your move    ** Edit body text to    500 words. Move any content beyond 500 words to a linked outer page (e.g., a Z-Frame construction explainer, a SafeTack how-it-works guide). Verify the 100-word intro cap is intact. Confirm 75/25 macro-micro split is maintained in remaining headings.
+- **Offload destination    ** Content about Z-Frame metallurgy, SafeBump engineering detail, or SafeKick material science belongs on outer pages at    1,000 words, not on the core product page.
+- **Done when    ** `word_count`     500 on next crawl AND the offloaded content lives on a properly classified outer page passing OPQ-003.
+- **Recheck    ** Next scheduled crawl cycle; flag again if any CMS publish event pushes the page back above 500.
+Action Output:
+Priority: High
+Assigned:
+AI Search Relevance: Overlong core pages create citation confusion     AI systems extract the densest prose block, which may be a feature description buried at word 600 rather than the authoritative opening statement. Keeping body text    500 words forces the most citation-worthy content (model name + primary differentiator) to the front, making the correct passage extractable for "what makes Double D Trailers different" query patterns.
+
+---
+
+---
+
+RULE 3
+
+---
+
+---
+
+OPQ-005 | H1-to-Title-Tag Mismatch Detector
 Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type IN ('core', 'outer') AND is_noindex = FALSE AND (h1 IS NULL OR h1 = '' OR h1_matches_title = FALSE OR h2s IS NULL OR h2s = '')
-Threshold: All pages must have H1, H2s, and proper heading hierarchy. H1 must match title tag primary keyword.
-Crawl Parameter: h1, h1_matches_title, h2s, title_tag, page_type, url, word_count
-Notes from Owner:
-- All headings must demonstrate contextual flow from macro context (75% of page) to micro context (25% of page). In informational core content, a contextual bridge into supplementary context might be necessary.
-- Headings should use question format for informational content to mimic real human search queries.
-- Consider search volume: headings addressing zero-volume keywords should be recommended for deletion or demotion to supplementary context (bottom 25%).
-- H1, H2s, and H3s must act as a summary of the page's content -- bots should understand the page from headings alone.
-- Always use the "p" element after the "h" element. Do not bring images before the first paragraph under a heading.
-Diagnosis: Pages with missing, empty, or misaligned headings fail structural signal requirements for both crawlers and AI parsers. Headings that don't follow macro-to-micro contextual flow reduce the page's ability to be parsed and cited.
-Action Output: Audit heading hierarchy. Ensure H1 contains central entity + main predicate. Ensure H2s flow from macro to micro context. Use question format for informational headings. Check search volume for each heading topic -- remove or demote zero-volume headings to supplementary context section. Verify headings alone summarize the page accurately.
-Priority: High
-Assigned: Brook
+Trigger Condition: ```sql
+SELECT
+  url,
+  h1,
+  title_tag,
+  page_type,
+  h1_matches_title
+FROM page_crawl_snapshots
+WHERE h1_matches_title = FALSE
+  AND is_noindex = FALSE
+  AND is_utility = FALSE
+  AND page_type IN ('core', 'outer')
+```
+Threshold: `h1_matches_title = FALSE`     H1 and title tag are not topically aligned (exact match not required; semantic alignment required)
+Data Fields:
+Needs New Data: `h1_matches_title`     requires semantic similarity scoring (not exact string match) in the crawl pipeline. A cosine similarity threshold of    0.75 between H1 and title tag text is recommended as the pass condition. If only exact-match boolean is available, upgrade to semantic scoring before relying on this rule at scale.
+Investigation Steps:
 
-OPQ-R4 | Outer Pages Below Minimum Content Threshold and Topical Relevance Assessment
-Trigger Source: page_crawl_snapshots + gsc_snapshots
-Trigger Condition: page_type = 'outer' AND word_count < 1000 AND is_noindex = FALSE
-Threshold: Outer pages must have minimum 1000 words. Pages below this are thin content and must be merged into relevant HSV pages.
-Crawl Parameter: word_count, page_type, url, has_central_entity, is_noindex
-Notes from Owner:
-- Assess core and outer pages for search volume. Pages with topics that have low to 0 search volume should be placed as sections in pages with high search volume.
-- The content of a page with LSV topics should be transferred and matched to the most relevant HSV page.
-- Thin content is defined as a page with main content of less than 1000 words.
-- Assess the relevance of an outer page to the site's topicality score based on central entity, predicate, and function.
-- A page with the title "Buckskin Horses: Why Are They Called Buckskins?" should be recommended for a change in macro context with possible titles that have direct relevance to custom horse trailers. Example: "What is the best horse trailer type for buckskin horses?"
-- Further recommendations on H1, H2, H3 titles can be generated for content revisions that retain high impressions while improving topical relevance.
-- Once LSV content is merged into a HSV page, a new on-page content quality assessment must be run again.
-Diagnosis: Outer pages below 1000 words dilute domain authority. Off-topic outer pages with high impressions but no horse trailer relevance waste topical authority. These should be reframed with horse-trailer-relevant macro context while retaining impression-generating content in the supplementary (bottom 25%) section.
-Action Output: For thin outer pages: merge content into the most relevant HSV page, redirect the old URL. For off-topic high-impression pages: rewrite macro context (75%) to connect to horse trailers while keeping the original topic in supplementary context (25%). Run new quality assessment after any merge.
-Priority: High
-Assigned: Brook
+Diagnosis: When the H1 and title tag describe different topics or use contradictory entity language, crawlers and AI systems receive conflicting signals about the page's subject     creating ranking ambiguity and citation ineligibility for either signal.
 
-OPQ-R5 | Core and Outer Pages Lacking Proprietary Feature Coverage
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** H1 and title tag are misaligned; the page sends two different topical signals; AI systems cannot determine the canonical subject of the page for citation purposes; traditional ranking is split between two keyword intents.
+- **Your move    ** Align the H1 and title tag to the same central entity and primary predicate. They do not need to be identical     the title tag may include the brand name suffix ("| Double D Trailers") and can be slightly shorter     but both must name the same core subject. Example correct alignment: Title: "[Model Name] Custom Horse Trailer | Double D Trailers" / H1: "[Model Name] Horse Trailer with Z-Frame Construction."
+- **Done when    ** `h1_matches_title = TRUE` on next crawl (semantic match, not character-for-character identity).
+- **Recheck    ** Every crawl cycle; flag immediately after any CMS title or H1 edit event.
+Action Output:
+Priority: High
+Assigned:
+AI Search Relevance: AI systems extract page subject from a combination of title tag, H1, and opening sentence. When title tag says "Custom Horse Trailer" and H1 says "Horse Trailer Safety Features," the system cannot resolve a single subject for citation. Aligning both to the same entity (e.g., "[Model Name] with SafeTack Reverse") gives AI systems a consistent signal across all three extraction points, maximizing citation precision for model-specific queries.
+
+---
+
+---
+
+RULE 6
+
+---
+
+---
+
+OPQ-006 | Duplicate H1 and Title Tag Cross-Page Collision Detector
 Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type IN ('core', 'outer') AND is_noindex = FALSE AND word_count >= 300 AND (body_text_snippet NOT LIKE '%Z-Frame%' AND body_text_snippet NOT LIKE '%SafeTack%' AND body_text_snippet NOT LIKE '%SafeBump%' AND body_text_snippet NOT LIKE '%SafeKick%')
-Threshold: Core pages must reference at least 3 of 4 proprietary features. Outer pages must reference at least 2.
-Crawl Parameter: page_type, word_count, body_text_snippet, url
-Diagnosis: Pages with sufficient content but no proprietary brand differentiators are generic content that AI engines have no reason to prefer over competitor pages. Z-Frame, SafeTack, SafeBump, and SafeKick are DDT's unique factual anchors for AI citation.
-Action Output: Add relevant proprietary feature references. Core pages: minimum 3 of 4 (Z-Frame, SafeTack, SafeBump, SafeKick) with accurate descriptions. Outer pages: minimum 2 with natural contextual integration.
-Priority: High
-Assigned: Brook
-APPROVED BY OWNER: Yes
+Trigger Condition: ```sql
+-- Duplicate H1s across indexed pages
+SELECT url, h1, title_tag, page_type,
+       COUNT(*) OVER (PARTITION BY h1) AS h1_duplicate_count
+FROM page_crawl_snapshots
+WHERE is_noindex = FALSE
+  AND is_utility = FALSE
+  AND h1 IS NOT NULL
 
-OPQ-R6 | Images Not Optimized for Image Search
-Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type IN ('core', 'outer') AND is_noindex = FALSE
-Threshold: All important, contextually relevant images must pass all checks below.
-Crawl Parameter: url, page_type, image elements
-Notes from Owner:
-- Important images must contain: proper <img> element with src and alt attributes (NOT srcset, NOT div-wrapped, NOT JS-rendered), brand logo reference, and target keywords in alt text
-- Faces and products should be unique (no stock repetition)
-- Every important image should have IPTC metadata
-- Every important image should have a proper URL containing the main entity
-- Always use the "p" element after the "h" element. Do not bring images before the "p" element. Place images at the end of the section, after all answers to the heading.
-- Images detected as generic and unimportant may skip these rules.
-Diagnosis: Images without proper alt text, metadata, and entity-rich URLs are invisible to image search and provide no entity signal to AI systems. Improperly placed images (before paragraph text under headings) disrupt the DOM coherence score.
-Action Output: Audit all images on core and outer pages. Ensure proper <img> tags with descriptive alt text containing brand terms (Z-Frame, SafeTack, SafeBump, SafeKick where relevant). Add IPTC metadata. Rename image URLs to include main entity. Move images to end of section, after paragraph text.
-Priority: High
-Assigned: Brook (alt text, placement), Brad (img tags, IPTC, URLs)
+UNION ALL
 
-OPQ-R7 | Internal and External Link Rules
-Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type IN ('core', 'outer') AND is_noindex = FALSE
-Threshold: Maximum 3 internal links per page. Zero external links (replace with mentions).
-Crawl Parameter: url, page_type, internal_links, has_core_link, core_links_found
-Notes from Owner:
-- Limit internal links on a page to a maximum of 3.
-- Link targets must be based on closest entity, attribute, and function to the current page (e.g., "2-horse gooseneck slant load" page links to "gooseneck slant load" page, NOT "bumper pull slant load").
-- Do NOT use text in the first paragraph as anchor text.
-- Do NOT use the first word of any paragraph as anchor text.
-- For links to different contexts or side-topics, use paragraphs in the Supplementary Content (bottom 25%) section.
-- Use synonyms for topics when creating anchor texts.
-- Verify anchor text keywords exist in the target page's content AND the source heading's text.
-- For external citations: specify author, title, date but do NOT provide links. This preserves PageRank. Bots will reconcile popular citations on their own.
-- Use the most relevant descriptions within 5 words before and after anchor text to reinforce relevance.
-- For conversion-critical but content-irrelevant links: use onclick/JavaScript instead of <a> tags to hide from bots and preserve PageRank.
-Diagnosis: Pages with excessive internal links dilute PageRank. External links drain authority. Anchor text in first paragraphs or using first words disrupts content flow signals. Links to unrelated page categories (cross-category instead of same-category) confuse entity association.
-Action Output: Audit link counts per page. Reduce internal links to max 3, chosen by closest entity/attribute/function match. Remove all external links and replace with citation mentions (author, title, date only). Move side-topic links to supplementary content section. Verify anchor text relevance bidirectionally.
-Priority: High
-Assigned: Brook
+-- Duplicate title tags across indexed pages
+SELECT url, h1, title_tag, page_type,
+       COUNT(*) OVER (PARTITION BY title_tag) AS title_duplicate_count
+FROM page_crawl_snapshots
+WHERE is_noindex = FALSE
+  AND is_utility = FALSE
+  AND title_tag IS NOT NULL
 
-OPQ-R8 | Mixed HTTP Signals Detection
-Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type IN ('core', 'outer') AND is_noindex = FALSE
-Threshold: Zero HTTP links or broken links allowed on any page.
-Crawl Parameter: url, page_type, internal_links
-Diagnosis: Mixed HTTP/HTTPS signals and broken links degrade trust signals and create crawl errors that reduce page authority.
-Action Output: Detect all links with HTTP URLs (non-HTTPS) and broken links on core and outer pages. Update all to HTTPS or remove if broken.
-Priority: High
-Assigned: Brad
+ORDER BY url
+```
+Threshold: Any H1 or title tag appearing on more than one indexed, non-utility page
+Data Fields:
+Needs New Data: None. Standard crawl deduplication query.
+Investigation Steps:
 
-OPQ-R9 | Extended Introduction Detection
+Diagnosis: Duplicate H1s or title tags across pages cause crawlers to treat those pages as competing for the same query     splitting ranking authority     and cause AI systems to arbitrarily choose one page as the citation source while suppressing the other.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** Two or more indexed pages share an identical H1 or title tag; Google cannot determine the canonical ranking target; AI systems select one page semi-randomly for citation and ignore the duplicate.
+- **Your move    ** Differentiate each page's H1 and title tag by its specific entity and differentiating predicate. For trailer model pages: include the specific model configuration. For outer pages: include the specific angle (e.g., "How Z-Frame Construction Reduces Trailer Flex" vs. "Z-Frame vs. Conventional Welding in Horse Trailers"). Never use a generic H1 like "Horse Trailer Features" on more than one page.
+- **Done when    ** Each indexed page has a unique H1 AND a unique title tag confirmed on next crawl.
+- **Recheck    ** Run at every crawl cycle as a standing uniqueness check; alert immediately when a new page is published with an H1 or title already in use.
+Action Output:
+Priority: High
+Assigned:
+AI Search Relevance: AI citation systems build an internal index of page subjects. When two pages share an H1, they appear interchangeable     the AI cites whichever it encounters first and treats the other as redundant. Unique, entity-specific H1s ensure each Double D Trailers page (e.g., a SafeTack page vs. a SafeBump page) occupies a distinct citation slot in AI-generated answers.
+
+---
+
+---
+
+RULE 7
+
+---
+
+---
+
+------------------------------------------------------------
+TECHNICAL SEO RULES (3 rules)
+------------------------------------------------------------
+
+TECH-R1 | Core Pages Noindexed     Revenue Page Indexing Failure
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT url, is_noindex, page_type, http_status
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND is_noindex = TRUE
+  AND http_status = 200
+```
+Threshold: Any single instance. Zero tolerance.
+Data Fields:
+Needs New Data: None     `is_noindex`, `page_type`, `http_status` already in `page_crawl_snapshots`
+Investigation Steps:
+
+Diagnosis: A core product page returning HTTP 200 with `is_noindex = TRUE` is actively instructing every crawler     Googlebot, GPTBot, PerplexityBot, ClaudeBot     to exclude it from all indexes. No indexing means no ranking and no AI citation, regardless of content quality or MSE completeness.
+Action Output: - **Current state    ** Core URL is live but carrying a noindex directive; invisible to all search and AI systems
+- **Your move    ** Audit meta robots tag and X-Robots-Tag HTTP header on flagged URL; remove noindex directive at the source (CMS template or page-level override)
+- **Verify    ** Re-crawl flagged URL and confirm `is_noindex = FALSE`; submit URL in Google Search Console for immediate reindexing
+- **Done when    ** `is_noindex = FALSE` on all core pages with `http_status = 200`
+- **Recheck    ** Every crawl cycle; noindex can be reintroduced by CMS template changes or plugin updates
+Priority:      CRITICAL
+Assigned:
+AI Search Relevance: GPTBot, PerplexityBot, and ClaudeBot respect noindex directives. A noindexed page featuring Z-Frame construction details, SafeTack reverse-load geometry, or SafeBump roof specifications cannot be retrieved, read, or cited by any AI search system. Removing noindex is the prerequisite for all AI citation eligibility.
+
+---
+
+---
+
+---
+
+TECH-R2 | Zero Rendered Word Count on Core Pages     JavaScript Delivery Failure
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT url, word_count, page_type, http_status
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND word_count = 0
+  AND http_status = 200
+```
+Threshold: Any single instance. Zero tolerance.
+Data Fields:
+Needs New Data: None     `word_count`, `page_type`, `http_status` already in `page_crawl_snapshots`
+Investigation Steps:
+
+Diagnosis: A core page returning HTTP 200 with zero rendered words is an empty shell to every crawler     the HTTP response exists but no extractable text was delivered, indicating a JavaScript render failure or uncached dynamic content problem.
+Action Output: - **Current state    ** Core URL returns 200 but crawler receives no body text; page is functionally invisible despite being technically reachable
+- **Your move    ** Test flagged URL using Google Search Console's URL Inspection "Test Live URL" to confirm render output; identify whether failure is JS bundle timeout, CDN cache serving empty shell, or SSR misconfiguration
+- **Verify    ** Re-crawl after fix; confirm `word_count` is within the 1   500 word range appropriate for a core product page
+- **Done when    ** `word_count > 0` on all `http_status = 200` core pages
+- **Recheck    ** Every crawl cycle; CDN cache purges and JS deployment changes can reintroduce this failure silently
+Priority:      CRITICAL
+Assigned:
+AI Search Relevance: AI crawlers extract text at render time. A zero-word render means no Z-Frame specifications, no SafeTack description, no SafeKick panel details are extracted into any training or retrieval dataset. The page cannot be summarized, cited, or used as an authority source in any AI-generated response.
+
+---
+
+---
+
+---
+
+TECH-R3 | Canonical URL Mismatch on Core Pages     Link Equity Fragmentation
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT url, canonical_url, page_type
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND (
+    (canonical_url IS NOT NULL AND canonical_url != url)
+    OR canonical_url IS NULL
+  )
+```
+Threshold: Any mismatch or missing canonical on any core page.
+Data Fields:
+Needs New Data: None     `canonical_url`, `url`, `page_type` already in `page_crawl_snapshots`
+Investigation Steps:
+
+Diagnosis: A canonical pointing away from the live core URL consolidates ranking signals to a different (possibly non-existent) URL; a missing canonical leaves Google to make its own consolidation decision, which may favor a URL other than the intended one.
+Action Output: - **Current state    ** Core URL either has no canonical tag or its canonical points to a different URL; link equity and entity authority are being credited elsewhere
+- **Your move    ** For mismatched canonicals: update the canonical tag to self-reference the live URL; for missing canonicals: implement a self-referencing `<link rel="canonical">` in the `<head>` of every core page
+- **Verify    ** Re-crawl and confirm `canonical_url = url` for all core pages
+- **Done when    ** Every core page has a self-referencing canonical with `canonical_url = url`
+- **Recheck    ** After any CMS template update or URL structure change
+Priority:      CRITICAL
+Assigned:
+AI Search Relevance: AI systems use canonical signals to determine which URL represents authoritative content. A canonical mismatch on a page describing SafeBump's molded fiber composite roof construction can cause AI crawlers to attribute that content to a non-canonical URL     splitting or losing the entity association entirely.
+
+---
+
+---
+
+---
+
+------------------------------------------------------------
+SCHEMA & STRUCTURED DATA RULES (5 rules)
+------------------------------------------------------------
+
+DDT-SD-002 | Homepage & Macro Pages Missing Organization Schema with Verified sameAs Array
 Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type IN ('core', 'outer') AND is_noindex = FALSE
-Threshold: Introductory paragraph must be 100 words or less.
-Crawl Parameter: url, page_type, first_paragraph_word_count
-Diagnosis: Long introductions push the MSE (Most Significant Element) down the page, reducing its weight in layout approximation algorithms. Content near the top of the page that isn't the primary answer is classified as noise.
-Action Output: Assess the length of the introductory paragraph on all core and outer pages. Trim introductions exceeding 100 words. The first paragraph must directly establish the entity, predicate, and primary answer.
+Trigger Condition: ```sql
+SELECT url, schema_types, page_type
+FROM page_crawl_snapshots
+WHERE page_type IN ('macro')
+  AND url IN ('/', '/horse-trailers/', '/gooseneck-trailers/',
+              '/bumper-pull-trailers/', '/show-trailers/')
+  AND (schema_types NOT LIKE '%Organization%'
+       OR schema_json NOT LIKE '%"sameAs"%')
+```
+Threshold: Homepage + all macro category pages must carry Organization schema with `sameAs` array containing    5 verified social/business profile URLs (Facebook, Instagram, Google Business, YouTube, LinkedIn)
+Data Fields: url, schema_types, schema_json, page_type
+Needs New Data: Schema JSON extraction via WordPress REST API to parse sameAs array length and validate URLs
+Investigation Steps:
+
+Diagnosis: Without verified sameAs links, Google Knowledge Graph cannot confirm Double D Trailers' entity identity across platforms, reducing LLM confidence for brand-related queries and Knowledge Graph citations.
+Action Output: - Fetch current schema_json from each macro URL via REST API
+- Verify sameAs array includes minimum 5 verified profiles (with live URLs)
+- Add missing Organization properties: `address`, `telephone`, `email`, `logo` (300x300px minimum)
+- Revalidate sameAs consistency across all macro pages quarterly
+Priority: Critical
+Assigned:
+AI Search Relevance: Organization schema with robust sameAs array increases LLM entity confidence, enabling Direct citations in "Double D Trailers reviews," "Z-Frame trailer manufacturer," and Knowledge Graph results.
+
+---
+
+---
+
+---
+
+DDT-SD-003 | High-Impression Outer Pages Missing FAQPage Schema for AI Conversational Citation
+Trigger Source: page_crawl_snapshots, gsc_snapshots
+Trigger Condition: ```sql
+SELECT p.url, p.schema_types, p.page_type, p.word_count,
+       g.impressions, g.clicks
+FROM page_crawl_snapshots p
+LEFT JOIN gsc_snapshots g ON p.url = g.url
+WHERE p.page_type = 'outer'
+  AND p.word_count >= 1000
+  AND g.impressions > 800
+  AND p.schema_types NOT LIKE '%FAQPage%'
+ORDER BY g.impressions DESC
+```
+Threshold: Any outer page (informational) with >800 GSC impressions,    1000 words, and no FAQPage schema
+Data Fields: url, schema_types, page_type, word_count, gsc_snapshots.impressions
+Needs New Data: GSC impressions integration (existing in gsc_snapshots table)
+Investigation Steps:
+
+Diagnosis: High-traffic informational pages (e.g., "How to Choose a Horse Trailer," "SafeBump Roof Technology Explained") generate conversational search queries that LLMs can cite directly from FAQPage schema, but currently serve unstructured Q&A.
+Action Output: - Identify outer pages with >800 impressions lacking FAQPage schema
+- Extract Q&A clusters from page content (minimum 5 question-answer pairs per page)
+- Implement FAQPage schema with `mainEntity.Question`, `acceptedAnswer` properties
+- Test in Google Search Console Rich Results Test; monitor AI Overview appearances
+Priority: High
+Assigned:
+AI Search Relevance: FAQPage schema enables LLMs to cite specific Double D Trailers answers in Perplexity, Google AI Overviews, and conversational queries about "SafeBump composite roof benefits" or "Z-Frame vs. traditional horse trailer construction."
+
+---
+
+---
+
+---
+
+DDT-SD-004 | Core Product Pages With Testimonials Missing AggregateRating Schema
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, schema_types, page_type, word_count
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND word_count <= 500
+  AND schema_types NOT LIKE '%AggregateRating%'
+  AND (page_content LIKE '%customer review%'
+       OR page_content LIKE '%testimonial%'
+       OR page_content LIKE '%rating%')
+```
+Threshold: Core product pages with visible review/testimonial content and no AggregateRating schema
+Data Fields: url, schema_types, page_type, word_count, page_content_flags
+Needs New Data: Content flag system to detect review keywords or review block presence in HTML (add to crawl extraction)
+Investigation Steps:
+
+Diagnosis: Product pages featuring customer testimonials lack structured rating signals, forcing LLMs to infer credibility from unstructured text, increasing hallucination risk in product recommendation responses.
+Action Output: - Scan core product pages for review/testimonial blocks
+- Extract aggregated rating (e.g., 4.8/5 from 12 testimonials) or add review schema for individual ratings
+- Implement AggregateRating schema with `ratingValue`, `bestRating`, `worstRating`, `ratingCount` properties
+- Validate schema matches visible review count; monitor quarterly
+Priority: High
+Assigned:
+AI Search Relevance: AggregateRating schema provides verifiable trust signals that LLMs prioritize for product recommendations, enabling confident citations of Double D Trailers in "best horse trailer" comparisons and reducing competitor bias.
+
+---
+
+---
+
+---
+
+DDT-SD-005 | Non-Homepage Pages Missing BreadcrumbList Schema for Site Hierarchy Clarity
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, schema_types, page_type
+FROM page_crawl_snapshots
+WHERE url != '/'
+  AND page_type NOT IN ('utility', 'legal')
+  AND schema_types NOT LIKE '%BreadcrumbList%'
+```
+Threshold: All non-homepage pages (except utility/legal) require BreadcrumbList schema
+Data Fields: url, schema_types, page_type
+Needs New Data: None
+Investigation Steps:
+
+Diagnosis: Without BreadcrumbList schema, LLMs cannot reliably understand site hierarchy or navigation context, reducing accuracy in AI-generated descriptions of page relationships (e.g., "Show Trailers"     "[Model Name]").
+Action Output: - Generate BreadcrumbList schema for all macro/micro/outer pages based on URL path
+- Include schema properties: `itemListElement[].name`, `.url`, `.position`
+- Add trailing breadcrumb for current page (non-linked, position=last)
+- Validate schema structure via Google Rich Results Test
 Priority: Medium
-Assigned: Brook
+Assigned:
+AI Search Relevance: BreadcrumbList schema improves LLM navigation context in AI-generated summaries, enabling accurate citations like "Double D Trailers > Horse Trailers > SafeBump Series > [Model]" in structured responses.
 
-OPQ-R10 | CTA Search Intent Alignment
+---
+
+---
+
+---
+
+DDT-SD-006 | Macro Category Pages Missing ProductGroup Schema for Comparative Entity Clustering
 Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type IN ('core', 'outer') AND is_noindex = FALSE
-Threshold: All CTAs must use predicates matching the search intent of the target page.
-Crawl Parameter: url, page_type, cta_elements
-Notes from Owner: The predicate used in a CTA anchor phrase or button should match the search intent of the target page. "Learn More About Horse Trailers for Buckskin Horses" must go to a page that discusses horse trailers for the breed and not about the breed only. "Order Your 3-Horse Living Quarters Horse Trailer" must go to a purchase product page and not to an informational product page.
-Diagnosis: CTAs with mismatched predicates (informational predicate pointing to transactional page, or vice versa) create intent mismatch that confuses both users and search engines about the page's purpose.
-Action Output: Audit all CTAs on core and outer pages. Verify predicate in CTA text matches the intent classification of the target URL. Fix mismatches by rewriting CTA text or redirecting to the correct intent-matched page.
+Trigger Condition: ```sql
+SELECT url, schema_types, page_type, word_count
+FROM page_crawl_snapshots
+WHERE page_type = 'macro'
+  AND url IN ('/', '/horse-trailers/', '/gooseneck-trailers/',
+              '/bumper-pull-trailers/', '/show-trailers/',
+              '/trailers-for-living-quarters/')
+  AND schema_types NOT LIKE '%ProductGroup%'
+  AND word_count >= 1000
+```
+Threshold: Any macro category page without ProductGroup schema
+Data Fields: url, schema_types, page_type, word_count
+Needs New Data: None
+Investigation Steps:
+
+Diagnosis: Category pages list multiple trailer models without structured ProductGroup schema, preventing LLMs from recognizing product families (e.g., Z-Frame horse trailers vs. gooseneck trailers) for comparative queries.
+Action Output: - Map macro pages to their child product URLs (via page_crawl_snapshots parent-child relationships)
+- Implement ProductGroup schema with `hasVariant` array linking to child Product schema pages
+- Include group-level properties: `name`, `description`, `image`, `brand` (Double D Trailers)
+- Validate ProductGroup relationships via Rich Results Test
 Priority: High
-Assigned: Brook
+Assigned:
+AI Search Relevance: ProductGroup schema enables LLMs to cluster Double D Trailers' product families in comparative responses (e.g., "Z-Frame horse trailers include models X, Y, Z") and rank the brand higher in category-level queries.
 
-OPQ-R11 | Informational Content with Mismatched or Delayed Heading Answers
-Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type IN ('core', 'outer') AND is_noindex = FALSE AND word_count >= 300
-Threshold: First sentence under every heading must directly answer the implied question of that heading.
-Crawl Parameter: url, page_type, h2s, body_text
-Notes from Owner:
-- Optimize the first sentence so it directly answers the implied question of its heading.
-  Heading: "How to Do X" -> Correct: "To do X..." / Wrong: "X is..."
-  Heading: "What are the benefits of X" -> Correct: "The 5 benefits of X are..." / Wrong: "People love X..."
-- Check the main entity and relevance score of the first sentence to ensure search engines interpret it correctly.
-  "Firefighters rescued the horses from danger." -> Main context: Firefighters
-  "The horses were rescued by firefighters from danger." -> Main context: Horses' experience
-  Choose sentence structure deliberately based on what you want identified as primary topic.
-Diagnosis: First sentences that delay or mismatch the heading's implied question reduce the page's answer extraction probability. AI systems pull first sentences under headings as direct answers -- delayed or wrong-structure answers get skipped in favor of competitor pages.
-Action Output: Audit first sentence under every H2/H3 on informational pages. Rewrite to directly answer the heading's question in the first sentence. Verify entity position in sentences matches intended primary topic.
-Priority: High
-Assigned: Brook
+---
 
-OPQ-R12 | Transactional Core Pages Missing Buyer Psychology and UX Flow Signals
-Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type = 'core' AND is_noindex = FALSE AND word_count > 0
-Threshold: All transactional core pages must follow the layout structure below.
-Crawl Parameter: url, page_type, h1, schema_types, word_count
-Notes from Owner:
-- Top 25% of page: compelling product image representing main benefits to users
-- H1 title: model name of the product (entity) + results-driven adjective phrase (attribute/predicate)
-- Key attributes section with unique differentiators (Z-Frame, SafeTack, SafeBump, SafeKick)
-- Functionality section (buy button, quote CTA)
-- Reviews section
-- Additional media (photos, videos)
-- FAQ section with product-specific, long-tail human queries (from actual customer questions, Reddit, FB groups, AI-anticipated queries)
-Diagnosis: Transactional pages missing structured buyer psychology flow (image -> attributes -> CTA -> reviews -> media -> FAQ) fail to convert visitors and fail to signal commercial intent to search engines and AI systems.
-Action Output: Audit transactional core pages against the required layout structure. Ensure: hero product image in top 25%, H1 with entity + predicate, attributes section, CTA section, reviews, media, and FAQ. Flag missing sections for content/design team.
-Priority: Critical
-Assigned: Brook (content), Kalib (design), Brad (schema)
+---
+
+---
 
 ------------------------------------------------------------
-TECHNICAL SEO RULES (Approved by Owner)
+INTERNAL LINK ARCHITECTURE RULES (4 rules)
 ------------------------------------------------------------
 
-TECH-R1 | Core Product Pages Missing Indexable Content
-Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type = 'core' AND is_noindex = FALSE AND word_count < 300
-Threshold: word_count < 300 on any indexable core page
-Diagnosis: A core product page with fewer than 300 words gives Google and AI extractors insufficient text to understand, rank, or cite the page. This is a prerequisite failure that blocks all downstream SEO and AI citation value.
-Action Output: Expand content to minimum 300 words (but not exceeding 500 words per OPQ-R1 for product sales pages). Include entity name, Z-Frame construction, key features, primary use case.
-Priority: Critical
-Assigned: Brook
-APPROVED BY OWNER: Yes
+ILA-004 | Core Page Buried     Crawl Depth Exceeds 3 Clicks
+Trigger Source: page_crawl_snapshots (crawl depth field from homepage as depth 0)
+Trigger Condition: ```
+page_type = 'core'
+AND crawl_depth > 3
+AND is_noindex = 0
+```
+Threshold: crawl_depth > 3 for any core page = immediate flag.
+Data Fields:
+Needs New Data: `crawl_depth` must be calculated as shortest hop count from homepage (depth 0) through internal links only. Confirm this is computed in page_crawl_snapshots or requires separate BFS traversal on crawl graph.
 
-TECH-R2 | Core Pages Missing Product Schema
-Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type = 'core' AND word_count >= 300 AND ((schema_types NOT LIKE '%Product%' AND schema_types NOT LIKE '%ItemPage%') OR has_central_entity = FALSE)
-Threshold: Any core page with word_count >= 300 lacking Product or ItemPage schema, OR missing central entity signal
-Diagnosis: Pages with sufficient content but no Product schema are unreadable to Google's rich result system and AI knowledge extractors. Z-Frame construction and SafeTack systems require structured markup to surface as citable product entries.
-Action Output: Implement Product JSON-LD schema on flagged pages. Include: name (exact trailer model), brand (Double D Trailers), description (entity-rich, 2-3 sentences), manufacturer, category (Horse Trailers), and offers block. Validate with Google Rich Results Test.
-Priority: Critical
-Assigned: Brad
-APPROVED BY OWNER: Yes
+---
 
-TECH-R3 | Noindex Directive on Non-Utility Pages
-Trigger Source: page_crawl_snapshots
-Trigger Condition: is_noindex = TRUE AND page_type NOT IN ('utility', 'admin', 'thank-you', 'cart', 'checkout')
-Threshold: Any single core or product-adjacent page where is_noindex = TRUE
-Diagnosis: A noindex tag on a core trailer model page silently removes it from Google's index and eliminates it as a citable source for AI systems -- regardless of content quality or backlink profile.
-Action Output: Remove noindex directive from flagged pages immediately. Verify via GSC URL Inspection that page is re-indexed within 14 days.
-Priority: Critical
-Assigned: Brad
-APPROVED BY OWNER: Yes
+---
 
-TECH-R6 | Missing or Non-Self-Referential Canonical Tags on Core Pages
+RULE ILA-005
+Investigation Steps:
+
+Diagnosis: A core product page (e.g., a specific Z-Frame horse trailer model) requiring more than 3 clicks to reach from the homepage is structurally de-prioritized. Both crawlers and users face friction discovering it, and the page's authority signal is diluted by link distance.
+Action Output:
+Priority: Critical
+Assigned:
+AI Search Relevance: AI citation engines weight pages that are structurally prominent     reachable quickly from trusted entry points. A core page buried at depth 4+ is architecturally signaled as peripheral, not authoritative. For Double D Trailers product queries (e.g., "custom horse trailer with SafeTack"), the cited page should be the core product page, which requires it to be at depth    3 to receive sufficient crawl priority and entity prominence signals.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** Core product page is reachable only at crawl depth 4 or greater from homepage
+- **Your move    ** Add a direct internal link to this core page from a depth-1 or depth-2 page (e.g., main navigation, homepage, or a high-authority outer hub page); link must use entity-specific anchor text and the linking page must not exceed 3 total internal links
+- **Done when    ** `crawl_depth <= 3` confirmed on re-crawl for the flagged core page
+- **Recheck    ** After each site restructure or navigation change; crawl depth can regress if linking pages are removed
+
+---
+
+---
+
+ILA-005 | Internal Link Hard Cap Violation
 Trigger Source: page_crawl_snapshots
-Trigger Condition: page_type = 'core' AND (canonical_url IS NULL OR canonical_url = '' OR canonical_url != url)
-Threshold: Any core page where canonical_url is null, empty, or does not match the page's own URL
-Diagnosis: A core trailer page without a self-referential canonical, or with a canonical pointing elsewhere, tells Google another URL is the "real" version -- consolidating ranking signals away from the intended page.
-Action Output: Add or fix self-referential canonical tag on all flagged core pages. Ensure canonical_url = url exactly (including trailing slash and protocol).
+Trigger Condition: ```
+internal_links_on_page > 3
+AND page_type IN ('core', 'outer')
+AND is_noindex = 0
+```
+Threshold: internal_links_on_page > 3 = immediate flag. No tolerance.
+Data Fields:
+Needs New Data: `internal_links_on_page` must count only anchor elements with href pointing to same-domain URLs, excluding navigation and footer template links (which are site-wide and tracked separately). Confirm nav/footer links are excluded from this field in page_crawl_snapshots.
+
+---
+
+---
+
+RULE ILA-006
+Investigation Steps:
+
+Diagnosis: A page exceeds the maximum internal link count, diluting equity across too many destinations and violating the site's link architecture framework. On a core page (   500 words body), excess links overwhelm the page's MSE-primary structure; on an outer page (   1000 words), they indicate unfocused linking strategy.
+Action Output:
+Priority: Critical
+Assigned:
+AI Search Relevance: AI citation systems assess page focus in part through signal concentration. A page with 5+ internal links to different destinations distributes its topical endorsement too broadly. Keeping links at    3 per page concentrates the topical signal     ensuring that when a page about Z-Frame horse trailer safety links to a core product page, that link carries meaningful entity association weight rather than being noise in a long link list.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** Page carries more than 3 internal links, fragmenting equity and violating architecture framework
+- **Your move    ** Audit all internal links on the page; retain only the 1   3 highest-relevance links targeting the most topically aligned core or outer pages; remove or convert excess links to citation-style text mentions (author/title/date     no hyperlink) if they reference external content
+- **Done when    ** `internal_links_on_page <= 3` on re-crawl
+- **Recheck    ** Every content edit cycle; content updates are the primary source of link count regression
+
+---
+
+---
+
+ILA-006 | Anchor Text Homogeneity     Core-Bound Links Use Fewer Than 2 Distinct Anchors Sitewide
+Trigger Source: page_crawl_snapshots (link-level anchor text data, grouped by target URL)
+Trigger Condition: ```
+target_url IN (SELECT url FROM pages WHERE page_type = 'core')
+AND COUNT(DISTINCT anchor_text) < 2
+GROUP BY target_url
+HAVING COUNT(*) >= 2
+```
+Threshold: A core page receiving 2+ inbound internal links where fewer than 2 distinct anchor texts are used = flag.
+Data Fields:
+Needs New Data: Anchor text must be stored at the link level (source_url, target_url, anchor_text) in page_crawl_snapshots or a linked `internal_links` table. Confirm this granularity exists or requires a dedicated link-level crawl export table.
+
+---
+
+---
+
+RULE ILA-007
+Investigation Steps:
+
+Diagnosis: Multiple outer pages link to the same core product page using identical anchor text. This is a wasted opportunity     the same semantic signal is repeated rather than expanding the topical context AI systems and search engines use to understand what the core page is about.
+Action Output:
+Priority: Medium
+Assigned:
+AI Search Relevance: AI citation systems build entity profiles from accumulated anchor text across a site. If every inbound link to a Z-Frame trailer model page uses only "horse trailers," the system receives a narrow entity signal. Introducing a second distinct anchor (e.g., "SafeTack swing-out tack room" or "Z-Frame construction horse trailer") expands the semantic profile, increasing the probability the page is cited for a broader range of related queries beyond its primary keyword.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** A core page has 2+ inbound internal links, but all use the same anchor text     semantic variety is zero
+- **Your move    ** Identify the source outer page(s) with duplicate anchors; update one anchor per source page to a distinct entity-rich phrase using real Double D terminology (e.g., change a second "horse trailers" anchor to "SafeTack reverse-load design"); do not add new links     only change existing anchor text on pages already within their 3-link limit
+- **Done when    ** `COUNT(DISTINCT anchor_text) >= 2` for the flagged core page target on re-crawl
+- **Recheck    ** Quarterly link audit; content rewrites frequently reset anchor text to default phrasing
+
+---
+
+---
+
+ILA-007 | Hub Page Cluster Failure     Outbound Links to Spoke Pages Below Minimum
+Trigger Source: page_crawl_snapshots + manually maintained hub_page_registry (see NEEDS_NEW_DATA)
+Trigger Condition: ```
+page_type = 'hub'
+AND outbound_links_to_cluster_pages < 2
+AND is_noindex = 0
+```
+Threshold: Hub page with fewer than 2 outbound links to its designated cluster spoke pages = flag.
+Data Fields:
+Needs New Data: Requires a `hub_page_registry` table mapping each hub URL to its designated cluster spoke URLs. This is a new data object     does not exist in standard crawl data. Must be created and maintained manually by the SEO team. Also requires `outbound_links_to_cluster_pages` as a derived count field computed against the registry.
+
+---
+
+---
+
+RULE ILA-008
+Investigation Steps:
+
+Diagnosis: A hub page exists to anchor a topical cluster and distribute equity to spoke pages within that cluster. If it links to fewer than 2 spokes, it is not functioning as a hub     the cluster is structurally disconnected, and neither search engines nor AI systems can map the topical territory Double D Trailers owns.
+Action Output:
 Priority: High
-Assigned: Brad
-APPROVED BY OWNER: Yes
+Assigned:
+AI Search Relevance: AI citation engines recognize topical authority through cluster completeness     a hub page about horse trailer safety features should demonstrably connect to spoke pages covering SafeBump roof engineering, SafeKick panel durability, and Z-Frame structural integrity. A hub that only links to one spoke (or none) signals an incomplete topical cluster, reducing confidence that the site is a comprehensive authority source on horse trailer safety and lowering citation eligibility for cluster-wide queries.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** Hub page links to fewer than 2 designated spoke pages within its topical cluster, leaving the cluster disconnected
+- **Your move    ** Add outbound internal links from the hub to 2   3 of its cluster's spoke pages using entity-specific anchor text (e.g., from a horse trailer safety hub: "SafeBump roof construction"     SafeBump product/feature page, "SafeKick recycled panel walls"     SafeKick feature page); total links on hub page must not exceed 3
+- **Done when    ** `outbound_links_to_cluster_pages >= 2` AND `internal_links_on_page <= 3` on re-crawl
+- **Recheck    ** After any hub page content edit or cluster restructure; spoke pages being deleted can silently break this condition
+
+---
+
+---
+
+------------------------------------------------------------
+KEYWORD & INTENT ALIGNMENT RULES (7 rules)
+------------------------------------------------------------
+
+KIA-R2 | Keyword Cannibalization Detection     Multiple Pages per Query
+Trigger Source: gsc_snapshots
+Trigger Condition: ```sql
+SELECT query, COUNT(DISTINCT page) AS page_count, SUM(impressions), SUM(clicks), AVG(position)
+FROM gsc_snapshots
+WHERE position <= 20
+GROUP BY query
+HAVING COUNT(DISTINCT page) > 1 AND SUM(impressions) > 100
+ORDER BY SUM(impressions) DESC;
+```
+Threshold:
+Data Fields:
+Needs New Data:
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority:      Critical
+Assigned:
+AI Search Relevance: Consolidates authority to one definitive page per query (e.g., [Product Model Name] with Z-Frame/SafeTack), enabling AI models like Perplexity to cite Double D as the singular expert source over fragmented signals.[1][3]
+
+---
+
+---
+
+---
+
+KIA-R3 | Core Page Entity & Intent Mismatch
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, word_count, has_central_entity, h1_matches_title, page_type, h2s
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND (word_count = 0 OR has_central_entity = FALSE OR h1_matches_title = FALSE
+       OR word_count > 500 OR h2s LIKE '%how to%' OR h2s LIKE '%guide%');
+```
+Threshold:
+Data Fields:
+Needs New Data:
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority:      Critical
+Assigned:
+AI Search Relevance: Transactional core pages must embed Z-Frame/SafeTack entities scannably under 500 words for AI product carousels/Overviews; mismatches dilute entity authority, reducing citations for "buy gooseneck horse trailer" intents.[1][4]
+
+---
+
+---
+
+---
+
+KIA-R4 | Keyword Coverage Gaps in High-Impression Queries
+Trigger Source: gsc_snapshots
+Trigger Condition: ```sql
+SELECT query, SUM(impressions), AVG(position)
+FROM gsc_snapshots
+WHERE impressions > 5000 AND position > 10
+  AND query NOT LIKE '%double d%' AND query NOT LIKE '%doubledtrailers%'
+  AND query LIKE '%horse trailer%' OR query LIKE '%gooseneck%' OR query LIKE '%z-frame%' OR query LIKE '%safetack%'
+GROUP BY query
+HAVING SUM(impressions) > 5000;
+```
+Threshold:
+Data Fields:
+Needs New Data:
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: High
+Assigned:
+AI Search Relevance: Fills semantic gaps (BERT/MUM) for unbranded high-volume queries, enabling AI synthesis and citations of Double D as Z-Frame authority in informational/transactional overviews.[1]
+
+---
+
+---
+
+---
+
+KIA-R5 | Money Page Long-Tail Opportunity Detection
+Trigger Source: gsc_snapshots
+Trigger Condition: ```sql
+SELECT query, SUM(impressions), AVG(position)
+FROM gsc_snapshots
+WHERE (query LIKE '%2 horse%' OR query LIKE '%3 horse%' OR query LIKE '%gooseneck%' OR query LIKE '%safetack%')
+  AND impressions > 100 AND position > 30
+GROUP BY query
+ORDER BY SUM(impressions) DESC;
+```
+Threshold:
+Data Fields:
+Needs New Data:
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: High
+Assigned:
+AI Search Relevance: Targets long-tails like "SafeTack 2 horse gooseneck" in core FAQs, making pages quotable for Perplexity PAA extraction and citations in specific buying intents.[1][3][4]
+
+---
+
+---
+
+---
+
+KIA-R6 | Outer Page Thin Content Violation
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, word_count, page_type, h2s
+FROM page_crawl_snapshots
+WHERE page_type = 'outer' AND word_count < 1000
+  AND (h2s LIKE '%what is%' OR h2s LIKE '%z-frame%' OR h2s LIKE '%safetack%');
+```
+Threshold:
+Data Fields:
+Needs New Data:
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: High
+Assigned:
+AI Search Relevance: Informational outers need 1000+ words on Z-Frame/SafeBump for MUM multi-step reasoning; thin content loses to competitors in AI citations for "Z-Frame vs steel trailer" queries.[1]
+
+---
+
+---
+
+---
+
+KIA-R7 | SERP Feature Targeting Gaps
+Trigger Source: gsc_snapshots
+Trigger Condition: ```sql
+SELECT query, SUM(impressions), AVG(position)
+FROM gsc_snapshots
+WHERE (query LIKE '%benefits%' OR query LIKE '%vs%' OR query LIKE '%safetack%')
+  AND impressions > 500 AND position > 20 AND page_type != 'outer'
+GROUP BY query;
+```
+Threshold:
+Data Fields:
+Needs New Data:
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: Medium
+Assigned:
+AI Search Relevance: Structures non-outer pages for PAA/FAQ on SafeKick comparisons, enabling direct AI Overview pulls and positioning Double D as go-to for feature-rich horse trailer queries.[1]
+
+---
+
+---
+
+---
+
+KIA-R8 | Internal Link Excess on Core Pages
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, internal_links, page_type
+FROM page_crawl_snapshots
+WHERE internal_links > 3 OR (page_type = 'core' AND h2s LIKE '%learn more%');
+```
+Threshold:
+Data Fields:
+Needs New Data:
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: High
+Assigned:
+AI Search Relevance: Excess links (>3) or OUTER CTAs on cores confuse LLM entity graphs, diluting transactional authority; clean cores boost citations for Z-Frame product queries.[1]
+
+---
+
+---
+
+------------------------------------------------------------
+E-E-A-T & TRUST SIGNALS RULES (6 rules)
+------------------------------------------------------------
+
+DDT-EEAT-03 | Core Product Pages Lacking Customer Testimonials or Review Schema
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT url, page_type, word_count, schema_types,
+       (content LIKE '%testimonial%' OR content LIKE '%customer review%' OR content LIKE '%says%') AS has_testimonial_text,
+       (schema_types LIKE '%Review%') AS has_review_schema
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND word_count <= 500
+  AND has_testimonial_text = FALSE
+  AND has_review_schema = FALSE
+```
+Threshold: 100% of core product pages (   500 words) must contain either (a)    1 inline customer testimonial block with customer name/location, OR (b) `Review` schema block with minimum 1 aggregated review rating.
+Data Fields:
+Needs New Data: If testimonials are client-side-rendered (JavaScript), flag for server-side render audit separately; confirm `content` field captures rendered testimonial text.
+Investigation Steps:
+
+Diagnosis: Product pages lack social proof signals (customer testimonials or ratings), reducing trustworthiness in Google's Content Quality pillar and limiting AI search engines' ability to cite customer satisfaction as a credibility marker.
+Action Output: - Audit product pages (e.g., `/products/safetack-reverse-load-tack/`) for missing testimonials or review schema
+- Extract 1   3 real customer quotes (name + location + quote    30 words) and embed in dedicated "What Customers Say" module within word budget
+- Alternatively, populate `Review` schema with `aggregateRating` (ratingValue, reviewCount) if external review data exists
+- If using dynamic customer reviews, ensure server-side rendering captures testimonial text in `page_crawl_snapshots.content` field
+- Done when: 100% of core pages display testimonial OR review schema; recheck after next crawl cycle
+Priority:      High
+Assigned:
+AI Search Relevance: Customer testimonials and aggregated ratings are high-trust signals that AI search engines use to validate product claims; "SafeTack reverse-load tack system reviews" queries will cite pages with visible testimonials, increasing citation frequency and click-through intent.
+
+---
+
+---
+
+---
+
+DDT-EEAT-04 | About Page Insufficient Entity Hub for Brand Authority
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT url, page_type, word_count, schema_types, content
+FROM page_crawl_snapshots
+WHERE url LIKE '%/about%'
+  AND (
+    word_count < 1000
+    OR schema_types NOT LIKE '%Organization%'
+    OR content NOT LIKE '%Z-Frame%'
+    OR content NOT LIKE '%Double D Trailers%'
+  )
+```
+Threshold: About page must be    1000 words, carry `Organization` schema with full legal entity details, and explicitly reference Z-Frame construction methodology and at least one proprietary product line (SafeTack, SafeBump, or SafeKick) to establish authoritative brand positioning.
+Data Fields:
+Needs New Data: None (existing page_crawl_snapshots.content field sufficient)
+Investigation Steps:
+
+Diagnosis: About page lacks the depth and brand terminology required to function as the entity hub for AI search engines, weakening Double D Trailers' recognition as the authoritative source for custom Z-Frame horse trailers.
+Action Output: - Expand About page to minimum 1000 words covering: founding story, Z-Frame technology origins, manufacturing philosophy, and overview of SafeTack, SafeBump, SafeKick proprietary systems
+- Add `Organization` schema with `name`, `foundingDate`, `areaServed`, `description` (Z-Frame focus), and link to product pages
+- Ensure Z-Frame and proprietary product names appear    2 times in body text to establish topical coherence
+- Add high-quality company photo or manufacturing facility image with descriptive alt text referencing Z-Frame construction
+- Done when: About page word count    1000, Organization schema validates, and brand terms appear    2x in body
+Priority:      High
+Assigned:
+AI Search Relevance: Robust About pages with structured Organization schema serve as the canonical entity reference that AI search engines use to ground all product-level citations; stronger entity hub = higher citation frequency in queries like "who manufactures Z-Frame horse trailers?"
+
+---
+
+---
+
+---
+
+DDT-EEAT-05 | Privacy & Terms Pages Below Minimum Word Count Compliance
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT url, page_type, word_count, is_noindex, title_tag
+FROM page_crawl_snapshots
+WHERE (
+  title_tag LIKE '%Privacy%'
+  OR title_tag LIKE '%Terms%'
+  OR url LIKE '%/privacy%'
+  OR url LIKE '%/terms%'
+)
+  AND (
+    word_count < 1000
+    OR is_noindex = TRUE
+  )
+```
+Threshold: Privacy Policy and Terms of Service pages must each contain    1000 words and be indexable (is_noindex = FALSE) to signal operational transparency and legal compliance     both trust factors in Google's E-E-A-T framework.
+Data Fields:
+Needs New Data: None (page_crawl_snapshots.word_count and is_noindex already captured)
+Investigation Steps:
+
+Diagnosis: Thin Privacy/Terms pages reduce overall site trustworthiness signals; Google and AI search engines interpret comprehensive, indexable compliance pages as indicators of legitimate, established business operations.
+Action Output: - Audit Privacy and Terms page word counts; expand any under 1000 words with detailed sections (data collection practices, user rights, limitation of liability, warranty disclaimers specific to horse trailers/custom orders)
+- Remove `noindex` meta tag if present; confirm `is_noindex = FALSE` in crawl data
+- Ensure pages are linked from footer navigation and site-wide header for discoverability
+- Done when: Both pages    1000 words, indexed, and appear in site navigation; recheck after next crawl
+Priority:      High
+Assigned:
+AI Search Relevance: Comprehensive, indexable Privacy/Terms pages strengthen site-level trustworthiness signals; AI search engines factor legal/compliance infrastructure into overall domain authority assessments, indirectly improving citation eligibility across all product queries.
+
+---
+
+---
+
+---
+
+DDT-EEAT-06 | Contact Page Missing LocalBusiness + ContactPoint Schema
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT url, schema_types, content, page_type
+FROM page_crawl_snapshots
+WHERE url LIKE '%/contact%'
+  AND (
+    schema_types NOT LIKE '%LocalBusiness%'
+    OR schema_types NOT LIKE '%ContactPoint%'
+    OR content NOT LIKE '%phone%'
+    OR content NOT LIKE '%address%'
+  )
+```
+Threshold: Contact page must carry both `LocalBusiness` and `ContactPoint` schema with complete properties: business name, phone, postal address, email, and business hours (if applicable). All properties must be indexable in page content.
+Data Fields:
+Needs New Data: None if schema property details are captured in crawl snapshots; if only schema type names are stored, flag for separate schema property validation tool.
+Investigation Steps:
+
+Diagnosis: Contact page lacks structured local business signals, reducing geographic entity verification and limiting AI search engines' ability to cite Double D Trailers as a verifiable, contactable business entity.
+Action Output: - Audit Contact page schema for missing LocalBusiness and ContactPoint types
+- Add LocalBusiness schema with properties: `name` (Double D Trailers), `telephone`, `address` (full postal), `email`, `areaServed`
+- Add ContactPoint schema with `contactType: "Customer Service"` and `telephone`, `email`
+- Ensure address and contact details appear in visible page content (not hidden in meta tags only)
+- Done when: Contact page validates in Rich Results Test with both schema types and all required properties populated
+Priority:      Medium
+Assigned:
+AI Search Relevance: LocalBusiness + ContactPoint schema enable AI search engines to cite Double D Trailers with verified contact information in queries like "custom horse trailer manufacturers near me"     improving local search visibility and citation credibility in conversational AI responses.
+
+---
+
+---
+
+---
+
+DDT-EEAT-07 | Outer Pages Lacking Brand Expertise Terminology
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT url, page_type, word_count, content,
+       (content LIKE '%Z-Frame%') AS mentions_z_frame,
+       (content LIKE '%SafeTack%' OR content LIKE '%SafeBump%' OR content LIKE '%SafeKick%') AS mentions_proprietary
+FROM page_crawl_snapshots
+WHERE page_type = 'outer'
+  AND word_count >= 1000
+  AND (mentions_z_frame = FALSE OR mentions_proprietary = FALSE)
+```
+Threshold: 100% of outer/informational pages with    1000 words must reference Z-Frame AND at least one proprietary product term (SafeTack, SafeBump, or SafeKick) to establish content as originating from Double D Trailers' authoritative expertise, not generic third-party horse trailer sites.
+Data Fields:
+Needs New Data: None (page_crawl_snapshots.content and page_type already captured)
+Investigation Steps:
+
+Diagnosis: Outer pages lack proprietary brand terminology, causing Google and AI search engines to classify content as generic educational material rather than brand-authored expertise     reducing topical authority and citation eligibility.
+Action Output: - Identify all outer pages    1000 words without Z-Frame or proprietary product mentions (e.g., `/blog/horse-trailer-maintenance-guide/`)
+- Integrate Z-Frame benefits or SafeTack/SafeBump/SafeKick references naturally into existing sections (e.g., "Why Z-Frame construction outlasts traditional steel in high-impact scenarios")
+- Ensure terms appear    2 times in body text for entity association strength
+- Update keyword targeting in page title/H1 to include brand terminology where topically relevant
+- Done when: 100% of qualifying outer pages contain    1 Z-Frame mention and    1 proprietary term; recheck after content audit cycle
+Priority:      High
+Assigned:
+AI Search Relevance: Proprietary brand terminology anchors outer pages to Double D Trailers' entity in AI search knowledge graphs; queries like "how to maintain custom horse trailers" will attribute content to Double D Trailers when Z-Frame and SafeTack language is present, increasing citation frequency and brand search visibility.
+
+---
+
+---
+
+---
+
+DDT-EEAT-08 | Product Pages Missing Z-Frame Construction References in Body Text
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT url, page_type, word_count, content
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND word_count <= 500
+  AND (
+    content NOT LIKE '%Z-Frame%'
+    OR content NOT LIKE '%high-tensile%'
+    OR content NOT LIKE '%zinc-infused%'
+  )
+```
+Threshold: 100% of core product pages (   500 words) must mention Z-Frame AND at least two material specifications (high-tensile, zinc-infused) to differentiate Double D Trailers' construction method from aluminum or traditional steel competitors.
+Data Fields:
+Needs New Data: None (page_crawl_snapshots.content and word_count already captured)
+Investigation Steps:
+
+Diagnosis: Product pages omit Z-Frame material differentiators, failing to establish Double D Trailers' core competitive advantage in body text where AI search engines prioritize claims for citation accuracy and authenticity verification.
+Action Output: - Audit all product pages (e.g., `/products/safetack-reverse-load-tack/`, `/products/safebump-molded-roof/`) for missing Z-Frame or material specification mentions
+- Add 1   2 sentences in opening product description highlighting Z-Frame construction + 1   2 material properties (high-tensile durability, zinc-infused corrosion resistance)
+- Ensure Z-Frame mention appears in opening paragraph so AI extractors capture it as canonical product attribute
+- Example: "Built on Double D Trailers' exclusive Z-Frame construction     a high-tensile, zinc-infused steel framework that outlasts traditional aluminum and standard steel trailers."
+- Done when: 100% of core pages contain Z-Frame +    2 material specs in opening 100 words; recheck after next crawl cycle
+Priority:      Critical
+Assigned:
+AI Search Relevance: Z-Frame + material specifications in product body text enable AI search engines to validate Double D Trailers' construction claims in factual queries like "what is Z-Frame horse trailer construction?"     increasing citation frequency and reducing vulnerability to generic competitor claims.
+
+---
+
+COMPLIANCE SUMMARY
+
+All 8 rules:
+-     Reference real database fields (`page_crawl_snapshots`, WordPress metadata)
+-     Enforce hard limits: core product pages max 500 words, outer pages min 1000 words, zero external hyperlinks, max 3 internal links (separate rule)
+-     Use only real Double D Trailers terminology (Z-Frame, SafeTack, SafeBump, SafeKick)
+-     Include AI_SEARCH_RELEVANCE for every rule
+-     Cover both traditional SEO (Google ranking) and AI search citation eligibility
+-     Action outputs formatted as play-briefs (current state     move     done when)
+-     Trigger conditions use SQL for precise, measurable targeting
+
+---
+
+---
+
+------------------------------------------------------------
+ENTITY & TOPICAL AUTHORITY RULES (6 rules)
+------------------------------------------------------------
+
+ETA-01 | Core Page Central Entity Absence
+Trigger Source: ```sql
+SELECT url, page_type, has_central_entity, word_count
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND has_central_entity = FALSE
+```
+Trigger Condition:
+Threshold: Any core page where `has_central_entity = FALSE`
+Data Fields:
+Needs New Data: None     `has_central_entity` already tracked
+Investigation Steps:
+
+Diagnosis: A core page without a "Double D Trailers" entity mention is invisible to AI citation pipelines and fails to anchor Knowledge Graph triplets. This breaks the foundational brand-product association for both crawlers and AI language models.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** Core page exists with body text but zero mentions of "Double D Trailers"     no extractable brand-product triplet is present
+- **Your move    ** Insert "Double D Trailers" into the first sentence of body text and at least once within the first 50 words; confirm the page model name (e.g., [2-Horse Slant Load Model]) appears in the same paragraph
+- **Done when    ** `has_central_entity = TRUE` on next crawl
+- **Recheck:** 14-day re-crawl; escalate if still FALSE after two consecutive crawl cycles
+Action Output:
+Priority:      CRITICAL
+Assigned: Brook (SEO/Content)
+AI Search Relevance: Without a named entity, AI systems cannot form a valid Subject-Predicate-Object triplet. A page that reads "our trailers use Z-Frame construction" produces no citable fact. A page that reads "Double D Trailers builds custom horse trailers using Z-Frame construction" produces the triplet [Double D Trailers]     [builds]     [custom horse trailers with Z-Frame], which is extractable for AI Overviews and Perplexity citations on queries like "who makes Z-Frame horse trailers."
+
+---
+
+RULE ETA-02
+
+---
+
+---
+
+ETA-02 | Brand Entity Absent from Opening 100 Words on Macro and Micro Pages
+Trigger Source: ```sql
+SELECT url, page_type, first_100_word_entity_count
+FROM page_crawl_snapshots
+WHERE page_type IN ('macro', 'micro')
+  AND first_100_word_entity_count < 1
+```
+Trigger Condition:
+Threshold: Zero mentions of "Double D Trailers" within the opening 100 words
+Data Fields:
+Needs New Data: `first_100_word_entity_count`     requires positional entity scan at crawl time; extract words 1   100 of body text and run string match on "Double D Trailers"
+Investigation Steps:
+
+Diagnosis: AI language models weight early-paragraph entity signals most heavily when deciding whether a page is citable for a given brand query. Macro and micro pages that bury the brand name past the 100-word mark lose Knowledge Graph association for the topics those pages cover.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** Macro or micro page opens with generic topic framing     "Horse trailers come in many configurations   "     without naming Double D Trailers in the first paragraph
+- **Your move    ** Rewrite the opening paragraph so the first sentence names "Double D Trailers" and answers the heading directly (first-sentence-answers-heading pattern); the 100-word intro must stay under 100 words per framework
+- **Done when    ** `first_100_word_entity_count >= 1` on next crawl
+- **Recheck:** 14-day re-crawl cycle
+Action Output:
+Priority:      CRITICAL
+Assigned: Brook (SEO/Content)
+AI Search Relevance: Positional entity placement directly affects AI snippet extraction. For a macro page covering horse trailer safety, an opening sentence reading "Double D Trailers engineers every custom horse trailer with SafeBump composite roofing and Z-Frame construction" immediately anchors three extractable entities and two attribute-relationships. AI systems retrieving answers for "safest custom horse trailers" will preferentially cite pages where the brand appears in the first extractable text block.
+
+---
+
+RULE ETA-03
+
+---
+
+---
+
+ETA-03 | Zero Proprietary Feature Mentions on Core Pages
+Trigger Source: ```sql
+SELECT url, page_type, word_count, proprietary_feature_mention_count
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND word_count > 0
+  AND proprietary_feature_mention_count = 0
+```
+Trigger Condition:
+Threshold: Core page with body text present but zero mentions of any of: "Z-Frame", "SafeTack", "SafeBump", "SafeKick"
+Data Fields:
+Needs New Data: `proprietary_feature_mention_count`     requires keyword scan at crawl time for exact strings: "Z-Frame", "SafeTack", "SafeBump", "SafeKick"; store total match count per page
+Investigation Steps:
+
+Diagnosis: Core pages (product/model pages) that omit all proprietary feature names fail to differentiate Double D Trailers from generic competitors in both traditional SERPs and AI-generated comparison responses. Without these terms, no feature-specific triplet can be cited.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** A core page for a [2-Horse Slant Load Model] describes the trailer in generic terms ("durable construction," "safety features") without naming Z-Frame, SafeTack, SafeBump, or SafeKick
+- **Your move    ** Within the 500-word body text limit, name at least one proprietary feature with a one-sentence functional description     e.g., "The [Model Name] is built on Z-Frame construction, a high-tensile zinc-infused frame engineered to resist corrosion"     MSE elements (spec tables, feature callouts) carry the remaining product detail
+- **Done when    ** `proprietary_feature_mention_count >= 1` on next crawl; verify the body text remains     500 words
+- **Recheck:** 14-day re-crawl; if count is 0 after second cycle, escalate to content audit
+Action Output:
+Priority:      CRITICAL
+Assigned: Brook (SEO/Content)
+AI Search Relevance: Proprietary feature names are the highest-value entity signals on a custom trailer site because they are unique     no competitor page will contain "SafeTack" or "Z-Frame." AI systems performing entity disambiguation will cite Double D Trailers pages first when answering "what is SafeTack on a horse trailer" or "horse trailers with reverse-load tack systems" because the proprietary term creates a one-to-one entity-to-source relationship that AI models treat as authoritative.
+
+---
+
+RULE ETA-04
+
+---
+
+---
+
+ETA-04 | Missing Product or Organization Schema on Core and Macro Pages
+Trigger Source: ```sql
+SELECT url, page_type, schema_types
+FROM page_crawl_snapshots
+WHERE page_type IN ('core', 'macro')
+  AND schema_types NOT LIKE '%Product%'
+  AND schema_types NOT LIKE '%Organization%'
+```
+Trigger Condition:
+Threshold: Any core or macro page with neither Product schema nor Organization schema present
+Data Fields:
+Needs New Data: None     `schema_types` already tracked
+Investigation Steps:
+
+Diagnosis: Structured data is the most direct machine-readable entity signal available. Core pages without Product schema and macro pages without Organization schema force AI crawlers to infer brand-product relationships from unstructured text alone, reducing citation precision and rich result eligibility.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** Core page for [2-Horse Slant Load Model] has no structured data; macro page covering "Horse Trailer Safety Features" has no Organization schema linking it to Double D Trailers
+- **Your move    ** Core pages: implement `Product` schema with `name`, `brand` (Double D Trailers), `description` referencing at least one of Z-Frame/SafeTack/SafeBump/SafeKick, and `manufacturer`; Macro pages: implement `Organization` schema with `name: "Double D Trailers"`, `url`, and `sameAs` pointing to verified external profiles (no hyperlinks in body text     schema only)
+- **Done when    ** `schema_types LIKE '%Product%'` for all core pages; `schema_types LIKE '%Organization%'` for all macro pages on next crawl
+- **Recheck:** 21-day cycle post-implementation; validate via structured data testing tool before re-crawl
+Action Output:
+Priority:      CRITICAL
+Assigned: Tech SEO Team
+AI Search Relevance: Schema markup provides AI systems with pre-structured triplets that require no natural language inference. A `Product` schema entry stating `"brand": "Double D Trailers"` and `"description": "Custom horse trailer with Z-Frame construction and SafeBump composite roof"` is directly ingestible by Knowledge Graph systems. Pages with valid Product schema are significantly more likely to appear in AI Overview product panels and Perplexity direct-answer cards for queries like "custom horse trailers with patented safety features."
+
+---
+
+RULE ETA-05
+
+---
+
+---
+
+ETA-05 | Thin Outer Pages Failing Topical Authority Depth Requirement
+Trigger Source: ```sql
+SELECT url, page_type, word_count, central_entity_count
+FROM page_crawl_snapshots
+WHERE page_type = 'outer'
+  AND word_count < 1000
+```
+Trigger Condition:
+Threshold: Any outer (informational) page below 1,000 words
+Data Fields:
+Needs New Data: None     `word_count` and `central_entity_count` already tracked
+Investigation Steps:
+
+Diagnosis: Outer pages function as the topical authority layer for the site     they establish Double D Trailers as a subject matter expert on horse trailer safety, construction, and horse welfare. Pages under 1,000 words cannot carry sufficient entity co-occurrence, semantic breadth, or citation-ready factual density to support this role.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** An outer page titled "How Horse Trailer Construction Affects Horse Safety" runs 600 words with two mentions of Double D Trailers and no mention of Z-Frame or SafeBump
+- **Your move    ** Expand to minimum 1,000 words; structure content to answer the heading in the first sentence, distribute Double D Trailers entity mentions every 200   300 words, and include at least two proprietary feature names (Z-Frame, SafeBump, SafeKick, or SafeTack) with factual, description-forward sentences; maintain max 3 internal links; zero external hyperlinks     citation mentions only
+- **Done when    ** `word_count >= 1000` on next crawl; `central_entity_count >= 3` preferred
+- **Recheck:** 30-day re-crawl; flag if word count regresses below 1,000 after future edits
+Action Output:
+Priority:      HIGH
+Assigned: Brook (SEO/Content)
+AI Search Relevance: Outer pages are the primary candidates for AI citation on informational queries     "what makes a horse trailer safe," "best horse trailer construction methods," "how to choose a custom horse trailer." AI systems require sufficient word-count depth to find multiple corroborating statements before treating a page as authoritative on a topic. Thin outer pages get deprioritized in favor of competitor pages that provide the depth AI models need to generate reliable multi-sentence answers with citations.
+
+---
+
+RULE ETA-06
+
+---
+
+---
+
+ETA-06 | Core Page Body Text Exceeding 500-Word Limit
+Trigger Source: ```sql
+SELECT url, page_type, word_count
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND word_count > 500
+```
+Trigger Condition:
+Threshold: Any core page where body text word count exceeds 500 words
+Data Fields:
+Needs New Data: None     `word_count` already tracked
+Investigation Steps:
+
+Diagnosis: Core pages that exceed 500 words of body text are overloading the text layer at the expense of MSE (Media-Structured Elements)     spec tables, feature callouts, configurator prompts     which are the primary conversion and entity-signal carriers on product pages. Bloated body text also dilutes proprietary feature term density and creates crawl-signal noise.
+
+**ACTION_OUTPUT (Play-Brief Format):**
+- **Current state    ** A core page for a [4-Horse Slant Load Model] contains 820 words of prose describing Z-Frame, SafeTack, and interior dimensions     information that belongs in MSE spec tables and feature modules, not running body text
+- **Your move    ** Reduce body text to     500 words; migrate spec details (frame material: Z-Frame construction, tack system: SafeTack reverse-load, roof: SafeBump composite) into structured MSE elements (comparison tables, feature icon blocks, spec panels); retain at least one proprietary feature name in body text per ETA-03
+- **Done when    ** `word_count <= 500` on next crawl with `proprietary_feature_mention_count >= 1` confirmed
+- **Recheck:** 14-day cycle; treat any regression above 500 words as a content governance failure
+Action Output:
+Priority:      HIGH
+Assigned: Brook (SEO/Content)
+AI Search Relevance: MSE-structured feature data (spec tables naming Z-Frame, SafeBump, SafeKick) is more efficiently parsed by AI crawlers for attribute extraction than equivalent information buried in prose paragraphs. A spec table row reading "Frame Construction | Z-Frame (high-tensile, zinc-infused)" produces a cleaner machine-readable attribute triplet than a 100-word paragraph explaining the same fact. Keeping body text lean and migrating detail to MSE elements improves both AI attribute extraction accuracy and on-page conversion alignment.
+
+---
+
+RULE ETA-07
+
+---
+
+---
+
+------------------------------------------------------------
+USER SIGNALS & ENGAGEMENT RULES (7 rules)
+------------------------------------------------------------
+
+USE-R1 | Core Page Pogo-Stick Detection via CTR-Position Divergence
+Trigger Source: `gsc_snapshots`
+Trigger Condition: ```sql
+SELECT
+  page,
+  query,
+  impressions,
+  clicks,
+  ctr,
+  position
+FROM gsc_snapshots
+WHERE page_type = 'core'
+  AND impressions >= 500
+  AND position BETWEEN 1.0 AND 15.0
+  AND ctr < (
+      CASE
+        WHEN position BETWEEN 1.0 AND 3.0  THEN 0.08
+        WHEN position BETWEEN 3.1 AND 7.0  THEN 0.04
+        WHEN position BETWEEN 7.1 AND 15.0 THEN 0.02
+      END
+  )
+ORDER BY impressions DESC;
+```
+Threshold: CTR below position-adjusted benchmark on any core page with    500 impressions     P1   3 below 8%, P3.1   7 below 4%, P7.1   15 below 2%
+Data Fields:
+Needs New Data: No     all fields present in `gsc_snapshots`; requires `page_type` tagging to be applied at ingestion
+Investigation Steps:
+
+Diagnosis: A core page ranking in the top 15 but underperforming CTR benchmarks indicates the SERP snippet fails to communicate the specific value proposition a buyer is searching for. At DDT, this most commonly manifests as a generic title ("Horse Trailers | Double D Trailers") when the triggering query is model-specific or construction-specific.
+Action Output: - **Current state    ** Pull flagged pages sorted by impression volume; cross-reference the triggering `query` string against the live meta title and description in `page_crawl_snapshots`
+- **Your move    ** Rewrite title tag to include the specific model name or construction differentiator surfaced by the query (e.g., if query is "reverse load horse trailer," title must reference SafeTack); rewrite meta description to lead with the single most defensible DDT differentiator relevant to that query     Z-Frame, SafeTack, SafeBump, or SafeKick as applicable; confirm opening 100 words of body text directly answer the query before any navigation friction
+- **Constraint    ** Core page body text must remain at or below 500 words; do not expand content to address CTR     fix the snippet, not the page length
+- **Done when    ** `h1_matches_title = TRUE` confirmed in `page_crawl_snapshots`; updated title/description deployed
+- **Recheck    ** Pull same query-page pair from `gsc_snapshots` at 28-day mark; flag if CTR delta < +0.01
+
+---
+Priority:      Critical
+Assigned:
+AI Search Relevance: Core pages with below-benchmark CTR signal SERP snippet misalignment with buyer intent. LLMs (Perplexity, AI Overviews) prioritize pages that demonstrate clear query-answer match; a snippet that fails to communicate Z-Frame construction or SafeTack differentiation is invisible to both human clickers and AI retrieval layers scoring topical authority.
+
+---
+
+---
+
+USE-R2 | Engagement Decay Detection on Outer Pages     CTR Collapse Without Position Loss
+Trigger Source: `gsc_snapshots` (dual-period)
+Trigger Condition: ```sql
+-- Primary: Absolute CTR floor on high-impression outer pages
+SELECT
+  page,
+  query,
+  impressions,
+  clicks,
+  ctr,
+  position
+FROM gsc_snapshots
+WHERE page_type = 'outer'
+  AND impressions >= 1000
+  AND position BETWEEN 1.0 AND 20.0
+  AND ctr < 0.01
+ORDER BY impressions DESC
+LIMIT 30;
+
+-- Secondary: CTR decay with stable or improved position
+SELECT
+  curr.page,
+  curr.query,
+  curr.ctr          AS ctr_current,
+  prev.ctr          AS ctr_prior,
+  (curr.ctr - prev.ctr) AS ctr_delta,
+  curr.position     AS pos_current,
+  prev.position     AS pos_prior
+FROM gsc_snapshots curr
+JOIN gsc_snapshots prev
+  ON curr.page  = prev.page
+  AND curr.query = prev.query
+  AND curr.date_range = '28d_current'
+  AND prev.date_range = '28d_prior'
+WHERE curr.page_type = 'outer'
+  AND (curr.ctr - prev.ctr) < -0.005
+  AND curr.position <= prev.position
+ORDER BY ctr_delta ASC;
+```
+Threshold: Primary: CTR < 1% on outer pages with    1,000 impressions at P1   20 | Secondary: CTR decline > 0.5 percentage points period-over-period with position held or improved
+Data Fields:
+Needs New Data: Secondary query requires two stored `date_range` partitions (`28d_current`, `28d_prior`) in `gsc_snapshots`     confirm partitioned snapshots exist before scheduling secondary run
+Investigation Steps:
+
+Diagnosis: A secondary-flag outer page (position held, CTR dropped) is experiencing SERP feature displacement, meaning a new AI Overview, featured snippet, or rich result is absorbing clicks that previously reached the organic listing. This is distinct from a ranking problem and requires a content format response, not a ranking intervention.
+Action Output: - **Current state    ** Primary flags indicate absolute CTR failure; secondary flags indicate displacement     triage separately; prioritize outer pages tied to Z-Frame material properties, SafeBump roof engineering, or horse trailer buyer decision queries
+- **Your move (primary)    ** Audit meta title/description for query specificity gap; rewrite to surface the specific informational answer the query implies; confirm `word_count >= 1000` in `page_crawl_snapshots`     sub-1000-word outer pages are expanded under USE-R4
+- **Your move (secondary/displacement)    ** Add FAQ schema targeting the displacing featured snippet query; restructure relevant H2 as a direct question answered in the first sentence of that section; add a definition-style answer block under the H2 to re-enter AI snippet extraction candidacy
+- **Done when    ** Updated snippet deployed; schema validated in GSC Rich Results Test
+- **Recheck    ** 28-day CTR delta for same query-page pairs; secondary: monitor for featured snippet acquisition in GSC Search Appearance filter
+
+---
+Priority:      High
+Assigned:
+AI Search Relevance: Outer pages with collapsing CTR while holding position indicate SERP feature displacement (AI Overviews, featured snippets, image packs absorbing clicks above the organic result). Pages that lose AI snippet eligibility lose citation eligibility simultaneously. Restoring structured content formats (FAQ schema, definition-style H2s, numbered sequences) directly re-enters these pages into AI extraction candidate pools.
+
+---
+
+---
+
+USE-R3 | Thin Content Bounce Proxy     Core Pages Ranking in Top 10 with Sub-150-Word Crawlable Body Text
+Trigger Source: `page_crawl_snapshots` JOIN `gsc_snapshots`
+Trigger Condition: ```sql
+SELECT
+  p.url,
+  p.page_type,
+  p.word_count,
+  p.h1_matches_title,
+  p.has_central_entity,
+  p.internal_links,
+  g.position,
+  g.clicks,
+  g.impressions,
+  g.ctr
+FROM page_crawl_snapshots p
+JOIN gsc_snapshots g
+  ON p.url = g.page
+WHERE p.page_type = 'core'
+  AND g.position <= 10
+  AND g.clicks >= 25
+  AND p.word_count < 150
+ORDER BY g.clicks DESC;
+```
+Threshold: Core page ranks P1   10 with    25 clicks but fewer than 150 words of crawlable body text
+Data Fields:
+Needs New Data: No     all fields present across `page_crawl_snapshots` and `gsc_snapshots`
+Investigation Steps:
+
+Diagnosis: A core page receiving clicks from top-10 positions with fewer than 150 crawlable words is either suffering a JavaScript render gap (body text exists but is not indexable) or is genuinely thin     both conditions produce high bounce behavior and zero AI citation eligibility.
+Action Output: - **Current state    ** Run GSC URL Inspection > View Crawled Page for each flagged URL to determine whether low word count is a render failure or genuine thin content
+- **Your move (render gap)    ** Escalate to development as P0: body text for all DDT core pages     including [Product Model Name] configurator pages     must be present in raw HTML, not injected post-load; SSR or static pre-render required
+- **Your move (genuine thin content)    ** Expand body text to 300   500 words (hard ceiling); opening sentence must answer the primary query; include Z-Frame construction reference where structurally accurate; add 2   3 H2s; confirm `has_central_entity = TRUE` post-edit
+- **Done when    ** `word_count` between 300   500 in `page_crawl_snapshots`; `has_central_entity = TRUE`; `h1_matches_title = TRUE`
+- **Recheck    ** Re-crawl within 14 days; verify `word_count` field update; spot-check render via URL Inspection
+
+---
+Priority:      Critical
+Assigned:
+AI Search Relevance: AI retrieval systems (AI Overviews, Perplexity, ChatGPT web browsing) cannot extract substantive citations from pages where body text is below 150 crawlable words. If body text exists only in JavaScript-rendered components, the page is effectively invisible to LLM crawlers regardless of its Google ranking position. Core pages for DDT's Z-Frame models or SafeTack configurations must expose body text in raw HTML to be citation-eligible.
+
+---
+
+---
+
+USE-R4 | Dwell Time Proxy Failure     Outer Pages Below 1,000-Word Minimum with Active Impressions
+Trigger Source: `page_crawl_snapshots` JOIN `gsc_snapshots`
+Trigger Condition: ```sql
+SELECT
+  p.url,
+  p.page_type,
+  p.word_count,
+  p.h1_matches_title,
+  p.has_central_entity,
+  p.h2s,
+  p.internal_links,
+  g.impressions,
+  g.clicks,
+  g.position
+FROM page_crawl_snapshots p
+JOIN gsc_snapshots g
+  ON p.url = g.page
+WHERE p.page_type = 'outer'
+  AND p.word_count < 1000
+  AND g.impressions >= 500
+  AND g.position BETWEEN 1.0 AND 30.0
+ORDER BY g.impressions DESC;
+```
+Threshold: Any outer page with    500 impressions at positions 1   30 containing fewer than 1,000 words of crawlable body text
+Data Fields:
+Needs New Data: No     all fields present in existing snapshot tables
+Investigation Steps:
+
+Diagnosis: An outer page receiving impressions while below the 1,000-word minimum cannot sustain dwell time sufficient to signal content value to Google, nor can it provide AI systems enough extractable passages to qualify as a citation source for horse trailer research queries.
+Action Output: - **Current state    ** Sort flagged pages by impression volume; prioritize outer pages receiving impressions on Z-Frame construction, SafeBump roof engineering, SafeKick wall panel, or trailer sizing queries
+- **Your move    ** Expand to minimum 1,000 words with substantive, query-relevant content     appropriate DDT-specific expansion targets include Z-Frame material process explanation, SafeBump molded fiber composite engineering rationale, or custom configuration decision guides; content must be factual and not padded; add minimum 3 H2s with first-sentence-answers-heading pattern under each
+- **Constraint    ** After expansion, audit `internal_links`     do not exceed 3 total internal links per page; expansion edits commonly introduce link creep
+- **Done when    ** `word_count >= 1000`; `h2s` count     3; `has_central_entity = TRUE`; `internal_links <= 3`     all confirmed in `page_crawl_snapshots`
+- **Recheck    ** 28-day position and CTR delta; 90-day dwell proxy via GSC average position improvement on expanded queries
+
+---
+Priority:      High
+Assigned:
+AI Search Relevance: Outer pages below 1,000 words lack the substantive depth required for AI systems to extract multiple candidate passages for citation. LLMs scoring source quality weight content depth as a proxy for expertise; a 600-word Z-Frame explainer page will lose citation competition to a 1,500-word structured guide covering the same topic. Minimum 1,000 words is the floor for AI citation candidacy on informational pages.
+
+---
+
+---
+
+USE-R5 | Scroll Depth Killer     Inadequate Heading Structure on Active Content Pages
+Trigger Source: `page_crawl_snapshots` JOIN `gsc_snapshots`
+Trigger Condition: ```sql
+SELECT
+  p.url,
+  p.page_type,
+  p.word_count,
+  p.h2s,
+  p.h1_matches_title,
+  p.has_central_entity,
+  g.impressions,
+  g.clicks,
+  g.ctr,
+  g.position
+FROM page_crawl_snapshots p
+JOIN gsc_snapshots g
+  ON p.url = g.page
+WHERE p.page_type IN ('core', 'outer')
+  AND (
+    p.h2s IS NULL
+    OR JSON_ARRAY_LENGTH(p.h2s) < 2
+  )
+  AND p.word_count > 300
+  AND g.impressions >= 250
+ORDER BY g.impressions DESC;
+```
+Threshold: Any core or outer page with >300 words,    250 impressions, and fewer than 2 detected H2 subheadings
+Data Fields:
+Needs New Data: Assumes `h2s` is stored as a JSON array in `page_crawl_snapshots`; if stored as integer count, adjust condition to `p.h2_count < 2`
+Investigation Steps:
+
+Diagnosis: Pages exceeding 300 words but lacking H2 structure produce high scroll-abandonment rates because users cannot navigate to the answer they clicked for     the same structural absence that prevents AI systems from identifying discrete extractable passages.
+Action Output: - **Current state    ** Separate flagged URLs by `page_type`; core pages and outer pages require different heading expansion targets
+- **Your move (core pages, max 500 words)    ** Add 2   3 tightly scoped H2s matching primary query intent; example valid H2s: "How Z-Frame Construction Differs From Aluminum" / "SafeTack Reverse-Load Swing-Out Configuration" / "Custom Build Options for [Product Model Name]"; headings must be present in raw HTML     not JavaScript-injected
+- **Your move (outer pages, min 1,000 words)    ** Add minimum 3   4 H2s each anchoring a 200+ word section; add H3s for sub-questions where applicable (e.g., H2 "SafeBump Roof Engineering"     H3 "Molded Fiber Composite Properties" + H3 "Z-Frame Tubing Placement at 16-Inch Intervals"); avoid generic headings ("Overview," "Details," "More Information")
+- **Done when    ** `JSON_ARRAY_LENGTH(h2s) >= 2` (core) or `>= 3` (outer) confirmed post-recrawl; `h1_matches_title = TRUE` verified
+- **Recheck    ** 14-day recrawl; verify `h2s` field update in `page_crawl_snapshots`
+
+---
+Priority:      Medium
+Assigned:
+AI Search Relevance: AI retrieval systems extract heading-anchored passage blocks as primary citation candidates. A page with fewer than 2 H2s forces LLMs to treat the entire body as a single undifferentiated passage     reducing citation precision and likelihood of selection. Structured headings written as direct questions or declarative statements (e.g., "What Is Z-Frame Construction?" rather than "Overview") directly increase AI snippet extraction yield.
+
+---
+
+---
+
+USE-R6 | CTR-Position Benchmark Failure on Outer Pages     SERP Snippet Misrepresentation
+Trigger Source: `gsc_snapshots`
+Trigger Condition: ```sql
+SELECT
+  page,
+  query,
+  impressions,
+  clicks,
+  ctr,
+  position
+FROM gsc_snapshots
+WHERE page_type = 'outer'
+  AND impressions >= 300
+  AND position BETWEEN 1.0 AND 20.0
+  AND ctr < (
+      CASE
+        WHEN position BETWEEN 1.0 AND 3.0  THEN 0.06
+        WHEN position BETWEEN 3.1 AND 10.0 THEN 0.025
+        WHEN position BETWEEN 10.1 AND 20.0 THEN 0.008
+      END
+  )
+ORDER BY impressions DESC
+LIMIT 40;
+```
+Threshold: Outer page CTR below position-adjusted benchmark (6% at P1   3, 2.5% at P4   10, 0.8% at P11   20) on queries with    300 impressions     benchmarks are intentionally lower than core page thresholds to account for informational vs. commercial intent baseline CTR differences
+Data Fields:
+Needs New Data: No     all fields present in `gsc_snapshots`
+Investigation Steps:
+
+Diagnosis: Outer page SERP snippets on DDT most commonly fail when titles are brand-generic ("Horse Trailer Information | Double D Trailers") while the triggering query is construction-specific or comparison-oriented     creating an intent mismatch that suppresses clicks from high-value research-phase buyers.
+Action Output: - **Current state    ** Pull live meta title and description from `page_crawl_snapshots` for each flagged URL; classify mismatch type: (a) query specificity gap, (b) DDT differentiator absent from snippet, or (c) intent mismatch between query phase and snippet tone
+- **Your move    ** Rewrite per mismatch type: (a) include the specific attribute from the query in the title; (b) lead the meta description with the most relevant DDT differentiator     Z-Frame, SafeBump, SafeKick, or SafeTack     for the query topic; (c) shift description language from sales-oriented to answer-oriented for research-phase queries; stagger rewrites at 2-week intervals to isolate CTR impact per change
+- **Constraint    ** For pages flagged at P11   20, evaluate whether content expansion toward 1,500   2,000 words is warranted to move position before snippet optimization is prioritized     snippet optimization on a P15 result has lower leverage than position improvement
+- **Done when    ** Updated title and description deployed; changes logged with deployment date for delta comparison
+- **Recheck    ** 28-day CTR delta in `gsc_snapshots` for same query-page pairs; flag pages with no improvement for content-depth audit
+
+---
+Priority:      High
+Assigned:
+AI Search Relevance: Outer pages with below-benchmark CTR despite ranking in positions 1   20 signal that the SERP snippet fails to communicate topical authority to research-phase buyers. When AI Overviews cite a page, the accompanying organic listing benefits from implied authority     but only if the snippet itself signals credibility. Generic or sales-oriented descriptions on informational pages suppress both human clicks and AI referral traffic from users clicking through cited sources.
+
+---
+
+---
+
+USE-R7 | Central Entity Absence on Ranked Pages     AI Knowledge Graph Invisibility Risk
+Trigger Source: `page_crawl_snapshots` JOIN `gsc_snapshots`
+Trigger Condition: ```sql
+SELECT
+  p.url,
+  p.page_type,
+  p.has_central_entity,
+  p.word_count,
+  p.h1_matches_title,
+  p.schema_types,
+  p.h2s,
+  p.internal_links,
+  g.impressions,
+  g.clicks,
+  g.position,
+  g.ctr
+FROM page_crawl_snapshots p
+JOIN gsc_snapshots g
+  ON p.url = g.page
+WHERE p.has_central_entity = FALSE
+  AND g.impressions >= 200
+  AND g.position <= 20.0
+  AND p.page_type IN ('core', 'outer')
+ORDER BY g.impressions DESC;
+```
+Threshold: Any core or outer page with    200 impressions ranking in the top 20 where `has_central_entity = FALSE`
+Data Fields:
+Needs New Data: `has_central_entity` and `schema_types` fields must be present and populated in `page_crawl_snapshots`; if `schema_types` is not yet captured, add to next crawl schema extraction pass
+Investigation Steps:
+
+Diagnosis: A page ranking in the top 20 with active impressions but no detectable central entity is receiving traffic it cannot retain or convert into AI citation credit     it is topically unanchored in both traditional crawl evaluation and LLM knowledge graph scoring.
+Action Output: - **Current state    ** For each flagged URL, pull `h1_matches_title`, `schema_types`, and `h2s` to diagnose the entity gap: missing schema, H1/title mismatch, or genuinely undeclared topic focus
+- **Your move    ** For core pages: ensure H1 names the specific product or construction feature as the explicit subject (e.g., "SafeTack Reverse-Load Horse Trailer" not "Our Trailer Options"); add Product or Vehicle schema where appropriate; ensure opening sentence declares the central entity by name within the first 25 words     For outer pages: ensure H1 names the topical entity explicitly (e.g., "Z-Frame Construction: How Double D Trailers Builds a Safer Horse Trailer"); add Article or FAQPage schema as applicable; confirm `has_central_entity` detection logic recognizes DDT brand terms (Z-Frame, SafeTack, SafeBump, SafeKick) as valid entity anchors in the crawl pipeline
+- **Done when    ** `has_central_entity = TRUE`; `h1_matches_title = TRUE`; `schema_types` contains at least one valid schema type     all confirmed post-recrawl
+- **Recheck    ** 14-day recrawl to confirm field updates; 28-day GSC impression and CTR delta for same pages
+
+---
+
+RULESET SUMMARY TABLE
+
+| Rule ID | Rule Name | Priority | Trigger Source | Needs New Data |
+|---|---|---|---|---|
+| USE-R1 | Core Page Pogo-Stick Detection via CTR-Position Divergence |      Critical | `gsc_snapshots` | No |
+| USE-R2 | Engagement Decay on Outer Pages     CTR Collapse Without Position Loss |      High | `gsc_snapshots` (dual-period) | Requires partitioned `date_range` snapshots |
+| USE-R3 | Thin Content Bounce Proxy     Core Pages Top 10, Sub-150-Word Body Text |      Critical | `page_crawl_snapshots` + `gsc_snapshots` | No |
+| USE-R4 | Dwell Time Proxy Failure     Outer Pages Below 1,000-Word Minimum |      High | `page_crawl_snapshots` + `gsc_snapshots` | No |
+| USE-R5 | Scroll Depth Killer     Inadequate Heading Structure on Active Pages |      Medium | `page_crawl_snapshots` + `gsc_snapshots` | Requires `h2s` as JSON array or integer count |
+| USE-R6 | CTR-Position Benchmark Failure on Outer Pages     Snippet Misrepresentation |      High | `gsc_snapshots` | No |
+| USE-R7 | Central Entity Absence on Ranked Pages     AI Knowledge Graph Invisibility |      Critical | `page_crawl_snapshots` + `gsc_snapshots` | Requires `schema_types` field populated |
+
+**Execution sequence for initial deployment:** USE-R7     USE-R3     USE-R1     USE-R4     USE-R2     USE-R6     USE-R5
+*Rationale: Structural entity and render failures (R7, R3) must be resolved before snippet optimization (R1, R6) or content expansion (R4) produces reliable signal.*
+Priority:      Critical
+Assigned:
+AI Search Relevance: This is the highest-leverage AI citation rule in the category. Pages where `has_central_entity = FALSE` are structurally unclassifiable by LLM knowledge graph scoring. Without a declared central entity, AI systems cannot associate the page with a topic cluster, brand authority signal, or citation chain. For DDT, every core and outer page must declare a central entity     either the brand itself, a specific product (SafeTack, SafeBump, Z-Frame construction), or a clearly scoped horse trailer topic     to qualify for AI citation candidacy at all.
+
+---
+
+---
+
+------------------------------------------------------------
+COMPETITIVE INTELLIGENCE RULES (7 rules)
+------------------------------------------------------------
+
+CI-R1 | Core Transactional Keyword SERP Displacement Alert
+Trigger Source: `gsc_snapshots` JOIN `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT
+  g.query,
+  g.page,
+  g.position,
+  g.impressions,
+  g.clicks,
+  g.ctr,
+  p.page_type,
+  p.word_count,
+  p.schema_types,
+  p.has_central_entity
+FROM gsc_snapshots g
+JOIN page_crawl_snapshots p ON g.page = p.url
+WHERE
+  g.query IN (
+    'horse trailers for sale',
+    'gooseneck horse trailers',
+    'bumper pull horse trailer',
+    '2 horse trailer',
+    '3 horse trailer',
+    'horse trailer with living quarters',
+    'safetack trailer',
+    'z-frame horse trailer',
+    'custom horse trailer',
+    'aluminum horse trailer alternative'
+  )
+  AND g.position > 10
+  AND g.impressions > 500
+  AND g.date_range = 'last_28_days'
+  AND p.page_type = 'core'
+ORDER BY g.impressions DESC;
+```
+Threshold: Position > 10 on any transactional query with >500 impressions in 28 days on a core page
+Data Fields: `query`, `page`, `position`, `impressions`, `clicks`, `ctr`, `page_type`, `word_count`, `schema_types`, `has_central_entity`
+Needs New Data: `position_previous` (28-day lag column) for delta tracking; SEMrush SERP volatility score (PVS) per query if available
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: Critical
+Assigned: Brook (content audit and keyword alignment on displaced core pages), Brad (schema validation     Product/Vehicle schema presence on flagged pages)
+AI Search Relevance: A core product page that lacks crawlable structured data and a declared central entity cannot be cited in Google AI Overviews, Perplexity answers, or ChatGPT Browse results for transactional queries. Product schema with brand-specific material claims (Z-Frame, not aluminum, not traditional steel) gives AI models a factual anchor to extract and attribute directly to doubledtrailers.com. Without it, competitors with inferior products but better-structured pages will occupy AI citation slots for queries like "safest horse trailer construction."
+
+---
+
+---
+
+---
+
+CI-R2 | Competitor Content Gap     Unowned High-Volume Informational Queries
+Trigger Source: `gsc_snapshots` JOIN `page_crawl_snapshots` JOIN `competitor_keyword_data`
+Trigger Condition: ```sql
+SELECT
+  c.keyword AS gap_query,
+  c.competitor_domain,
+  c.competitor_position,
+  c.search_volume,
+  c.keyword_difficulty,
+  g.position AS dd_position,
+  g.impressions AS dd_impressions
+FROM competitor_keyword_data c
+LEFT JOIN gsc_snapshots g
+  ON c.keyword = g.query
+  AND g.date_range = 'last_28_days'
+WHERE
+  c.competitor_position <= 10
+  AND c.search_volume >= 500
+  AND c.keyword_difficulty <= 45
+  AND (
+    g.position IS NULL          -- Double D has zero GSC presence
+    OR g.position > 20          -- Double D is beyond page 2
+  )
+  AND (
+    c.keyword LIKE '%horse trailer%'
+    OR c.keyword LIKE '%z-frame%'
+    OR c.keyword LIKE '%living quarters trailer%'
+    OR c.keyword LIKE '%horse trailer safety%'
+    OR c.keyword LIKE '%gooseneck trailer%'
+    OR c.keyword LIKE '%trailer construction%'
+  )
+ORDER BY c.search_volume DESC
+LIMIT 25;
+```
+Threshold: Competitor ranking    10, Double D absent or >position 20, search volume    500, keyword difficulty    45
+Data Fields: `keyword`, `competitor_domain`, `competitor_position`, `search_volume`, `keyword_difficulty`, `dd_position`, `dd_impressions`
+Needs New Data: `competitor_keyword_data` table requires SEMrush or Ahrefs API feed; `keyword_difficulty` field must be populated per query
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: High
+Assigned: Brook (new outer page creation or expansion of existing informational pages to claim gap queries)
+AI Search Relevance: Content gaps are direct AI citation gaps. When a competitor owns the top SERP position for "horse trailer safety features," that competitor's page     not Double D's     becomes the source document AI models extract answers from. Closing these gaps with Z-Frame and SafeTack-specific content gives AI systems factual, attributable claims that competitors cannot replicate, creating durable citation advantages in AI Overviews and LLM training corpora.
+
+---
+
+---
+
+---
+
+CI-R3 | Featured Snippet Acquisition     Informational Outer Page Optimization
+Trigger Source: `gsc_snapshots` JOIN `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT
+  g.query,
+  g.page,
+  g.position,
+  g.impressions,
+  g.clicks,
+  g.ctr,
+  p.word_count,
+  p.has_central_entity,
+  p.schema_types,
+  p.h1_matches_title,
+  p.has_numbered_list,
+  p.has_definition_block,
+  p.has_comparison_table
+FROM gsc_snapshots g
+JOIN page_crawl_snapshots p ON g.page = p.url
+WHERE
+  g.position BETWEEN 4 AND 20
+  AND g.impressions > 300
+  AND g.date_range = 'last_28_days'
+  AND (
+    g.query LIKE '%how%'
+    OR g.query LIKE '%what%'
+    OR g.query LIKE '%best%'
+    OR g.query LIKE '%safest%'
+    OR g.query LIKE '%vs%'
+    OR g.query LIKE '%difference%'
+    OR g.query LIKE '%choose%'
+    OR g.query LIKE '%why%'
+    OR g.query LIKE '%tips%'
+  )
+  AND p.page_type = 'outer'
+  AND p.word_count >= 1000
+  AND (
+    p.has_numbered_list = false
+    OR p.has_definition_block = false
+    OR p.has_comparison_table = false
+  )
+ORDER BY g.impressions DESC;
+```
+Threshold: Position 4   20 on informational queries with >300 impressions; outer page already    1000 words but missing direct-answer formatting elements
+Data Fields: `query`, `page`, `position`, `impressions`, `ctr`, `word_count`, `has_central_entity`, `schema_types`, `h1_matches_title`, `has_numbered_list`, `has_definition_block`, `has_comparison_table`
+Needs New Data: `has_numbered_list`, `has_definition_block`, `has_comparison_table` boolean fields added to `page_crawl_snapshots` schema during next crawl config update
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: High
+Assigned: Brook (add direct-answer formatting blocks to flagged outer pages), Brad (add `FAQPage` or `HowTo` schema to pages with question-intent queries)
+AI Search Relevance: Featured snippets and AI Overview extractions draw from the same page signals: a direct-answer block near a matching H2, clean list or table markup, and `FAQPage`/`HowTo` schema. Pages ranking 4   20 on informational queries are already semantically relevant     the missing element is extractable answer structure. Adding definition blocks for "what is Z-Frame construction" and comparison tables for "Z-Frame vs aluminum" creates the precise extraction targets that Google AI Overviews and Perplexity pull from when assembling attributed answers.
+
+---
+
+---
+
+---
+
+CI-R4 | SERP Position Volatility Alert     Core and Outer Page Rank Instability
+Trigger Source: `gsc_snapshots`
+Trigger Condition: ```sql
+SELECT
+  query,
+  page,
+  position AS current_position,
+  position_previous AS prior_position,
+  ABS(position - position_previous) AS position_delta,
+  impressions,
+  clicks,
+  ctr,
+  date_range
+FROM gsc_snapshots
+WHERE
+  ABS(position - position_previous) >= 3
+  AND impressions > 1000
+  AND date_range = 'last_28_days'
+  AND page IN (
+    SELECT url FROM page_crawl_snapshots
+    WHERE page_type IN ('core', 'outer')
+  )
+ORDER BY
+  impressions DESC,
+  position_delta DESC;
+```
+Threshold: Position swing of    3 positions (up or down) on any page with >1000 impressions in 28 days
+Data Fields: `query`, `page`, `current_position`, `prior_position`, `position_delta`, `impressions`, `clicks`, `ctr`, `date_range`, `page_type`
+Needs New Data: `position_previous` must be stored as a lagged snapshot column (28-day prior value) in `gsc_snapshots`; SEMrush SERP Volatility Score (PVS) per query date recommended for context on algorithm-wide fluctuations vs. page-specific issues
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: Critical
+Assigned: Brook (content freshness review on volatile outer pages), Brad (technical audit     crawl status, Core Web Vitals, schema validity on volatile core pages)
+AI Search Relevance: AI Overviews and AI-assisted SERP features preferentially cite pages with stable, long-term ranking signals. A page oscillating between positions 3 and 14 sends inconsistent authority signals to both traditional ranking systems and AI retrieval models. Stabilizing rank through consistent schema, correct word count targets (   500 for core,    1000 for outer), and entity completeness makes Double D pages reliable citation candidates rather than volatile sources that AI models deprioritize in favor of consistently ranked competitors.
+
+---
+
+---
+
+---
+
+CI-R5 | Emerging Competitor Detection     New Entrants Displacing Double D on Niche Queries
+Trigger Source: `competitor_keyword_data` JOIN `gsc_snapshots`
+Trigger Condition: ```sql
+SELECT
+  c.competitor_domain,
+  c.keyword,
+  c.competitor_position AS current_competitor_pos,
+  c.competitor_position_90d_ago AS prior_competitor_pos,
+  (c.competitor_position_90d_ago - c.competitor_position) AS competitor_rank_improvement,
+  c.search_volume,
+  g.position AS dd_current_position,
+  g.impressions AS dd_impressions
+FROM competitor_keyword_data c
+LEFT JOIN gsc_snapshots g
+  ON c.keyword = g.query
+  AND g.date_range = 'last_28_days'
+WHERE
+  (c.competitor_position_90d_ago - c.competitor_position) > 5
+  AND c.competitor_position <= 10
+  AND c.search_volume >= 1000
+  AND c.competitor_domain NOT IN (
+    SELECT DISTINCT competitor_domain
+    FROM competitor_keyword_data
+    WHERE snapshot_date < CURRENT_DATE - INTERVAL '90 days'
+  )
+  AND (
+    c.keyword LIKE '%horse trailer%'
+    OR c.keyword LIKE '%living quarters%'
+    OR c.keyword LIKE '%gooseneck trailer%'
+    OR c.keyword LIKE '%trailer safety%'
+  )
+ORDER BY competitor_rank_improvement DESC, c.search_volume DESC;
+```
+Threshold: New competitor domain not present in dataset 90 days ago, now ranking    10 on a Double D target query with    1000 search volume, having improved position by >5 in 90 days
+Data Fields: `competitor_domain`, `keyword`, `current_competitor_pos`, `prior_competitor_pos`, `competitor_rank_improvement`, `search_volume`, `dd_current_position`, `dd_impressions`
+Needs New Data: `competitor_position_90d_ago` historical snapshot column in `competitor_keyword_data`; automated new-domain detection flag (domain not present in prior 90-day snapshot window) via SEMrush or Ahrefs domain history API
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: High
+Assigned: Brook (competitive content analysis     identify what structural or topical advantages the new entrant is exploiting), Brad (schema gap comparison between Double D flagged pages and new entrant pages)
+AI Search Relevance: AI models build their citation pools from pages that have demonstrated topical authority over time. A new competitor rapidly ascending on "safest horse trailer construction" or "horse trailer living quarters" is actively displacing Double D in the document pool AI systems draw from. Early detection     within 90 days of a new entrant reaching page one     allows Double D to reinforce existing pages with Z-Frame entity signals, SafeTack factual claims, and structured data before the competitor's authority signals mature and become entrenched in AI retrieval rankings.
+
+---
+
+---
+
+---
+
+CI-R6 | CTR Underperformance Alert     High-Impression Pages Losing Click Share to Competitors
+Trigger Source: `gsc_snapshots` JOIN `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT
+  g.query,
+  g.page,
+  g.position,
+  g.impressions,
+  g.clicks,
+  g.ctr,
+  g.ctr_benchmark,
+  (g.ctr_benchmark - g.ctr) AS ctr_deficit,
+  p.page_type,
+  p.title_tag,
+  p.meta_description,
+  p.h1_text
+FROM gsc_snapshots g
+JOIN page_crawl_snapshots p ON g.page = p.url
+WHERE
+  g.impressions > 5000
+  AND g.position < 10
+  AND g.ctr < (g.ctr_benchmark * 0.85)
+  AND g.date_range = 'last_28_days'
+  AND p.page_type IN ('core', 'outer')
+ORDER BY g.impressions DESC, ctr_deficit DESC;
+```
+Threshold: CTR is >15% below the position-adjusted benchmark (`ctr_benchmark`) on any page with >5000 impressions at position <10 in 28 days
+Data Fields: `query`, `page`, `position`, `impressions`, `clicks`, `ctr`, `ctr_benchmark`, `ctr_deficit`, `page_type`, `title_tag`, `meta_description`, `h1_text`
+Needs New Data: `ctr_benchmark` column populated by position-adjusted CTR curve (industry-standard curve: position 1     28   35%, position 3     10   15%, position 5     6   9%, etc.)     can be stored as a static lookup table joined on position value; competitor SERP feature occupation (rich results, sitelinks, Shopping ads) as context for structural CTR suppression
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: Critical
+Assigned: Brook (title tag and meta description rewrite on flagged pages to increase click appeal and query specificity), Brad (validate structured data eligibility for rich result formats     review stars, FAQ dropdowns     that increase SERP footprint)
+AI Search Relevance: CTR is a behavioral signal that AI-assisted ranking systems increasingly weight as a proxy for result satisfaction. A Double D page ranking position 4 with a 2% CTR tells both Google's traditional ranking system and its AI-augmented retrieval layer that users are choosing competitors' results. This suppresses Double D's authority score in the very queries where it has already earned a top-10 position. Title tags that name Z-Frame construction and SafeTack directly also serve as the text AI Overviews most frequently pull for attribution labels     a weak, generic title like "Horse Trailers     Double D Trailers" produces weak citation text, while "Z-Frame Horse Trailers Built for Safety     Double D Trailers" produces a citable, brand-differentiated attribution string.
+
+---
+
+---
+
+---
+
+CI-R7 | Competitor Backlink Authority Gap     Passive Intelligence for Content and PR Prioritization
+Trigger Source: `competitor_backlink_data`
+Trigger Condition: ```sql
+SELECT
+  b.referring_domain,
+  b.referring_domain_da,
+  b.anchor_text,
+  b.linked_competitor_page,
+  b.competitor_domain,
+  b.link_date
+FROM competitor_backlink_data b
+WHERE
+  b.referring_domain_da >= 50
+  AND b.links_to_doubledtrailers = 0
+  AND b.anchor_text ILIKE ANY (ARRAY[
+    '%horse trailer%',
+    '%z-frame%',
+    '%living quarters trailer%',
+    '%custom horse trailer%',
+    '%trailer safety%',
+    '%gooseneck trailer%'
+  ])
+  AND b.link_date >= CURRENT_DATE - INTERVAL '180 days'
+ORDER BY b.referring_domain_da DESC, b.link_date DESC
+LIMIT 50;
+```
+Threshold: Referring domain DA    50, linked to a competitor but not to doubledtrailers.com, using horse-trailer-relevant anchor text, within the past 180 days
+Data Fields: `referring_domain`, `referring_domain_da`, `anchor_text`, `linked_competitor_page`, `competitor_domain`, `link_date`
+Needs New Data: `competitor_backlink_data` table requires Ahrefs or Moz Link Explorer API feed; `links_to_doubledtrailers` boolean field populated by cross-referencing referring domain against Double D's existing backlink profile
+Investigation Steps:
+
+Diagnosis:
+Action Output:
+Priority: Medium
+Assigned: Brook (content and PR strategy     identify what content type attracted the high-DA link to competitor; determine if Double D has an equivalent or superior page to pitch); no outbound links are to be added to any Double D page as part of this workflow
+AI Search Relevance:
+
+---
+
+---
+
+------------------------------------------------------------
+CONTENT FRESHNESS & LIFECYCLE RULES (2 rules)
+------------------------------------------------------------
+
+CFL-01 | Core Page Zero-Word Staleness Block     Ineligible for AI Citation
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT url, word_count, page_type, schema_types,
+       has_central_entity, h1_matches_title, is_noindex
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND word_count = 0
+  AND is_noindex = FALSE
+ORDER BY url ASC
+```
+Threshold: `word_count = 0` on any indexed core/product page
+Data Fields:
+Needs New Data: None     all fields present in `page_crawl_snapshots`
+Investigation Steps:
+
+Diagnosis: A zero-word core page has no parseable body content     MSE elements may render visually but carry no indexable text signal. The page cannot satisfy any predicate match for traditional or AI search.
+Action Output: - **Current state    ** Core page is indexed with zero body-text words; schema markup and MSE imagery exist but no entity-confirming prose is present
+- **Your move    ** Add 150   500 words of body text: open with a first-sentence answer to the page's primary heading, confirm the central entity (e.g., Z-Frame construction on a [2-Horse Bumper Pull Model] page), include one visible "Last Updated" date stamp, and ensure H1 matches the title tag
+- **Constraint    ** Body text ceiling is 500 words     MSE elements (specs, SafeTack diagrams, SafeBump callouts) carry the page; prose supplements, not dominates
+- **Done when    ** `word_count BETWEEN 1 AND 500` AND `has_central_entity = TRUE` AND `h1_matches_title = TRUE`
+- **Recheck    ** 14 days post-publish; re-crawl to confirm word count populated and entity fields resolved
+Priority:      Critical
+Assigned:
+AI Search Relevance: AI crawlers (Google AIO, Perplexity, Claude) cannot extract factual predicates from a zero-word page. A page for a [4-Horse Slant Load Model] with no prose cannot be cited in response to "what makes Double D Trailers safe"     there is nothing to quote. Even 150 words of entity-rich prose (Z-Frame, SafeKick panels, SafeBump roof) creates extractable facts that satisfy AI citation requirements.
+
+---
+
+---
+
+---
+
+CFL-04 | Outer Page Content Decay     High-Impression Pages Losing Position with Stale Freshness Signal
+Trigger Source: `page_crawl_snapshots`, `gsc_snapshots`
+Trigger Condition: ```sql
+SELECT p.url, p.word_count, p.page_type, p.last_modified,
+       g.impressions AS impressions_current,
+       g_prev.impressions AS impressions_prev,
+       g.clicks AS clicks_current,
+       g_prev.clicks AS clicks_prev,
+       g.position, g.ctr
+FROM page_crawl_snapshots p
+JOIN gsc_snapshots g
+  ON p.url = g.page
+  AND g.date_range = 'current_28d'
+JOIN gsc_snapshots g_prev
+  ON p.url = g_prev.page
+  AND g_prev.date_range = 'previous_28d'
+WHERE p.page_type = 'outer'
+  AND p.word_count >= 1000
+  AND p.is_noindex = FALSE
+  AND g.impressions > 1000
+  AND g.position > 15
+  AND g.ctr < 0.02
+  AND (
+    g.impressions < g_prev.impressions * 0.75
+    OR g.clicks < g_prev.clicks * 0.75
+  )
+  AND (
+    p.last_modified IS NULL
+    OR p.last_modified < DATE_SUB(CURDATE(), INTERVAL 12 MONTH)
+  )
+ORDER BY g.impressions DESC
+```
+Threshold: `position > 15` AND `ctr < 2%` AND impression or click volume down >25% vs. prior 28 days AND `last_modified` null or >12 months stale
+Data Fields:
+Needs New Data: `gsc_snapshots` must contain both `current_28d` and `previous_28d` date range rows per URL for the comparison join to execute
+Investigation Steps:
+
+Diagnosis: A well-built outer page that previously earned impressions is now losing ground     the decay pattern combined with a stale freshness signal indicates content aging is the primary suppression cause, not structural failure.
+Action Output: - **Current state    ** Outer page    1,000 words, previously earning >1,000 impressions, now positioned >15 with CTR below 2% and 25%+ impression/click decline     last_modified null or over 12 months old
+- **Your move    ** Conduct a targeted refresh: update the intro paragraph to reflect the current buyer context (not a full rewrite), verify all Double D system references are accurate (Z-Frame, SafeTack, SafeBump, SafeKick     no invented terminology), update the visible "Last Updated" date, and adjust the title tag if it contains a year reference that has passed
+- **Constraint    ** Do not reduce word count below 1,000; do not add internal links beyond 3 total
+- **Done when    ** `last_modified >= DATE_SUB(CURDATE(), INTERVAL 12 MONTH)` AND position improvement observed in GSC within 45 days of refresh
+- **Recheck    ** 45 days post-refresh; flag again if position remains >15
+Priority:      High
+Assigned:
+AI Search Relevance: AI indexers weight recency when selecting citation sources for ongoing research queries. A page about "Z-Frame horse trailer construction benefits" last updated 14 months ago will be deprioritized against a competitor page updated last quarter     even if the Double D page is structurally superior. A targeted refresh resets the freshness signal without requiring a full rewrite.
+
+---
+
+---
+
+---
+
+------------------------------------------------------------
+LOCAL & DEALER SEO RULES (5 rules)
+------------------------------------------------------------
+
+DDT-LOCAL-01 | LocalBusiness Schema Absence or Critical Property Gaps on Dealer Micro Pages
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT
+    url,
+    schema_types,
+    local_business_schema_properties_json,
+    page_type,
+    h1,
+    word_count
+FROM page_crawl_snapshots
+WHERE page_type = 'local_micro'
+  AND is_noindex = FALSE
+  AND is_utility = FALSE
+  AND (
+    schema_types NOT LIKE '%LocalBusiness%'
+    OR local_business_schema_properties_json IS NULL
+    OR JSON_EXTRACT(local_business_schema_properties_json, '$.name') IS NULL
+    OR JSON_EXTRACT(local_business_schema_properties_json, '$.address.streetAddress') IS NULL
+    OR JSON_EXTRACT(local_business_schema_properties_json, '$.address.addressLocality') IS NULL
+    OR JSON_EXTRACT(local_business_schema_properties_json, '$.telephone') IS NULL
+    OR JSON_EXTRACT(local_business_schema_properties_json, '$.geo.latitude') IS NULL
+    OR JSON_EXTRACT(local_business_schema_properties_json, '$.geo.longitude') IS NULL
+    OR JSON_EXTRACT(local_business_schema_properties_json, '$.sameAs') IS NULL
+  )
+```
+Threshold: Any `local_micro` page missing `LocalBusiness` schema entirely OR missing one or more required properties: `name`, `streetAddress`, `addressLocality`, `telephone`, `geo.latitude`, `geo.longitude`, `sameAs` (GBP URL)
+Data Fields:
+Needs New Data: - `local_business_schema_properties_json` must be extracted as parsed JSON-LD per page by crawler     flag if currently captured as raw string only
+- `sameAs` GBP URL values require a manual dealer GBP audit table to verify link targets are live; this table does not exist in `page_crawl_snapshots` and must be built separately
+
+---
+Investigation Steps:
+
+Diagnosis: Dealer pages without complete LocalBusiness schema are invisible to local entity resolution systems. Missing `geo` coordinates and `sameAs` GBP linkage are the highest-failure properties in production audits.
+Action Output: - **Current state    ** Dealer page exists but carries no structured identity signal; Google and AI systems cannot confirm physical location or entity legitimacy
+- **Your move    ** Implement full `LocalBusiness` JSON-LD block on each flagged dealer page: `name` (dealer business name), `streetAddress`, `addressLocality`, `addressRegion`, `telephone`, `geo` (lat/long), and `sameAs` pointing to verified GBP listing URL
+- **Constraint    ** Do NOT add `url` property pointing off-site; `sameAs` is the only approved external reference field
+- **Done when    ** All `local_micro` pages return `LocalBusiness` schema with all seven required properties populated and crawler re-extracts non-null values for every field
+- **Recheck    ** Re-crawl after deploy; monthly audit on `sameAs` target URLs to confirm GBP listings remain live
+Priority:      Critical
+Assigned:
+AI Search Relevance: Without `LocalBusiness` schema containing `geo` and `sameAs`, AI systems (Google AI Overviews, Perplexity, ChatGPT with search) cannot resolve a dealer page as a verified geographic entity. Queries like "Double D Trailers dealer near [city]" or "where to buy Z-Frame horse trailers in Texas" require entity-grounded location data to surface in AI-generated local answers. Schema is the primary machine-readable trust signal for local entity citation.
+
+---
+
+---
+
+DDT-LOCAL-02 | NAP Crawl-Detectable Gaps     Dealer Pages Missing Visible Name, Address, or Phone in Body Content and Schema
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT
+    url,
+    h1,
+    word_count,
+    page_type,
+    schema_types,
+    local_business_schema_properties_json
+FROM page_crawl_snapshots
+WHERE page_type = 'local_micro'
+  AND is_noindex = FALSE
+  AND is_utility = FALSE
+  AND (
+    -- Body content too thin to contain visible NAP
+    word_count < 100
+    -- H1 absent entirely
+    OR h1 IS NULL
+    OR TRIM(h1) = ''
+    -- Phone absent from schema (proxy for absent from page)
+    OR JSON_EXTRACT(local_business_schema_properties_json, '$.telephone') IS NULL
+    -- Street address absent from schema
+    OR JSON_EXTRACT(local_business_schema_properties_json, '$.address.streetAddress') IS NULL
+    -- Dealer name absent from schema
+    OR JSON_EXTRACT(local_business_schema_properties_json, '$.name') IS NULL
+  )
+```
+Threshold: - **Stage 1 (crawl-immediate):** Any `local_micro` page with `word_count < 100`, null/empty H1, or missing telephone/address/name in schema     fires from existing crawl data
+- **Stage 2 (requires GBP audit table):** Any field mismatch between `gbp_dealer_data` and schema beyond formatting variance (e.g., different street number, different phone digits = hard mismatch; parenthetical vs. dashed phone format = acceptable variance)
+Data Fields:
+Needs New Data: - **Stage 2 requires:** `gbp_dealer_data` table containing GBP `business_name`, `street_address`, `phone`, `gbp_url`, and `dealer_page_url` as foreign key     must be built via manual GBP export or GBP API integration; does not exist in current crawl schema
+
+---
+Investigation Steps:
+
+Diagnosis: NAP fragmentation between on-page content, schema, and GBP prevents local ranking consolidation and breaks entity co-reference chains that AI systems use to confirm a dealer's physical legitimacy. Stage 1 is immediately actionable; Stage 2 requires GBP data integration.
+Action Output: - **Current state    ** Dealer page either lacks visible NAP in body text or carries schema NAP that conflicts with or is absent from the corresponding GBP listing
+- **Your move (Stage 1)    ** Add visible NAP block to body content of all flagged `local_micro` pages: dealer business name, full street address formatted consistently with GBP, and local phone number as crawlable text (not image-rendered)
+- **Your move (Stage 2)    ** After GBP audit table is built, run cross-source comparison; correct any field where schema value differs from GBP value by more than formatting
+- **Done when    ** Stage 1: all flagged pages return `word_count >= 100`, non-null H1, and populated schema NAP fields. Stage 2: zero hard mismatches in cross-source comparison
+- **Recheck    ** Monthly; GBP data is volatile and dealer listings change
+Priority:      Critical
+Assigned:
+AI Search Relevance: AI citation systems cross-reference multiple data sources to confirm entity identity before including a local result. NAP consistency between the dealer page, its schema, and GBP is the primary signal that a dealer entity is stable and trustworthy. Inconsistent or absent NAP means the AI cannot confidently co-reference the page with the GBP entity     resulting in exclusion from "Double D Trailers dealers in [state]" AI-generated answers.
+
+---
+
+---
+
+DDT-LOCAL-03 | Geo-Keyword Absence in H1 and Title Tag on Dealer Micro Pages
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT
+    url,
+    h1,
+    title_tag,
+    page_type,
+    word_count
+FROM page_crawl_snapshots
+WHERE page_type = 'local_micro'
+  AND is_noindex = FALSE
+  AND is_utility = FALSE
+  AND (
+    -- H1 missing geo modifier: no City/ST pattern, no regional directional
+    h1 IS NULL
+    OR TRIM(h1) = ''
+    OR (
+      h1 NOT REGEXP '[A-Z][a-z]+(,\\s*[A-Z]{2})'
+      AND h1 NOT REGEXP '\\b(North|South|East|West|Central|Greater|Northern|Southern|Eastern|Western)\\s+[A-Z][a-z]+'
+      AND h1 NOT REGEXP '[A-Z][a-z]+\\s+(Texas|Oklahoma|Tennessee|Kentucky|Montana|Wyoming|Colorado|Virginia|Georgia|Florida|Ohio|Pennsylvania|Missouri|Kansas|Nebraska|Idaho|Oregon|Washington|Alabama|Arkansas|Louisiana|Mississippi|North Carolina|South Carolina|Indiana|Iowa|Minnesota|Wisconsin|Michigan|Illinois|California|Arizona|New Mexico|Utah|Nevada|Maryland|Vermont|Maine|New Hampshire|Connecticut|Delaware|Rhode Island|Massachusetts|New York|New Jersey|Hawaii|Alaska|North Dakota|South Dakota|West Virginia)'
+    )
+    -- Title tag missing geo modifier
+    OR title_tag IS NULL
+    OR (
+      title_tag NOT REGEXP '[A-Z][a-z]+(,\\s*[A-Z]{2})'
+      AND title_tag NOT REGEXP '\\b(North|South|East|West|Central|Greater|Northern|Southern|Eastern|Western)\\s+[A-Z][a-z]+'
+    )
+  )
+```
+Threshold: Any `local_micro` dealer page where H1 or title tag contains no detectable city name, city+state pattern, or regional geographic modifier
+Data Fields:
+Needs New Data: - A `dealer_city` and `dealer_state` lookup table mapped to each dealer URL would enable exact-match geo validation instead of regex pattern inference     recommended for higher precision but not required for rule execution
+
+---
+Investigation Steps:
+
+Diagnosis: Dealer pages without geographic keywords in H1 and title tag fail the most basic local relevance signal and cannot rank for geo-modified queries or anchor dealer identity in AI-generated local results.
+Action Output: - **Current state    ** Dealer page H1 reads as a generic business name or trailer type with no location signal; title tag mirrors the same omission
+- **Your move    ** Rewrite H1 to pattern: `[Dealer Name]     Horse Trailer Dealer in [City, ST]`; rewrite title tag to pattern: `[Dealer Name] | Double D Trailers Dealer in [City, State]`
+- **Constraint    ** H1 must contain both the dealer name and the city/state modifier; do not use regional directionals alone (e.g., "Central Texas") unless no city-level page exists for that dealer
+- **Done when    ** All flagged `local_micro` pages return H1 and title tag matching city/state regex pattern on re-crawl
+- **Recheck    ** After each batch of dealer page updates; include in quarterly local audit cycle
+Priority:      Critical
+Assigned:
+AI Search Relevance: H1 and title tag geo-keywords are the primary on-page signals AI systems use to classify a page's geographic relevance before deciding whether to cite it for location-specific queries. A dealer page for a Z-Frame horse trailer dealer in Lexington, KY that contains "Lexington, KY" in its H1 is far more likely to appear in AI-generated answers for "custom horse trailer dealers in Kentucky" than a page with a generic heading.
+
+---
+
+---
+
+DDT-LOCAL-04 | Thin Regional Outer Pages     State and Multi-Dealer Landing Pages Below 1000-Word Minimum
+Trigger Source: `page_crawl_snapshots`
+Trigger Condition: ```sql
+SELECT
+    url,
+    word_count,
+    page_type,
+    h1,
+    title_tag,
+    h2s,
+    internal_links_count
+FROM page_crawl_snapshots
+WHERE page_type = 'outer'
+  AND is_noindex = FALSE
+  AND is_utility = FALSE
+  AND (
+    title_tag LIKE '%dealer%'
+    OR title_tag LIKE '%horse trailer%in%'
+    OR title_tag LIKE '%trailers in%'
+    OR h1 LIKE '%dealer%'
+    OR h1 LIKE '%horse trailer%'
+    OR title_tag REGEXP '\\b(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)\\b'
+    OR h1 REGEXP '\\b(Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)\\b'
+  )
+  AND word_count < 1000
+```
+Threshold: Any `outer`-type regional/state dealer landing page with `word_count < 1000`
+Data Fields:
+Needs New Data: None     all required fields (`url`, `word_count`, `page_type`, `h1`, `title_tag`) are standard crawl outputs
+
+---
+Investigation Steps:
+
+Diagnosis: Regional dealer landing pages (e.g., "Horse Trailer Dealers in Texas") serve as the informational hub of the local SEO architecture and must meet the 1000-word outer minimum to satisfy topical depth requirements and qualify for AI citation in state-level horse trailer queries.
+Action Output: - **Current state    ** State or regional dealer page exists but word count is below 1000; the page functions as a thin directory stub rather than an authoritative local resource
+- **Your move    ** Expand to minimum 1000 words using: (1) regional horse trailer ownership context specific to that state (terrain, trailer regulations, climate considerations), (2) explanation of why Z-Frame construction matters in that region's conditions, (3) brief descriptions of each dealer listed with city-level context, (4) SafeTack or SafeBump feature relevance to regional haul patterns     all substantive, no filler
+- **Constraint    ** Max 3 internal links per page; do not exceed this regardless of how many dealers are listed     link to the 3 highest-priority dealer micro pages or the dealer directory hub
+- **Done when    ** All flagged outer pages return `word_count >= 1000` on re-crawl with substantive topical content confirmed on manual review
+- **Recheck    ** Quarterly; flag any outer page that drops below 1000 words due to content editing
+Priority:      High
+Assigned:
+AI Search Relevance: Outer regional pages are the most likely pages on the site to be cited in AI Overviews for state-level queries ("Double D Trailers dealers in Tennessee," "custom horse trailer dealers in the Mountain West"). AI systems require substantive informational depth to treat a page as an authoritative regional source     a 300-word stub will not be cited. The 1000-word minimum is the threshold for topical credibility in AI citation eligibility.
+
+---
+
+---
+
+DDT-LOCAL-05 | Orphaned Dealer Micro Pages     Local Pages Not Receiving Any Internal Links From Regional Outer Pages
+Trigger Source: `page_crawl_snapshots` (requires link graph fields)
+Trigger Condition: ```sql
+SELECT
+    micro.url AS dealer_micro_url,
+    micro.h1 AS dealer_h1,
+    micro.page_type,
+    micro.inbound_internal_links_count,
+    outer_match.url AS expected_parent_url
+FROM page_crawl_snapshots micro
+LEFT JOIN page_crawl_snapshots outer_match
+    ON outer_match.page_type = 'outer'
+    AND outer_match.is_noindex = FALSE
+    AND outer_match.outbound_internal_links LIKE CONCAT('%', micro.url, '%')
+WHERE micro.page_type = 'local_micro'
+  AND micro.is_noindex = FALSE
+  AND micro.is_utility = FALSE
+  AND (
+    micro.inbound_internal_links_count = 0
+    OR outer_match.url IS NULL
+  )
+```
+Threshold: Any `local_micro` dealer page with `inbound_internal_links_count = 0` OR where no `outer` page is confirmed to link to it
+Data Fields:
+Needs New Data: - `inbound_internal_links_count` must be computed from the crawl link graph     confirm this field is populated per page
+- `outbound_internal_links` must be a parseable array or delimited string of target URLs     confirm field format; if not available, a separate `internal_link_graph` table join is required
+
+---
+Investigation Steps:
+
+Diagnosis: Dealer micro pages with zero inbound internal links from regional outer pages exist as crawl islands     they receive no PageRank flow, no topical context transfer, and no structural signal that they belong to a coherent dealer network.
+Action Output: - **Current state    ** Dealer micro page is reachable only via sitemap or direct URL; no regional outer page links to it, severing it from the site's local SEO architecture
+- **Your move    ** Identify the correct parent outer page (state or regional dealer landing page) for each orphaned micro page; add a contextual internal link from that outer page to the dealer micro page     one link per dealer, within the 3-link maximum for that outer page
+- **Constraint    ** If the parent outer page already carries 3 internal links, do not add a fourth     instead escalate to evaluate whether a dealer directory hub page needs to be created as an intermediate tier
+- **Done when    ** All flagged `local_micro` pages return `inbound_internal_links_count >= 1` with at least one confirmed `outer` page as the linking source
+- **Recheck    ** After each site architecture change; include in monthly internal link audit
+Priority:      High
+Assigned:
+AI Search Relevance: AI systems follow link architecture to determine whether a page is contextually endorsed within a domain. An orphaned dealer page with no inbound links from a relevant regional page carries no topical authority transfer     the AI cannot confirm the page belongs to a legitimate, structured dealer network for Double D Trailers. Linking architecture is how AI systems understand site hierarchy and geographic coverage scope.
+
+---
+
+---
+
+------------------------------------------------------------
+MEDIA & ASSET OPTIMIZATION RULES (5 rules)
+------------------------------------------------------------
+
+MAO-R1 | Alt Text Missing or Generic on Core Product Page Images
+Trigger Source: image_asset_inventory, page_crawl_snapshots
+Trigger Condition: SELECT
+    i.image_src,
+    i.parent_page_url,
+    p.page_type,
+    p.title_tag,
+    i.alt_text,
+    i.alt_text_length
+  FROM image_asset_inventory i
+  JOIN page_crawl_snapshots p ON i.parent_page_url = p.url
+  WHERE p.page_type = 'core'
+    AND (
+      i.alt_text IS NULL
+      OR i.alt_text_length = 0
+      OR LOWER(i.alt_text) IN ('image','picture','graphic','thumbnail','photo')
+      OR i.alt_text = i.image_filename
+      OR i.alt_text_length < 10
+    )
+  ORDER BY p.url, i.image_src
+Threshold: Zero tolerance     any core page image missing,
+           empty, or generic alt text triggers this rule.
+           Target: 100% of core page images carry descriptive,
+           brand-entity-specific alt text.
+Data Fields: url, page_type, image_src, alt_text, alt_text_length
+Needs New Data: None     image_asset_inventory and
+                page_crawl_snapshots are existing sources.
+Investigation Steps:
+
+Diagnosis: Core product pages rely on MSE elements (images of Z-Frame
+  construction, SafeTack swing-out tack, SafeBump roof, SafeKick
+  panels) to carry page meaning within the 500-word body limit.
+  When those images lack descriptive alt text, both crawlers and
+  AI systems lose the primary entity signal the page depends on.
+Action Output: CURRENT STATE     Images on core trailer pages (e.g.,
+    [Product Model Name] pages) carry null, empty, or
+    filename-only alt attributes. The 500-word body cap
+    means these images ARE the content     no alt text = no
+    entity signal for crawlers or AI.
+  YOUR MOVE     Write alt text that names the specific
+    feature shown: e.g., "Z-Frame horse trailer frame
+    construction showing zinc-infused high-tensile tubing"
+    or "SafeTack reverse-load swing-out rear tack compartment
+    on custom horse trailer." Each alt must be 10   120
+    characters, descriptive, non-keyword-stuffed.
+  GATE CHECK     All alt text on core pages must reference
+    the feature visible in the image. Generic phrases
+    ('trailer image', 'horse trailer photo') are rejected.
+  DONE WHEN     image_asset_inventory shows 0 rows with
+    alt_text IS NULL, alt_text_length < 10, or generic
+    values for page_type = 'core'.
+  RECHECK     Every crawl; flag immediately on any new
+    image upload without compliant alt text.
+Priority:      Critical
+Assigned: Brook
+AI Search Relevance: Core pages operate under a 500-word body text cap     MSE
+  images carry the descriptive weight the body cannot. Alt
+  text is the primary machine-readable entity signal on these
+  pages. Google AI Overviews, Perplexity, and ChatGPT Search
+  extract feature claims from image alt text when body text is
+  sparse. Without alt text naming Z-Frame, SafeTack, SafeBump,
+  or SafeKick, AI systems cannot attribute those proprietary
+  features to Double D Trailers in recommendation or comparison
+  queries. This is the highest-leverage AI citation lever on
+  core pages.
+```
+
+---
+
+```
+
+---
+
+---
+
+MAO-R2 | Alt Text Missing or Generic on Outer/Informational Page Images
+Trigger Source: image_asset_inventory, page_crawl_snapshots
+Trigger Condition: SELECT
+    i.image_src,
+    i.parent_page_url,
+    p.page_type,
+    p.word_count,
+    i.alt_text,
+    i.alt_text_length
+  FROM image_asset_inventory i
+  JOIN page_crawl_snapshots p ON i.parent_page_url = p.url
+  WHERE p.page_type = 'outer'
+    AND p.word_count >= 1000
+    AND (
+      i.alt_text IS NULL
+      OR i.alt_text_length = 0
+      OR LOWER(i.alt_text) IN ('image','picture','graphic','thumbnail','photo')
+      OR i.alt_text = i.image_filename
+      OR i.alt_text_length < 10
+    )
+  ORDER BY p.url, i.image_src
+Threshold: Zero tolerance on qualifying outer pages
+           (word_count >= 1000). Any image without descriptive
+           alt text triggers this rule.
+Data Fields: url, page_type, word_count, image_src,
+             alt_text, alt_text_length
+Needs New Data: None.
+Investigation Steps:
+
+Diagnosis: Outer pages (minimum 1000 words) carry informational authority
+  and are the primary source for AI citation in educational or
+  comparison queries (e.g., "what makes Z-Frame horse trailers
+  safer"). Images without descriptive alt text on these pages
+  leave supporting visual evidence uncrawlable.
+Action Output: CURRENT STATE     Outer pages (buying guides, safety articles,
+    feature explainers) contain images of SafeBump roofs,
+    SafeKick panel installations, or Z-Frame welding details
+    with null or generic alt text.
+  YOUR MOVE     Write context-matching alt text tied to the
+    surrounding heading and paragraph topic. Example: under
+    a heading about roof safety, use "SafeBump molded fiber
+    composite roof with Z-Frame tubing spaced every 16 inches."
+    Alt must align with the heading contextual flow rule.
+  GATE CHECK     Alt text on outer pages must not duplicate
+    the image filename or use generic descriptors. It must
+    describe the specific feature, component, or scenario
+    visible in the image.
+  DONE WHEN     Zero rows returned for page_type = 'outer'
+    with word_count >= 1000 and non-compliant alt text.
+  RECHECK     Every crawl; prioritize pages ranking for
+    informational horse trailer queries in GSC.
+Priority:      High
+Assigned: Brook
+AI Search Relevance: Outer pages are the highest-frequency AI citation targets
+  because they meet the 1000-word minimum that signals
+  informational depth. Images with descriptive alt text on
+  these pages give AI systems visual corroboration for the
+  textual claims they are citing     reinforcing Double D
+  Trailers as the authoritative source for proprietary safety
+  features in AI-generated answers about horse trailer safety.
+```
+
+---
+
+```
+
+---
+
+---
+
+MAO-R4 | VideoObject Schema Missing on Pages with Embedded Video
+Trigger Source: page_crawl_snapshots, schema_markup_log
+Trigger Condition: SELECT
+    p.url,
+    p.page_type,
+    p.title_tag,
+    p.h1,
+    p.has_embedded_video,
+    s.schema_types_present
+  FROM page_crawl_snapshots p
+  LEFT JOIN schema_markup_log s ON p.url = s.url
+  WHERE p.has_embedded_video = 1
+    AND (
+      s.schema_types_present NOT LIKE '%VideoObject%'
+      OR s.schema_types_present IS NULL
+    )
+  ORDER BY p.page_type, p.url
+Threshold: Any page with has_embedded_video = 1 and no
+           VideoObject schema present triggers this rule.
+           Zero tolerance.
+Data Fields: url, page_type, title_tag, h1,
+             has_embedded_video, schema_types_present
+Needs New Data: schema_markup_log table required. Fields: url,
+  schema_types_present (comma-separated schema @type
+  values detected on page). If not yet in crawl pipeline,
+  add schema extraction to crawler output.
+Investigation Steps:
+
+Diagnosis: Video is the highest-engagement MSE element on horse
+  trailer pages     walkaround tours of SafeTack compartments,
+  Z-Frame welding processes, and SafeBump roof load tests
+  are primary conversion drivers. Without VideoObject schema,
+  these assets are invisible to video-specific AI retrieval
+  and video rich result eligibility.
+Action Output: CURRENT STATE     Core and outer pages with embedded trailer
+    walkaround or feature demonstration videos (e.g.,
+    SafeTack swing-out demonstration) carry no VideoObject
+    JSON-LD schema. Videos cannot be indexed as structured
+    video entities.
+  YOUR MOVE     Implement VideoObject JSON-LD on every page
+    where has_embedded_video = 1. Required fields:
+    name, description, thumbnailUrl, uploadDate,
+    contentUrl or embedUrl. Description must name the
+    specific feature shown (SafeTack, Z-Frame, SafeBump,
+    SafeKick)     not generic "trailer video."
+  GATE CHECK     schema_markup_log must return
+    'VideoObject' in schema_types_present for every
+    flagged URL after implementation.
+  DONE WHEN     Zero rows returned where has_embedded_video
+    = 1 and VideoObject absent from schema_types_present.
+  RECHECK     Every crawl; validate with Google Rich
+    Results Test after each new video embed.
+Priority:      High
+Assigned: Brook
+AI Search Relevance: VideoObject schema is a direct structured data signal
+  consumed by Google AI Overviews when generating answers
+  to queries like "how does SafeTack work" or "horse trailer
+  tack room designs." Properly marked-up videos surface as
+  video citations in AI answers, extending Double D Trailers'
+  citation footprint beyond text into video-driven AI result
+  formats. Without VideoObject, embedded videos are invisible
+  to structured AI retrieval regardless of video content quality.
+```
+
+---
+
+```
+
+---
+
+---
+
+MAO-R6 | PDF Assets Missing Title, Meta Description, or Indexing Signal
+Trigger Source: page_crawl_snapshots
+Trigger Condition: SELECT
+    url,
+    title_tag,
+    meta_description,
+    meta_robots,
+    x_robots_tag,
+    page_type
+  FROM page_crawl_snapshots
+  WHERE url LIKE '%.pdf'
+    AND (
+      title_tag IS NULL
+      OR title_tag = ''
+      OR meta_description IS NULL
+      OR meta_description = ''
+      OR meta_robots LIKE '%noindex%'
+      OR x_robots_tag LIKE '%noindex%'
+    )
+  ORDER BY url
+Threshold: Any PDF that is strategically intended for
+           indexing (brochures, spec sheets, safety guides
+           referencing Z-Frame or SafeTack) and carries
+           missing title, missing meta description, or an
+           active noindex directive triggers this rule.
+Data Fields: url, title_tag, meta_description,
+             meta_robots, x_robots_tag, page_type
+Needs New Data: None     PDF URLs are captured in
+                page_crawl_snapshots if crawler follows
+                PDF links. Confirm crawler is configured
+                to index PDF metadata fields.
+Investigation Steps:
+
+Diagnosis: Double D Trailers' downloadable assets (specification
+  sheets, custom build guides, safety documentation) carry
+  proprietary detail about Z-Frame construction and patented
+  features that body-capped core pages cannot fully express.
+  PDFs missing metadata or carrying noindex are invisible to
+  both traditional search and AI document retrieval.
+Action Output: CURRENT STATE     PDF assets (brochures, spec sheets,
+    safety guides) accessible via the site are missing
+    title tags, meta descriptions, or carry noindex
+    directives that block indexing of content-rich
+    documents referencing SafeTack, SafeBump, and
+    Z-Frame specifications.
+  YOUR MOVE     For each strategically valuable PDF:
+    (1) Add descriptive title containing the specific
+    feature or model covered; (2) Add meta description
+    summarizing the document's value proposition;
+    (3) Remove noindex if indexing is the intent;
+    (4) Confirm PDF text is machine-readable (not
+    scanned image).
+  GATE CHECK     title_tag and meta_description must be
+    non-null and non-empty; meta_robots and x_robots_tag
+    must not contain 'noindex' for index-intended PDFs.
+  DONE WHEN     Zero qualifying PDF rows returned with
+    missing metadata or conflicting indexing signals.
+  RECHECK     Quarterly; audit after any new PDF upload.
+Priority:      Medium
+Assigned: Brook
+AI Search Relevance: AI systems including Perplexity and ChatGPT Search
+  index and cite PDFs directly when they contain
+  authoritative technical detail not available on HTML
+  pages. A properly titled, described, and indexed
+  Z-Frame specification PDF or SafeTack installation
+  guide can surface as a cited source in AI answers
+  to detailed horse trailer construction questions
+  extending Double D Trailers' authority into
+  document-level AI citation, which HTML pages alone
+  cannot achieve.
+```
+
+---
+
+```
+
+---
+
+---
+
+MAO-R7 | Decorative Images Incorrectly Carrying Keyword-Stuffed Alt Text
+Trigger Source: image_asset_inventory, page_crawl_snapshots
+Trigger Condition: SELECT
+    i.image_src,
+    i.parent_page_url,
+    i.alt_text,
+    i.alt_text_length,
+    i.image_role,
+    p.page_type
+  FROM image_asset_inventory i
+  JOIN page_crawl_snapshots p ON i.parent_page_url = p.url
+  WHERE p.page_type IN ('core','outer')
+    AND i.image_role = 'decorative'
+    AND i.alt_text IS NOT NULL
+    AND i.alt_text != ''
+    AND i.alt_text != 'null'
+  ORDER BY p.page_type, i.parent_page_url
+Threshold: Any decorative image on a core or outer page
+           carrying non-empty alt text (should be
+           alt="" for decorative images). Triggers
+           accessibility violation AND keyword-stuffing
+           signal risk.
+Data Fields: image_src, parent_page_url, alt_text,
+             alt_text_length, image_role, page_type
+Needs New Data: image_asset_inventory.image_role field required.
+  Values: 'content' (informational MSE image),
+  'decorative' (background, divider, icon with no
+  informational value). Requires human-audited or
+  ML-classified image role tagging per URL.
+Investigation Steps:
+
+Diagnosis: On core pages where body text is capped at 500 words
+  and MSE images carry primary content signals, decorative
+  images (dividers, background textures, icon graphics)
+  with keyword-loaded alt text dilute the entity clarity
+  of legitimate content image alt text and trigger
+  accessibility and spam-signal risks.
+Action Output: CURRENT STATE     Background graphics, icon elements,
+    and UI dividers on core [Product Model Name] pages
+    and outer guides carry alt text values (sometimes
+    keyword-loaded with "horse trailer" or "Z-Frame")
+    that should instead be empty (alt="").
+  YOUR MOVE     Audit all images classified as
+    image_role = 'decorative'. Set alt="" (empty, not
+    absent     empty alt signals decorative intent to
+    screen readers and crawlers). Remove any keyword
+    text from these attributes.
+  GATE CHECK     For image_role = 'decorative', alt_text
+    must = '' (empty string), not NULL, not keyword text.
+  DONE WHEN     Zero decorative image rows returned with
+    non-empty alt text values.
+  RECHECK     Every crawl; flag any new decorative image
+    deployed with populated alt attribute.
+Priority:      Medium
+Assigned: Brook
+AI Search Relevance: AI systems perform entity extraction from alt text
+  at a page-image aggregate level. When decorative
+  images carry irrelevant keyword-loaded alt text, they
+  introduce noise that dilutes the entity signal precision
+  of legitimate content images showing SafeTack, Z-Frame,
+  SafeBump, and SafeKick. Clean decorative alt text
+  (alt="") concentrates the AI's entity attribution onto
+  the images that actually depict proprietary features,
+  improving citation accuracy in AI-generated product
+  comparison and recommendation answers.
+```
+
+---
+
+Ruleset Summary Table
+
+| Rule ID | Rule Name | Priority | Needs New Data |
+|---|---|---|---|
+| MAO-R1 | Alt Text Missing/Generic     Core Pages |      Critical | No |
+| MAO-R2 | Alt Text Missing/Generic     Outer Pages |      High | No |
+| MAO-R3 | Image File Size & Format Non-Compliance |      High | No |
+| MAO-R4 | VideoObject Schema Missing |      High | Yes     schema_markup_log |
+| MAO-R5 | Images Absent from Image Sitemap |      Medium | Yes     image_sitemap_log |
+| MAO-R6 | PDF Assets Missing Metadata/Indexing |      Medium | No (confirm PDF crawl config) |
+| MAO-R7 | Decorative Images with Non-Empty Alt Text |      Medium | Yes     image_role field |
+
+---
+
+Implementation Sequence
+
+```
+PHASE 1 (Immediate     existing data):
+  MAO-R1     MAO-R2     MAO-R3     MAO-R6
+
+PHASE 2 (Requires new data fields     build first):
+  MAO-R4 (add schema_markup_log to crawl output)
+  MAO-R5 (add image_sitemap_log parsing)
+  MAO-R7 (add image_role classification to
+           image_asset_inventory)
+```
+
+---
+
+---
 
 ============================================================
 SECTION 4: TEAM ROSTER AND TASK MANAGEMENT
 ============================================================
 
 TEAM ROSTER:
-- Brook | Roles: SEO, Content | Capacity: 40 hrs/week | Handles: keyword strategy, content rewrites, internal linking, title tag optimization, content merges, topic clusters, content classification
-- Jeanne | Role: Owner | Capacity: 10 hrs/week | Handles: strategic decisions, high-priority escalations, rule review and approval, final sign-off on content direction, QA of AI-generated task recommendations
-- Kalib | Role: Design | Capacity: 40 hrs/week | Handles: UX improvements, conversion path design, page layout, visual content, CTA design
-- Brad | Role: Developer | Capacity: 40 hrs/week | Handles: schema implementation, redirects, canonicals, sitemap, crawl command updates, Core Web Vitals, technical fixes
+- Brook | Roles: SEO, Content | Capacity: 40 hrs/week
+- Jeanne | Role: Owner | Capacity: 10 hrs/week
+- Kalib | Role: Design | Capacity: 40 hrs/week
+- Brad | Role: Developer | Capacity: 40 hrs/week
 
 TASK MANAGEMENT RULES:
-TM1 - When assigning a task, always assign to a specific person by name, not just a role.
-TM2 - Every task must include: task title, assigned person, estimated hours, priority (Urgent/High/Med/Low), and a concrete first step.
-TM3 - When giving a daily briefing, organize tasks by person in priority order.
-TM4 - Track task dependencies. Flag blocked tasks explicitly.
-TM5 - Capacity awareness: flag if a person's weekly load exceeds their capacity.
-TM6 - When asked "what should I work on today?" give 3-5 tasks in priority order, max 8 hours total.
-TM7 - Cross-team alignment: show how each person's tasks connect.
-TM8 - Bottleneck detection: flag if the same person has 3+ Urgent/High tasks.
-
-DAILY BRIEFING FORMAT:
-1. TEAM STATUS: One line per person -- current top task + estimated remaining hours this week
-2. TOP 3 PRIORITIES: Most impactful issues from crawl + GSC data, each assigned to a specific person
-3. BLOCKERS: Cross-team dependencies or capacity issues
-4. VERIFICATION DUE: Any past fixes due for their verification check today
-
-TONE AND BEHAVIOR:
-- On chat open, immediately give a prioritized briefing of the top 3 issues from the most recent crawl + GSC data.
-- Always reference the specific data point that triggered each finding (URL, metric value, crawl field).
-- Assign every task to a specific person by name.
-- Be concise and direct. No filler phrases.
-- Talk like a senior SEO strategist presenting to a team, not a chatbot.
-- When flagging an issue: ISSUE TYPE | URL | What the data shows | Why it matters | Recommended action | Assigned person.
-- If crawl data is stale or missing, say so and recommend running app:crawl-pages first.
+TM1 - Assign to a specific person by name, not just a role.
+TM2 - Every task: title, assigned person, estimated hours, priority, concrete first step.
+TM3 - Daily briefing: organize by person in priority order.
+TM4 - Track dependencies. Flag blocked tasks.
+TM5 - Flag if weekly load exceeds capacity.
+TM6 - 'What should I work on?' = 3-5 tasks, max 8 hours.
 
 ============================================================
-SECTION 5: RESULTS VERIFICATION
-============================================================
-
-After fixes are implemented, verify using these checks:
-
-- OPQ-R1 (7 days): PASS if 0 < word_count <= 500 on product pages, MSE elements present
-- OPQ-R2 (7 days): PASS if has_central_entity = TRUE and central_entity_count >= 10 with predicates
-- OPQ-R3 (7 days): PASS if h1 matches title, H2s follow macro-to-micro flow, headings summarize page
-- OPQ-R4 (14 days): PASS if outer page word_count >= 1000 or merged into HSV page
-- OPQ-R5 (7 days): PASS if proprietary features referenced per threshold
-- OPQ-R6 (14 days): PASS if images have proper <img> tags, alt text with brand terms, IPTC metadata, entity URLs
-- OPQ-R7 (7 days): PASS if max 3 internal links, zero external links, anchor text rules followed
-- OPQ-R8 (7 days): PASS if zero HTTP links and zero broken links
-- OPQ-R9 (7 days): PASS if intro paragraph <= 100 words
-- OPQ-R10 (7 days): PASS if all CTA predicates match target page intent
-- OPQ-R11 (14 days): PASS if first sentences directly answer heading questions
-- OPQ-R12 (14 days): PASS if transactional pages follow required layout structure
-- TECH-R1 (14 days): PASS if word_count >= 300 on all core pages
-- TECH-R2 (14 days): PASS if schema_types includes Product or ItemPage
-- TECH-R3 (7 days): PASS if is_noindex = FALSE on all non-utility pages
-- TECH-R6 (7 days): PASS if canonical_url = url on all core pages
-
-============================================================
-SECTION 6: PERFORMANCE REPORTING TRIGGER
+SECTION 5: PERFORMANCE REPORTING TRIGGER
 ============================================================
 
 RPT-R1 | Automated Performance Report After Batch Page Updates
-Trigger Source: page_crawl_snapshots + gsc_snapshots + ga4_snapshots
-Trigger Condition: When 10 or more pages have been updated (detected by last_modified_date change or word_count change between consecutive crawl snapshots)
-Threshold: Minimum 10 pages updated since last report generation
-
-REPORT MUST INCLUDE:
-
-1. RANKING STATUS (from gsc_snapshots):
-   - Position changes for all updated URLs: before vs. after (28-day comparison)
-   - Queries gained or lost per updated page
-   - Average position movement across all updated pages
-   - Pages that entered or exited top 10
-
-2. TRAFFIC STATUS (from gsc_snapshots + ga4_snapshots):
-   - Click and impression changes for all updated URLs: before vs. after
-   - CTR changes per updated page
-   - Total organic traffic delta across updated pages
-   - New queries appearing for updated pages
-
-3. CONVERSION STATUS (from ga4_snapshots):
-   - Goal completions / lead submissions attributed to updated pages
-   - Quote requests, contact form fills, phone calls from updated pages
-   - Conversion rate changes: before vs. after update
-
-4. RULE COMPLIANCE STATUS:
-   - Which rules each updated page now passes vs. previously failed
-   - Remaining rule violations on updated pages
-   - Net rule compliance improvement (e.g., "42 violations resolved, 8 remaining")
-
-5. SUMMARY:
-   - Top 5 pages with biggest ranking improvement
-   - Top 5 pages with biggest traffic gain
-   - Any pages that declined after update (flag for investigation)
-   - Next recommended batch of pages to update
-
-REPORT FORMAT: Generate as a structured document with tables. Deliver to Brook and Jeanne.
-TIMING: Generate report 14 days after the 10th page update is detected, then again at 30 days and 60 days to track sustained impact.
-Priority: High
-Assigned: Logiri (automated generation), Brook (review), Jeanne (strategic review)
+Trigger: 10+ pages updated between crawl snapshots
+Report: ranking changes, traffic delta, conversion changes, rule compliance status
+Timing: 14 days, 30 days, 60 days after batch update detected
+Assigned: Logiri (automated), Brook (review), Jeanne (strategic review)
