@@ -135,7 +135,7 @@ class GenerateRulesCommand extends Command
             $output->writeln("  Scope: {$category['scope']}");
             $output->writeln("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
 
-            $prompt = $this->buildGenerationPrompt($category, $siteContext, $existingRules);
+            $prompt = $this->buildGenerationPrompt($category, $siteContext, $existingRules, $catKey);
 
             if ($dryRun) {
                 $output->writeln("  [DRY RUN] Prompt length: " . strlen($prompt) . " chars");
@@ -327,12 +327,12 @@ class GenerateRulesCommand extends Command
     //  BUILD GENERATION PROMPT (Round 1)
     // ─────────────────────────────────────────────
 
-    private function buildGenerationPrompt(array $category, array $siteContext, array $existingRules): string
+    private function buildGenerationPrompt(array $category, array $siteContext, array $existingRules, string $catKey = ''): string
     {
         $siteData = $this->formatSiteContext($siteContext);
         $existingList = $this->formatExistingRules($existingRules);
         $brandContext = $this->buildBrandContext($siteContext);
-        $framework = $this->loadFramework();
+        $framework = $this->loadFramework($catKey);
 
         return <<<PROMPT
 You are a senior SEO architect designing a comprehensive rule engine FROM SCRATCH for doubledtrailers.com.
@@ -564,15 +564,62 @@ PROMPT;
 
     // ─────────────────────────────────────────────
     //  LOAD SEO FRAMEWORK (Jeanne's methodology)
+    //  Loads foundational sections (1-12) + category-specific section
     // ─────────────────────────────────────────────
 
-    private function loadFramework(): string
+    private function loadFramework(?string $categoryKey = null): string
     {
         $path = __DIR__ . '/../../jeannes_framework.txt';
-        if (file_exists($path)) {
-            return file_get_contents($path);
+        if (!file_exists($path)) {
+            return '(Framework file not found at ' . $path . ')';
         }
-        return '(Framework file not found at ' . $path . ')';
+
+        $content = file_get_contents($path);
+
+        // Map category keys to framework section names
+        $sectionMap = [
+            'on_page_content'         => 'On-Page Content Quality',
+            'technical_seo'           => 'Technical SEO',
+            'schema_structured_data'  => 'Schema & Structured Data',
+            'internal_linking'        => 'Internal Link Architecture',
+            'keyword_intent'          => 'Keyword & Intent Alignment',
+            'eeat_trust'              => 'E-E-A-T & Trust Signals',
+            'core_web_vitals'         => 'Core Web Vitals & Performance',
+            'ai_search_readiness'     => 'AI Search & Citation Eligibility',
+            'entity_authority'        => 'Entity & Topical Authority',
+            'user_signals'            => 'User Signals & Engagement',
+            'conversion_path'         => 'Conversion Path & CTA',
+            'competitive_intelligence'=> 'Competitive Intelligence',
+            'content_freshness'       => 'Content Freshness & Lifecycle',
+            'local_seo'              => 'Local & Dealer SEO',
+            'media_assets'           => 'Media & Asset Optimization',
+        ];
+
+        // Always include Part 1 (Sections 1-12) — the foundational rules
+        $part1End = strpos($content, 'PART 2');
+        if ($part1End === false) {
+            // Old format or no Part 2 — return the whole file but truncated
+            return substr($content, 0, 15000);
+        }
+
+        $foundational = substr($content, 0, $part1End);
+
+        // If no specific category, return just foundational (saves tokens)
+        if (!$categoryKey || !isset($sectionMap[$categoryKey])) {
+            return $foundational;
+        }
+
+        // Find the specific category section in Part 2
+        $sectionName = $sectionMap[$categoryKey];
+        $pattern = '/SECTION\s+\d+:\s*' . preg_quote($sectionName, '/') . '\s*\n={10,}\n(.*?)(?=\n={10,}\nSECTION\s+\d+:|\z)/s';
+
+        $categorySection = '';
+        if (preg_match($pattern, $content, $m)) {
+            $categorySection = "\n\nCATEGORY-SPECIFIC FRAMEWORK — {$sectionName}:\n" . trim($m[1]);
+        }
+
+        // Return foundational + category-specific (keeps prompt under ~12K words)
+        return $foundational . $categorySection;
     }
 
     // ─────────────────────────────────────────────
@@ -893,5 +940,3 @@ PROMPT;
         return $results;
     }
 }
-
-    
