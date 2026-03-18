@@ -339,6 +339,13 @@ You are a senior SEO architect designing a comprehensive rule engine FROM SCRATC
 
 IMPORTANT: You are building an entirely new ruleset. Ignore any existing rules. Design the optimal rules based purely on your expert knowledge of SEO — both traditional search and AI search (Google AI Overviews, Perplexity, ChatGPT search).
 
+⚠️ ABSOLUTE HARD LIMITS — VIOLATING THESE MEANS THE RULE IS REJECTED:
+1. PRODUCT/CORE PAGES: Body text must NOT exceed 500 words. The MSE (Most Significant Element) — product images, attributes, CTAs, reviews, FAQs — carries the page, NOT word volume. Do NOT recommend 600, 800, or 1000+ words for product pages. Any rule with a product page word threshold above 500 will be discarded.
+2. OUTER/INFORMATIONAL PAGES: Minimum 1000 words. Below 1000 = thin content. Do NOT use 300 or 500 as the outer page minimum.
+3. INTERNAL LINKS: Maximum 3 per page. Do NOT recommend 5+ internal links.
+4. EXTERNAL LINKS: Zero. Replace with citation mentions (author, title, date only).
+These limits are NON-NEGOTIABLE. They override any general SEO best practice you may have learned.
+
 ⚠️ CRITICAL — BRAND ACCURACY RULES:
 When writing examples, diagnoses, or action outputs, you MUST ONLY use the real product names, real brand terminology, and real specifications listed below. DO NOT invent product names, model names, or brand terminology. If you need an example and aren't sure of the exact name, use a generic placeholder like "[Product Model Name]" or "[Core Page URL]" — never fabricate a name.
 
@@ -424,6 +431,12 @@ PROMPT;
         return <<<PROMPT
 You are reviewing SEO rule proposals from multiple AI models for doubledtrailers.com.
 
+⚠️ ABSOLUTE HARD LIMITS — REJECT any rule that violates these:
+- Product/core pages: max 500 words body text. REJECT any rule requiring 600, 800, or 1000+ words on product pages.
+- Outer/informational pages: min 1000 words. REJECT any rule using 300 or 500 as the outer minimum.
+- Internal links: max 3 per page. REJECT any rule recommending 5+ internal links.
+- External links: zero. REJECT any rule recommending outbound links.
+
 ⚠️ BRAND ACCURACY: Double D Trailers builds custom horse trailers using Z-Frame (high-tensile, zinc-infused material — NOT aluminum, NOT traditional steel). Real brand terms: Z-Frame (not Z-Bar), SafeTack (patented reverse-load with swing-out rear tack), SafeBump (single-piece molded fiber composite roof), SafeKick (recycled plastic/rubber wall panels). Do NOT invent product names or pricing. If you need an example, use "[Product Model Name]" as a placeholder or reference a real URL from the site data.
 
 CATEGORY: {$category['name']}
@@ -437,9 +450,10 @@ YOUR TASK:
 2. Merge overlapping rules into single, stronger versions
 3. Eliminate rules that are too generic or unmeasurable
 4. Remove any rules that reference incorrect brand terminology (aluminum, Z-Bar, SafeKill, etc.)
-5. Ensure every rule has a clear trigger condition with real field names
-6. Ensure every rule addresses AI search citation eligibility
-7. Ensure every rule is CONSISTENT with the SEO framework provided in Round 1 (macro/micro/outer classification, MSE placement, predicate alignment, heading flow, image rules, link rules, content volume limits, first-sentence structure)
+5. REJECT any rule with product page word counts above 500 or outer page minimums below 1000
+6. Ensure every rule has a clear trigger condition with real field names
+7. Ensure every rule addresses AI search citation eligibility
+8. Ensure every rule is CONSISTENT with the SEO framework provided in Round 1
 
 OUTPUT: 5-8 refined rules in the EXACT same format as Round 1 (RULE_ID, RULE_NAME, TRIGGER_SOURCE, TRIGGER_CONDITION, etc.)
 
@@ -472,6 +486,12 @@ FINAL ROUND: Produce the definitive rule set for category "{$category['name']}" 
 
 This is a FROM-SCRATCH ruleset design. No existing rules to consider — build the best possible rules.
 
+⚠️ ABSOLUTE HARD LIMITS — ANY RULE VIOLATING THESE IS AUTOMATICALLY REJECTED:
+- Product/core pages: max 500 words body text. MSE elements carry the page. Do NOT set thresholds at 600, 800, or 1000+ words for product pages.
+- Outer/informational pages: min 1000 words. Do NOT use 300 or 500 as the outer minimum.
+- Internal links: max 3 per page. Do NOT recommend 5+ internal links.
+- External links: zero. Citation mentions only (author, title, date — no hyperlinks).
+
 ⚠️ BRAND ACCURACY CHECK — Before finalizing, verify:
 - Double D Trailers builds custom horse trailers using Z-Frame (high-tensile, zinc-infused — NOT aluminum, NOT traditional steel)
 - Real terms: Z-Frame (construction material), SafeTack (patented reverse-load, swing-out rear tack), SafeBump (molded fiber composite roof with Z-Frame tubing every 16"), SafeKick (recycled plastic/rubber wall panels)
@@ -489,6 +509,7 @@ Produce the FINAL 5-8 rules. For each rule:
 4. Every rule must have an AI_SEARCH_RELEVANCE line explaining how it affects AI citation eligibility
 5. Rules must cover BOTH traditional search ranking AND AI search citation
 6. All examples must use REAL Double D Trailers product names and terminology only
+7. REJECT any rule with product page word thresholds above 500 or outer page minimums below 1000
 
 CRITICAL: You MUST output ALL 5-8 rules. Keep each rule's ACTION_OUTPUT to 3-5 bullet points maximum — do NOT write full essays per rule. The DIAGNOSIS should be 1-2 sentences. Be concise so you have room for all rules.
 
@@ -940,3 +961,6 @@ PROMPT;
         return $results;
     }
 }
+
+
+    
