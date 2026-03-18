@@ -32,18 +32,20 @@ class EvaluateRuleCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('rule',        null, InputOption::VALUE_OPTIONAL, 'Specific rule ID (e.g. FC-R7). Omit to evaluate all firing rules.')
+            ->addOption('rule',        null, InputOption::VALUE_OPTIONAL, 'Specific rule ID (e.g. OPQ-001). Omit to evaluate all firing rules.')
             ->addOption('dry-run',     null, InputOption::VALUE_NONE,     'Show prompts without calling APIs')
             ->addOption('verbose-llm', null, InputOption::VALUE_NONE,     'Show full LLM responses per round')
-            ->addOption('skip-output', null, InputOption::VALUE_NONE,     'Skip Stage 2 output consensus (run rule validation only)');
+            ->addOption('skip-output', null, InputOption::VALUE_NONE,     'Skip Stage 2 output consensus (run rule validation only)')
+            ->addOption('skip-validation', null, InputOption::VALUE_NONE, 'Skip Stage 1 validation (rules are pre-validated, go straight to play briefs)');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $ruleFilter  = $input->getOption('rule');
-        $dryRun      = (bool) $input->getOption('dry-run');
-        $verboseLlm  = (bool) $input->getOption('verbose-llm');
-        $skipOutput  = (bool) $input->getOption('skip-output');
+        $ruleFilter      = $input->getOption('rule');
+        $dryRun          = (bool) $input->getOption('dry-run');
+        $verboseLlm      = (bool) $input->getOption('verbose-llm');
+        $skipOutput      = (bool) $input->getOption('skip-output');
+        $skipValidation  = (bool) $input->getOption('skip-validation');
 
         $this->ensureSchema();
 
@@ -64,8 +66,12 @@ class EvaluateRuleCommand extends Command
         $output->writeln('');
         $output->writeln('+============================================+');
         $output->writeln('|      LOGIRI MULTI-LLM RULE EVALUATOR       |');
-        $output->writeln('|  Stage 1: Rule Validation                  |');
-        $output->writeln('|  Stage 2: Output Consensus for DDT Team    |');
+        if (!$skipValidation) {
+            $output->writeln('|  Stage 1: Rule Validation                  |');
+        }
+        if (!$skipOutput) {
+            $output->writeln('|  Stage 2: Play Brief Generation (1 round)  |');
+        }
         $output->writeln('+============================================+');
         $output->writeln('');
 
@@ -90,16 +96,27 @@ class EvaluateRuleCommand extends Command
             }
 
             // ══════════════════════════════════════════
-            //  STAGE 1 — RULE VALIDATION DELIBERATION
+            //  STAGE 1 — RULE VALIDATION (skippable)
             // ══════════════════════════════════════════
-            $output->writeln("   -- Stage 1: Rule Validation --");
+            $finalVerdicts  = [];
+            $finalConsensus = ['status' => 'VALIDATED', 'avg_conf' => 10, 'passes' => 5, 'flags' => 0];
+            $allRounds      = [];
+            $roundsRun      = 0;
 
-            $basePrompt     = $this->buildValidationPrompt($rule, $firingPages);
-            $stage1Result   = $this->runDeliberation($basePrompt, $output, $verboseLlm, 'S1');
-            $finalVerdicts  = $stage1Result['verdicts'];
-            $finalConsensus = $stage1Result['consensus'];
-            $allRounds      = $stage1Result['rounds'];
-            $roundsRun      = $stage1Result['rounds_run'];
+            if (!$skipValidation) {
+                $output->writeln("   -- Stage 1: Rule Validation --");
+
+                $basePrompt     = $this->buildValidationPrompt($rule, $firingPages);
+                $stage1Result   = $this->runDeliberation($basePrompt, $output, $verboseLlm, 'S1');
+                $finalVerdicts  = $stage1Result['verdicts'];
+                $finalConsensus = $stage1Result['consensus'];
+                $allRounds      = $stage1Result['rounds'];
+                $roundsRun      = $stage1Result['rounds_run'];
+
+                $this->displayValidationResults($output, $finalVerdicts, $finalConsensus, $allRounds, $roundsRun);
+            } else {
+                $output->writeln("   [SKIP] Validation skipped -- rules are pre-validated");
+            }
 
             $this->displayValidationResults($output, $finalVerdicts, $finalConsensus, $allRounds, $roundsRun);
 
@@ -114,7 +131,7 @@ class EvaluateRuleCommand extends Command
                 $output->writeln("   -- Stage 2: Output Consensus --");
 
                 $outputPrompt  = $this->buildOutputPrompt($rule, $firingPages, $finalConsensus, $finalVerdicts);
-                $stage2Result  = $this->runDeliberation($outputPrompt, $output, $verboseLlm, 'S2', 8000);
+                $stage2Result  = $this->runDeliberation($outputPrompt, $output, $verboseLlm, 'S2', 8000, 1);
                 $outputConsensus = $this->synthesiseOutput($stage2Result['verdicts'], $stage2Result['consensus'], $rule);
                 $outputConsensus['rounds_run'] = $stage2Result['rounds_run'];
 
@@ -250,16 +267,16 @@ class EvaluateRuleCommand extends Command
     //  RUN DELIBERATION LOOP (shared by both stages)
     // ─────────────────────────────────────────────
 
-    private function runDeliberation(string $basePrompt, OutputInterface $output, bool $verboseLlm, string $stagePrefix, int $maxTokens = 1500): array
+    private function runDeliberation(string $basePrompt, OutputInterface $output, bool $verboseLlm, string $stagePrefix, int $maxTokens = 1500, int $maxRounds = 3): array
     {
         $allRounds     = [];
         $finalVerdicts = [];
         $finalConsensus = null;
         $roundsRun     = 0;
 
-        for ($round = 1; $round <= self::MAX_ROUNDS; $round++) {
+        for ($round = 1; $round <= $maxRounds; $round++) {
             $roundsRun = $round;
-            $output->writeln("   [{$stagePrefix}] Round {$round} of " . self::MAX_ROUNDS . "...");
+            $output->writeln("   [{$stagePrefix}] Round {$round} of {$maxRounds}...");
 
             $prompt = ($round === 1)
                 ? $basePrompt
@@ -297,7 +314,7 @@ class EvaluateRuleCommand extends Command
                 break;
             }
 
-            if ($round === self::MAX_ROUNDS) {
+            if ($round === $maxRounds) {
                 $output->writeln("   [{$stagePrefix}] >> Max rounds -- majority vote.");
                 $finalVerdicts  = $roundVerdicts;
                 $finalConsensus = $this->determineMajority($roundVerdicts, $allRounds);
@@ -1353,5 +1370,3 @@ GLOSSARY;
         }
     }
 }
-
-    
