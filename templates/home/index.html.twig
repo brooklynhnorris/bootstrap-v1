@@ -2148,9 +2148,9 @@
         messagesEl.innerHTML = '';
         // Auto-brief on this specific task
         const t = window._taskCache && window._taskCache[taskId];
-        const taskDesc = t ? t.description : '';
-        const taskPriority = t ? t.priority : '';
-        requestBriefingForTask(taskId, taskTitle, taskDesc, taskPriority);
+        const desc = taskDesc || (t ? t.description : '');
+        const prio = taskPriority || (t ? t.priority : '');
+        requestBriefingForTask(taskId, taskTitle, desc, prio);
     }
 
     async function requestBriefingForTask(taskId, title, description, priority) {
