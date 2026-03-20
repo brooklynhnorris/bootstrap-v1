@@ -1214,6 +1214,7 @@ PROMPT;
     {
         return <<<GLOSSARY
 - Company: Double D Trailers (DDT), founded 1997 in Pink Hill NC, HQ Wilmington NC
+- Website: https://www.doubledtrailers.com
 - Construction: Z-Frame — high-tensile, zinc-infused material (NOT aluminum, NOT traditional steel)
 - SafeTack: Patented reverse-load design with swing-out rear tack (NOT SafeTrack, NOT safe tack)
 - SafeBump: Single-piece molded fiber composite roof reinforced with Z-Frame tubing every 16 inches (NOT SafeKill)
@@ -1222,6 +1223,16 @@ PROMPT;
 - Product pages: max 500 words body text. MSE elements carry the page.
 - Outer pages: min 1000 words. Below that = thin content.
 - Max 3 internal links per page. Zero external links.
+
+VERIFIED EXTERNAL URLS (use ONLY these — do NOT invent or guess URLs):
+- Facebook: https://www.facebook.com/DoubleDHorseTrailers
+- Instagram: https://www.instagram.com/doubledtrailers
+- YouTube: https://www.youtube.com/doubledtrailers
+- LinkedIn: https://www.linkedin.com/company/double-d-horse-trailers
+- Google Business Profile: https://www.google.com/maps/place//data=!4m3!3m2!1s0x89a94a91f7ce6007:0x258a33898d33e04a!12e1?source=g.page.default
+- Logo URL: https://www.doubledtrailers.com/wp-content/uploads/2023/10/Blog-Logo.jpg
+
+CRITICAL: When generating schema markup, copy URLs EXACTLY from this list. Do NOT truncate, abbreviate, or reconstruct any URL.
 GLOSSARY;
     }
 
