@@ -1011,7 +1011,7 @@
         <div id="input-area">
             <textarea id="input" placeholder="Ask anything about this Play…" rows="1"></textarea>
             <button id="send">Send</button>
-            <button id="mark-done-btn" onclick="if(currentTaskId) completeTask(currentTaskId)" style="display:none;">✓ Done</button>
+            <button id="mark-done-btn" onclick="completeTask(this.getAttribute('data-task-id') || currentTaskId)" style="display:none;">✓ Done</button>
         </div>
     </div>
 
@@ -1512,9 +1512,10 @@
                 const actions = document.createElement('div');
                 actions.className = 'chat-actions';
                 // Only show mark done when viewing a task
-                if (currentTaskId) {
+                const _taskIdForBtn = currentTaskId || document.getElementById('mark-done-btn')?.getAttribute('data-task-id');
+                if (_taskIdForBtn) {
                     actions.innerHTML =
-                        '<button class="chat-btn done-btn" onclick="completeTask(currentTaskId)">&#10003; Mark as Done</button>';
+                        '<button class="chat-btn done-btn" onclick="completeTask(' + _taskIdForBtn + ')">&#10003; Mark as Done</button>';
                 }
                 bubble.appendChild(actions);
             }
@@ -2164,7 +2165,10 @@
         document.getElementById('board-back-btn').style.display = 'flex';
         document.getElementById('board-title').textContent = taskTitle || 'Play';
         const doneBtn = document.getElementById('mark-done-btn');
-        if (doneBtn) doneBtn.style.display = 'inline-flex';
+        if (doneBtn) {
+            doneBtn.style.display = 'inline-flex';
+            doneBtn.setAttribute('data-task-id', taskId);
+        }
         // Reset chat for this task
         messages = [];
         conversationId = null;
