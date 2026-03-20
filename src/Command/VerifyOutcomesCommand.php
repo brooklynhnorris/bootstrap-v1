@@ -15,20 +15,34 @@ class VerifyOutcomesCommand extends Command
     // Minimum days after fix before we expect GSC signal
     private const MIN_DAYS_AFTER_FIX = 14;
 
-    // Outcome thresholds per rule category
+    // Outcome thresholds per rule category prefix
     private const THRESHOLDS = [
-        // FC rules — on-page structural fixes
-        'FC-R1'  => ['metric' => 'impressions', 'pass' => 20,  'partial' => 10,  'window' => 28],
-        'FC-R2'  => ['metric' => 'impressions', 'pass' => 15,  'partial' => 5,   'window' => 28],
-        'FC-R3'  => ['metric' => 'position',    'pass' => -2,  'partial' => -1,  'window' => 28],
-        'FC-R5'  => ['metric' => 'clicks',      'pass' => 15,  'partial' => 5,   'window' => 28],
-        'FC-R6'  => ['metric' => 'position',    'pass' => -2,  'partial' => -1,  'window' => 28],
-        'FC-R7'  => ['metric' => 'ctr',         'pass' => 10,  'partial' => 5,   'window' => 28],
-        'FC-R8'  => ['metric' => 'impressions', 'pass' => 15,  'partial' => 5,   'window' => 28],
-        'FC-R9'  => ['metric' => 'impressions', 'pass' => 20,  'partial' => 10,  'window' => 28],
-        'FC-R10' => ['metric' => 'clicks',      'pass' => 20,  'partial' => 10,  'window' => 28],
+        // On-Page Content — expect impression/position movement
+        'OPQ'       => ['metric' => 'impressions', 'pass' => 20,  'partial' => 10,  'window' => 28],
+        // Technical SEO — expect indexing/impression recovery
+        'TECH'      => ['metric' => 'impressions', 'pass' => 15,  'partial' => 5,   'window' => 28],
+        // Schema — expect CTR improvement from rich results
+        'DDT-SD'    => ['metric' => 'ctr',         'pass' => 10,  'partial' => 5,   'window' => 28],
+        // Internal Links — expect position improvement
+        'ILA'       => ['metric' => 'position',    'pass' => -2,  'partial' => -1,  'window' => 28],
+        // Keyword/Intent — expect position and impression gains
+        'KIA'       => ['metric' => 'position',    'pass' => -3,  'partial' => -1,  'window' => 28],
+        // E-E-A-T — expect impression/trust gains
+        'DDT-EEAT'  => ['metric' => 'impressions', 'pass' => 15,  'partial' => 5,   'window' => 28],
+        // Entity Authority — expect impression gains
+        'ETA'       => ['metric' => 'impressions', 'pass' => 20,  'partial' => 10,  'window' => 28],
+        // User Signals — expect CTR improvement
+        'USE'       => ['metric' => 'ctr',         'pass' => 10,  'partial' => 5,   'window' => 28],
+        // Competitive — expect position recovery
+        'CI'        => ['metric' => 'position',    'pass' => -3,  'partial' => -1,  'window' => 28],
+        // Content Freshness — expect impression recovery
+        'CFL'       => ['metric' => 'impressions', 'pass' => 15,  'partial' => 5,   'window' => 28],
+        // Local SEO — expect impression gains
+        'DDT-LOCAL' => ['metric' => 'impressions', 'pass' => 10,  'partial' => 5,   'window' => 28],
+        // Media — expect CTR from image/video rich results
+        'MAO'       => ['metric' => 'ctr',         'pass' => 5,   'partial' => 2,   'window' => 28],
         // Default fallback
-        'DEFAULT' => ['metric' => 'impressions', 'pass' => 10, 'partial' => 5,   'window' => 28],
+        'DEFAULT'   => ['metric' => 'impressions', 'pass' => 10,  'partial' => 5,   'window' => 28],
     ];
 
     public function __construct(private Connection $db)
@@ -155,84 +169,100 @@ class VerifyOutcomesCommand extends Command
     private function getReviewsReadyForVerification(int $minDays, ?string $ruleFilter, bool $force): array
     {
         try {
-            // Pull from rule_reviews if it exists, otherwise fall back to rule_evaluations
-            // rule_reviews = tasks that have been marked as fix implemented
-            // We look for: status = 'accepted' OR tasks marked done with a fix date
-            $cutoffDate = date('Y-m-d H:i:s', strtotime("-{$minDays} days"));
+            $cutoffDate = date('Y-m-d', strtotime("-{$minDays} days"));
+            $rows = [];
 
-            // Try rule_reviews first (the proper task table)
-            $tables = $this->db->fetchFirstColumn(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
-            );
-
-            $source = in_array('rule_reviews', $tables) ? 'rule_reviews' : null;
-
-            if ($source) {
-                $sql = "SELECT * FROM rule_reviews
-                        WHERE fix_implemented_at IS NOT NULL
-                        AND fix_implemented_at <= :cutoff
-                        AND status IN ('accepted', 'fix_implemented', 'done')";
+            // PRIMARY SOURCE: tasks table — completed tasks with recheck_date that has arrived
+            try {
+                $sql = "SELECT
+                            id as review_id,
+                            rule_id,
+                            title,
+                            description,
+                            completed_at as fix_implemented_at,
+                            recheck_date,
+                            recheck_criteria,
+                            recheck_verified,
+                            'task' as source_type
+                        FROM tasks
+                        WHERE status = 'done'
+                        AND recheck_date IS NOT NULL
+                        AND recheck_date <= CURRENT_DATE
+                        AND completed_at IS NOT NULL";
 
                 if ($ruleFilter) {
                     $sql .= " AND rule_id = :rule_id";
                 }
                 if (!$force) {
-                    $sql .= " AND (outcome_verified_at IS NULL OR outcome_verified_at < fix_implemented_at)";
+                    $sql .= " AND (recheck_verified = FALSE OR recheck_verified IS NULL)";
                 }
+                $sql .= " ORDER BY recheck_date ASC";
 
-                $params = ['cutoff' => $cutoffDate];
+                $params = [];
                 if ($ruleFilter) $params['rule_id'] = strtoupper($ruleFilter);
 
-                return $this->db->fetchAllAssociative($sql, $params);
-            }
+                $taskRows = $this->db->fetchAllAssociative($sql, $params);
 
-            // Fallback: use rule_evaluations — find FLAGGED rules that were evaluated
-            // and assume a fix was attempted if the rule stops firing
-            $sql = "SELECT
-                        re.rule_id,
-                        su.url,
-                        re.evaluated_at as fix_implemented_at,
-                        re.sample_urls,
-                        re.id as review_id,
-                        re.consensus_status
-                    FROM rule_evaluations re
-                    CROSS JOIN LATERAL (
-                        SELECT jsonb_array_elements_text(sample_urls::jsonb) as url
-                    ) su
-                    WHERE re.consensus_status = 'FLAGGED'
-                    AND re.evaluated_at <= :cutoff";
-
-            if ($ruleFilter) {
-                $sql .= " AND re.rule_id = :rule_id";
-            }
-
-            $params = ['cutoff' => $cutoffDate];
-            if ($ruleFilter) $params['rule_id'] = strtoupper($ruleFilter);
-
-            $rows = $this->db->fetchAllAssociative($sql, $params);
-
-            // If no rule_reviews table, synthesise minimal review records from evaluations
-            if (empty($rows)) {
-                // Try simpler fallback without LATERAL join
-                $evalSql = "SELECT * FROM rule_evaluations
-                            WHERE consensus_status = 'FLAGGED'
-                            AND evaluated_at <= :cutoff";
-                if ($ruleFilter) $evalSql .= " AND rule_id = :rule_id";
-
-                $evals = $this->db->fetchAllAssociative($evalSql, $params);
-                $rows  = [];
-                foreach ($evals as $eval) {
-                    $urls = json_decode($eval['sample_urls'] ?? '[]', true);
-                    foreach (array_slice($urls, 0, 3) as $url) {
-                        $rows[] = [
-                            'rule_id'             => $eval['rule_id'],
-                            'url'                 => $url,
-                            'fix_implemented_at'  => $eval['evaluated_at'],
-                            'review_id'           => $eval['id'],
-                            'consensus_status'    => $eval['consensus_status'],
-                        ];
+                // Extract URLs from task titles (format: [RULE_ID] Title — /url-path/)
+                foreach ($taskRows as $task) {
+                    $url = '';
+                    if (preg_match('#(/[a-z0-9\-/]+/)#', $task['title'], $m)) {
+                        $url = $m[1];
+                    }
+                    if (!$url && preg_match('#(/[a-z0-9\-/]+/)#', $task['description'] ?? '', $m)) {
+                        $url = $m[1];
+                    }
+                    if ($url) {
+                        $task['url'] = $url;
+                        $rows[] = $task;
                     }
                 }
+            } catch (\Exception $e) {
+                // tasks table query failed — continue to fallback
+            }
+
+            // SECONDARY SOURCE: rule_reviews table
+            try {
+                $tables = $this->db->fetchFirstColumn(
+                    "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public'"
+                );
+
+                if (in_array('rule_reviews', $tables)) {
+                    $sql = "SELECT
+                                id as review_id,
+                                rule_id,
+                                feedback as title,
+                                '' as description,
+                                fix_implemented_at,
+                                NULL as recheck_date,
+                                NULL as recheck_criteria,
+                                FALSE as recheck_verified,
+                                'review' as source_type
+                            FROM rule_reviews
+                            WHERE fix_implemented_at IS NOT NULL
+                            AND fix_implemented_at <= :cutoff
+                            AND status IN ('accepted', 'fix_implemented', 'done')";
+
+                    if ($ruleFilter) {
+                        $sql .= " AND rule_id = :rule_id";
+                    }
+                    if (!$force) {
+                        $sql .= " AND (outcome_verified_at IS NULL OR outcome_verified_at < fix_implemented_at)";
+                    }
+
+                    $params = ['cutoff' => $cutoffDate];
+                    if ($ruleFilter) $params['rule_id'] = strtoupper($ruleFilter);
+
+                    $reviewRows = $this->db->fetchAllAssociative($sql, $params);
+                    foreach ($reviewRows as $r) {
+                        if (!empty($r['url'])) {
+                            $r['url'] = $r['url'];
+                            $rows[] = $r;
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                // rule_reviews fallback failed — continue
             }
 
             return $rows;
@@ -328,7 +358,14 @@ class VerifyOutcomesCommand extends Command
 
     private function determineVerdict(string $ruleId, array $changes): array
     {
-        $threshold = self::THRESHOLDS[$ruleId] ?? self::THRESHOLDS['DEFAULT'];
+        // Match threshold by rule ID prefix (e.g., OPQ-001 matches 'OPQ', DDT-SD-002 matches 'DDT-SD')
+        $threshold = self::THRESHOLDS['DEFAULT'];
+        foreach (self::THRESHOLDS as $prefix => $t) {
+            if ($prefix !== 'DEFAULT' && str_starts_with($ruleId, $prefix)) {
+                $threshold = $t;
+                break;
+            }
+        }
         $metric    = $threshold['metric'];
         $passThreshold    = $threshold['pass'];
         $partialThreshold = $threshold['partial'];
@@ -386,16 +423,77 @@ class VerifyOutcomesCommand extends Command
                 'verified_at'       => date('Y-m-d H:i:s'),
             ]);
 
-            // Mark the source review as verified if it exists
-            if (isset($review['review_id'])) {
+            // Update the task on the Playbook Board
+            $sourceType = $review['source_type'] ?? '';
+            $taskId     = $review['review_id'] ?? null;
+
+            if ($sourceType === 'task' && $taskId) {
+                // Mark the task as verified
+                $this->db->update('tasks', [
+                    'recheck_verified' => true,
+                    'recheck_result'   => strtolower($verdict['status']),
+                ], ['id' => $taskId]);
+
+                // Log activity
+                try {
+                    $this->db->insert('activity_log', [
+                        'actor'        => 'Logiri',
+                        'action'       => 'verified_outcome',
+                        'target_type'  => 'task',
+                        'target_id'    => $taskId,
+                        'target_title' => $review['title'] ?? '',
+                        'details'      => "{$verdict['status']}: {$verdict['reason']}",
+                        'created_at'   => date('Y-m-d H:i:s'),
+                    ]);
+                } catch (\Exception $e) {}
+
+                // For PARTIAL or FAIL: create a follow-up task on the board
+                if (in_array($verdict['status'], ['PARTIAL', 'FAIL'])) {
+                    $followUpTitle = "[RECHECK-{$verdict['status']}] {$review['rule_id']} — {$review['url']}";
+                    $followUpDesc  = "PREVIOUS FIX RESULT: {$verdict['status']}\n"
+                        . "Reason: {$verdict['reason']}\n\n"
+                        . "GSC BEFORE → AFTER:\n"
+                        . "- Impressions: {$changes['impressions']['before']} → {$changes['impressions']['after']}\n"
+                        . "- Clicks: {$changes['clicks']['before']} → {$changes['clicks']['after']}\n"
+                        . "- Position: {$changes['position']['before']} → {$changes['position']['after']}\n"
+                        . "- CTR: {$changes['ctr']['before']}% → {$changes['ctr']['after']}%\n\n"
+                        . "NEXT ACTION: {$verdict['next_action']}";
+
+                    $priority = $verdict['status'] === 'FAIL' ? 'critical' : 'high';
+
+                    // Check for existing follow-up to avoid duplicates
+                    $existing = $this->db->fetchAssociative(
+                        "SELECT id FROM tasks WHERE title LIKE :title AND status != 'done'",
+                        ['title' => '%' . $review['url'] . '%RECHECK%']
+                    );
+
+                    if (!$existing) {
+                        try {
+                            $this->db->insert('tasks', [
+                                'title'           => substr($followUpTitle, 0, 500),
+                                'description'     => $followUpDesc,
+                                'rule_id'         => $review['rule_id'],
+                                'assigned_to'     => null,
+                                'status'          => 'pending',
+                                'priority'        => $priority,
+                                'estimated_hours' => 2,
+                                'logged_hours'    => 0,
+                                'recheck_type'    => 'on_page_fix',
+                                'created_at'      => date('Y-m-d H:i:s'),
+                            ]);
+                        } catch (\Exception $e) {}
+                    }
+                }
+            }
+
+            // Mark the source review as verified if from rule_reviews
+            if ($sourceType === 'review' && isset($review['review_id'])) {
                 try {
                     $this->db->executeStatement(
                         "UPDATE rule_reviews SET outcome_verified_at = :now, outcome_status = :status WHERE id = :id",
                         ['now' => date('Y-m-d H:i:s'), 'status' => $verdict['status'], 'id' => $review['review_id']]
                     );
-                } catch (\Exception $e) {
-                    // rule_reviews may not have these columns yet — non-fatal
-                }
+                } catch (\Exception $e) {}
             }
         } catch (\Exception $e) {
             // Non-fatal — outcome display still works even if storage fails
@@ -450,3 +548,4 @@ class VerifyOutcomesCommand extends Command
         }
     }
 }
+    
