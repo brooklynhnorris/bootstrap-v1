@@ -270,6 +270,87 @@ class CrawlPagesCommand extends Command
         $bodyText  = $contentText;
         $wordCount = $bodyText ? str_word_count(trim($bodyText)) : 0;
 
+        // ── NEW FIELDS: Tier 1 & 2 extractions ──
+
+        // Body text snippet — first 500 chars for keyword checking
+        $bodyTextSnippet = $bodyText ? substr(trim($bodyText), 0, 500) : null;
+
+        // First sentence text — extract first sentence after removing leading whitespace
+        $firstSentenceText = null;
+        if ($bodyText) {
+            $trimmed = trim($bodyText);
+            // Match up to first period, question mark, or exclamation followed by space or end
+            if (preg_match('/^(.+?[.!?])(?:\s|$)/', $trimmed, $fsMatch)) {
+                $firstSentenceText = substr(trim($fsMatch[1]), 0, 500);
+            } else {
+                // No sentence-ending punctuation found — take first 200 chars
+                $firstSentenceText = substr($trimmed, 0, 200);
+            }
+        }
+
+        // Image count — count <img> tags in body
+        $imageCount = 0;
+        $imgNodes = $xpath->query('//body//img');
+        if ($imgNodes) {
+            $imageCount = $imgNodes->length;
+        }
+
+        // Internal link count — body-only links (not nav/footer), counted after dedup
+        // (calculated below after internalLinks array is built)
+
+        // Last modified date — check HTTP headers and meta tags
+        $lastModifiedDate = null;
+        // Try <meta property="article:modified_time"> or <meta name="last-modified">
+        $modifiedMeta = $xpath->query('//meta[@property="article:modified_time"]/@content');
+        if ($modifiedMeta->length > 0) {
+            $lastModifiedDate = $modifiedMeta->item(0)->nodeValue;
+        }
+        if (!$lastModifiedDate) {
+            $modifiedMeta = $xpath->query('//meta[@property="og:updated_time"]/@content');
+            if ($modifiedMeta->length > 0) {
+                $lastModifiedDate = $modifiedMeta->item(0)->nodeValue;
+            }
+        }
+        // Try <time> element with datetime attribute
+        if (!$lastModifiedDate) {
+            $timeNodes = $xpath->query('//time[@datetime]/@datetime');
+            if ($timeNodes->length > 0) {
+                $lastModifiedDate = $timeNodes->item(0)->nodeValue;
+            }
+        }
+        // Normalize to date string
+        if ($lastModifiedDate) {
+            $ts = strtotime($lastModifiedDate);
+            $lastModifiedDate = $ts ? date('Y-m-d', $ts) : null;
+        }
+
+        // Has FAQ section — detect FAQ blocks
+        $hasFaqSection = false;
+        $faqIndicators = $xpath->query('//*[contains(@class,"faq") or contains(@id,"faq")]');
+        if ($faqIndicators->length > 0) {
+            $hasFaqSection = true;
+        }
+        // Also check for FAQPage schema
+        if (!$hasFaqSection && !empty($schemaTypes) && in_array('FAQPage', $schemaTypes)) {
+            $hasFaqSection = true;
+        }
+        // Also check for H2s containing "FAQ" or "Frequently Asked"
+        if (!$hasFaqSection) {
+            foreach ($h2s as $h2) {
+                if (stripos($h2, 'faq') !== false || stripos($h2, 'frequently asked') !== false) {
+                    $hasFaqSection = true;
+                    break;
+                }
+            }
+        }
+
+        // Has product image — check for img in top portion of body
+        $hasProductImage = false;
+        $mainImages = $xpath->query('//main//img[@src] | //article//img[@src] | //*[@class="entry-content"]//img[@src]');
+        if ($mainImages && $mainImages->length > 0) {
+            $hasProductImage = true;
+        }
+
         // ── Central entity check — multiple variants, minimum 2 occurrences for confidence ──
         $bodyLower          = strtolower($bodyText);
         $centralEntityCount = 0;
@@ -319,6 +400,7 @@ class CrawlPagesCommand extends Command
 
         $internalLinks  = array_values(array_unique($internalLinks));
         $coreLinksFound = array_values(array_unique($coreLinksFound));
+        $internalLinkCount = count($internalLinks);
 
         // ── H1 vs title alignment — stricter: requires 70% overlap AND checks key noun match ──
         $h1MatchesTitle = false;
@@ -361,6 +443,14 @@ class CrawlPagesCommand extends Command
             'page_type'            => $pageType,
             'is_utility'           => $this->isUtilityUrl($path) ? 1 : 0,
             'crawled_at'           => date('Y-m-d H:i:s'),
+            // New Tier 1 & 2 fields
+            'internal_link_count'  => $internalLinkCount,
+            'body_text_snippet'    => $bodyTextSnippet,
+            'first_sentence_text'  => $firstSentenceText,
+            'image_count'          => $imageCount,
+            'last_modified_date'   => $lastModifiedDate,
+            'has_faq_section'      => $hasFaqSection ? 1 : 0,
+            'has_product_image'    => $hasProductImage ? 1 : 0,
         ];
     }
 
@@ -513,6 +603,13 @@ class CrawlPagesCommand extends Command
                     is_noindex              BOOLEAN DEFAULT FALSE,
                     page_type               VARCHAR(20) DEFAULT NULL,
                     is_utility              BOOLEAN DEFAULT FALSE,
+                    internal_link_count     INT DEFAULT 0,
+                    body_text_snippet       TEXT DEFAULT NULL,
+                    first_sentence_text     TEXT DEFAULT NULL,
+                    image_count             INT DEFAULT 0,
+                    last_modified_date      DATE DEFAULT NULL,
+                    has_faq_section         BOOLEAN DEFAULT FALSE,
+                    has_product_image       BOOLEAN DEFAULT FALSE,
                     crawled_at              TIMESTAMP NOT NULL
                 )
             ");
@@ -521,10 +618,22 @@ class CrawlPagesCommand extends Command
             $this->db->executeStatement('CREATE INDEX idx_crawl_has_core_link ON page_crawl_snapshots (has_core_link)');
             $this->db->executeStatement('CREATE INDEX idx_crawl_central_entity ON page_crawl_snapshots (has_central_entity)');
         } else {
-            // Add is_utility column if it doesn't exist yet
-            try {
-                $this->db->executeStatement('ALTER TABLE page_crawl_snapshots ADD COLUMN IF NOT EXISTS is_utility BOOLEAN DEFAULT FALSE');
-            } catch (\Exception $e) {}
+            // Add columns if they don't exist yet
+            $newCols = [
+                'is_utility'          => 'BOOLEAN DEFAULT FALSE',
+                'internal_link_count' => 'INT DEFAULT 0',
+                'body_text_snippet'   => 'TEXT DEFAULT NULL',
+                'first_sentence_text' => 'TEXT DEFAULT NULL',
+                'image_count'         => 'INT DEFAULT 0',
+                'last_modified_date'  => 'DATE DEFAULT NULL',
+                'has_faq_section'     => 'BOOLEAN DEFAULT FALSE',
+                'has_product_image'   => 'BOOLEAN DEFAULT FALSE',
+            ];
+            foreach ($newCols as $col => $def) {
+                try {
+                    $this->db->executeStatement("ALTER TABLE page_crawl_snapshots ADD COLUMN IF NOT EXISTS {$col} {$def}");
+                } catch (\Exception $e) {}
+            }
         }
     }
 }
