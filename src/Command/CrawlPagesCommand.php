@@ -123,18 +123,23 @@ class CrawlPagesCommand extends Command
                 $failed++;
             } else {
                 $result = $this->applyOverrides($result, $overrides);
-                $this->db->executeStatement('DELETE FROM page_crawl_snapshots WHERE url = ?', [$path]);
-                $this->db->insert('page_crawl_snapshots', $result);
+                try {
+                    $this->db->executeStatement('DELETE FROM page_crawl_snapshots WHERE url = ?', [$path]);
+                    $this->db->insert('page_crawl_snapshots', $result);
 
-                $overrideNote = isset($overrides[$path]) ? ' [OVERRIDE]' : '';
-                $output->writeln(
-                    "  OK{$overrideNote} | H1: " . ($result['h1'] ?? '(none)') .
-                    " | Words: {$result['word_count']}" .
-                    " | Entity: " . ($result['has_central_entity'] ? 'YES' : 'NO') .
-                    " | Core link: " . ($result['has_core_link'] ? 'YES' : 'NO') .
-                    " | Type: " . ($result['page_type'] ?? 'unknown')
-                );
-                $crawled++;
+                    $overrideNote = isset($overrides[$path]) ? ' [OVERRIDE]' : '';
+                    $output->writeln(
+                        "  OK{$overrideNote} | H1: " . ($result['h1'] ?? '(none)') .
+                        " | Words: {$result['word_count']}" .
+                        " | Entity: " . ($result['has_central_entity'] ? 'YES' : 'NO') .
+                        " | Core link: " . ($result['has_core_link'] ? 'YES' : 'NO') .
+                        " | Type: " . ($result['page_type'] ?? 'unknown')
+                    );
+                    $crawled++;
+                } catch (\Exception $e) {
+                    $output->writeln("  [WARN] DB insert failed for {$path}: " . substr($e->getMessage(), 0, 100));
+                    $failed++;
+                }
             }
 
             usleep(500000);
@@ -649,3 +654,4 @@ class CrawlPagesCommand extends Command
         }
     }
 }
+    
