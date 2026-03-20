@@ -272,13 +272,25 @@ class CrawlPagesCommand extends Command
 
         // ── NEW FIELDS: Tier 1 & 2 extractions ──
 
+        // Helper: sanitize string for PostgreSQL UTF-8 compatibility
+        $sanitizeUtf8 = function(?string $text): ?string {
+            if ($text === null) return null;
+            // Remove invalid UTF-8 sequences
+            $clean = mb_convert_encoding($text, 'UTF-8', 'UTF-8');
+            // Remove any remaining non-UTF-8 bytes
+            $clean = preg_replace('/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/u', '', $clean);
+            // Remove orphaned continuation bytes
+            $clean = iconv('UTF-8', 'UTF-8//IGNORE', $clean);
+            return $clean ?: null;
+        };
+
         // Body text snippet — first 500 chars for keyword checking
-        $bodyTextSnippet = $bodyText ? substr(trim($bodyText), 0, 500) : null;
+        $bodyTextSnippet = $bodyText ? $sanitizeUtf8(substr(trim($bodyText), 0, 500)) : null;
 
         // First sentence text — extract first sentence after removing leading whitespace
         $firstSentenceText = null;
         if ($bodyText) {
-            $trimmed = trim($bodyText);
+            $trimmed = $sanitizeUtf8(trim($bodyText));
             // Match up to first period, question mark, or exclamation followed by space or end
             if (preg_match('/^(.+?[.!?])(?:\s|$)/', $trimmed, $fsMatch)) {
                 $firstSentenceText = substr(trim($fsMatch[1]), 0, 500);
