@@ -133,6 +133,25 @@ class VerifyOutcomesCommand extends Command
             // Store outcome
             $this->storeOutcome($review, $changes, $verdict, $daysAgo);
 
+            // ── LEARNING LOOP: LLM reviews the outcome and proposes next steps ──
+            $assignee = $review['assigned_to'] ?? 'Team';
+            $feedback = $this->generateLearningFeedback($review, $changes, $verdict, $output);
+
+            if ($feedback) {
+                $output->writeln('');
+                $output->writeln("   ── Learning Feedback for {$assignee} ──");
+                $output->writeln("   " . str_replace("\n", "\n   ", $feedback['summary']));
+
+                if (!empty($feedback['rule_proposal'])) {
+                    $output->writeln('');
+                    $output->writeln("   ⚡ PROPOSED RULE CHANGE:");
+                    $output->writeln("   " . str_replace("\n", "\n   ", $feedback['rule_proposal']));
+                }
+
+                // Store feedback
+                $this->storeLearningFeedback($review, $verdict, $feedback);
+            }
+
             // Next action recommendation
             $output->writeln('');
             $output->writeln('   Next action: ' . $verdict['next_action']);
@@ -495,6 +514,68 @@ class VerifyOutcomesCommand extends Command
                     );
                 } catch (\Exception $e) {}
             }
+
+            // ── LEARNING LOOP: Store feedback for LLM training ──
+            try {
+                $gscBefore = json_encode([
+                    'impressions' => $changes['impressions']['before'] ?? 0,
+                    'clicks'      => $changes['clicks']['before'] ?? 0,
+                    'position'    => $changes['position']['before'] ?? 0,
+                    'ctr'         => $changes['ctr']['before'] ?? 0,
+                ]);
+                $gscAfter = json_encode([
+                    'impressions' => $changes['impressions']['after'] ?? 0,
+                    'clicks'      => $changes['clicks']['after'] ?? 0,
+                    'position'    => $changes['position']['after'] ?? 0,
+                    'ctr'         => $changes['ctr']['after'] ?? 0,
+                ]);
+
+                $whatWorked = null;
+                $whatDidntWork = null;
+                $proposedChange = null;
+                $changeType = 'none';
+
+                if ($verdict['status'] === 'PASS') {
+                    $whatWorked = "Fix for {$review['rule_id']} on {$review['url']} improved {$verdict['metric']} by {$verdict['improvement_pct']}%. Rule validated — keep as-is.";
+                    $changeType = 'none';
+                } elseif ($verdict['status'] === 'PARTIAL') {
+                    $whatWorked = "{$verdict['metric']} showed some improvement ({$verdict['improvement_pct']}%) but below the pass threshold.";
+                    $whatDidntWork = "The fix was directionally correct but insufficient. Play brief may need to be more specific or the rule threshold may be too aggressive.";
+                    $proposedChange = "REVIEW_PLAY_BRIEF: Consider strengthening the play brief for {$review['rule_id']} — the current approach moved the needle but not enough. Try a more targeted fix.";
+                    $changeType = 'refine_play';
+                } else {
+                    $whatDidntWork = "Fix for {$review['rule_id']} on {$review['url']} showed no improvement in {$verdict['metric']} ({$verdict['improvement_pct']}% change). Either the fix wasn't indexed, wasn't implemented correctly, or the rule's theory is wrong.";
+                    $proposedChange = "REVIEW_RULE: {$review['rule_id']} failed to produce results on {$review['url']}. Either: (1) verify the fix is live and indexed, (2) try a different approach, or (3) if multiple URLs fail for this rule, consider modifying the rule's diagnosis and action output.";
+                    $changeType = 'review_rule';
+                }
+
+                // Get assigned_to from the task if available
+                $assignedTo = null;
+                if ($taskId) {
+                    try {
+                        $task = $this->db->fetchAssociative("SELECT assigned_to FROM tasks WHERE id = ?", [$taskId]);
+                        $assignedTo = $task['assigned_to'] ?? null;
+                    } catch (\Exception $e) {}
+                }
+
+                $this->db->insert('rule_feedback', [
+                    'rule_id'          => $review['rule_id'],
+                    'url'              => $review['url'],
+                    'task_id'          => $taskId,
+                    'assigned_to'      => $assignedTo,
+                    'outcome_status'   => $verdict['status'],
+                    'fix_description'  => $review['title'] ?? $review['description'] ?? '',
+                    'gsc_before'       => $gscBefore,
+                    'gsc_after'        => $gscAfter,
+                    'what_worked'      => $whatWorked,
+                    'what_didnt_work'  => $whatDidntWork,
+                    'proposed_change'  => $proposedChange,
+                    'change_type'      => $changeType,
+                    'created_at'       => date('Y-m-d H:i:s'),
+                ]);
+            } catch (\Exception $e) {
+                // Non-fatal — feedback storage failure doesn't block verification
+            }
         } catch (\Exception $e) {
             // Non-fatal — outcome display still works even if storage fails
         }
@@ -543,8 +624,154 @@ class VerifyOutcomesCommand extends Command
                 $this->db->executeStatement("ALTER TABLE rule_reviews ADD COLUMN IF NOT EXISTS outcome_verified_at TIMESTAMP");
                 $this->db->executeStatement("ALTER TABLE rule_reviews ADD COLUMN IF NOT EXISTS outcome_status VARCHAR(20)");
             }
+
+            // Rule feedback table — stores what worked/didn't so LLMs learn from past outcomes
+            $this->db->executeStatement("
+                CREATE TABLE IF NOT EXISTS rule_feedback (
+                    id                  SERIAL PRIMARY KEY,
+                    rule_id             VARCHAR(30) NOT NULL,
+                    url                 TEXT NOT NULL,
+                    task_id             INT,
+                    assigned_to         VARCHAR(100),
+                    outcome_status      VARCHAR(20) NOT NULL,
+                    fix_description     TEXT,
+                    gsc_before          JSONB DEFAULT '{}',
+                    gsc_after           JSONB DEFAULT '{}',
+                    what_worked         TEXT,
+                    what_didnt_work     TEXT,
+                    proposed_change     TEXT,
+                    change_type         VARCHAR(30) DEFAULT 'none',
+                    change_approved     BOOLEAN DEFAULT NULL,
+                    approved_by         VARCHAR(100),
+                    approved_at         TIMESTAMP,
+                    created_at          TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            ");
         } catch (\Exception $e) {
             // Table may already exist
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    //  GENERATE LEARNING FEEDBACK VIA LLM
+    // ─────────────────────────────────────────────
+
+    private function generateLearningFeedback(array $review, array $changes, array $verdict, OutputInterface $output): ?array
+    {
+        $claudeKey = $_ENV['ANTHROPIC_API_KEY'] ?? '';
+        if (!$claudeKey) return null;
+
+        $ruleId    = $review['rule_id'] ?? 'UNKNOWN';
+        $url       = $review['url'] ?? '';
+        $assignee  = $review['assigned_to'] ?? 'Team';
+        $taskTitle = $review['title'] ?? '';
+        $taskDesc  = substr($review['description'] ?? '', 0, 500);
+        $status    = $verdict['status'];
+
+        $gscSummary = "";
+        foreach ($changes as $metric => $c) {
+            $dir = $c['delta'] >= 0 ? '+' : '';
+            $gscSummary .= "  {$metric}: {$c['before']} → {$c['after']} ({$dir}{$c['delta_pct']}%)\n";
+        }
+
+        $prompt = <<<PROMPT
+You are the Logiri SEO learning engine for Double D Trailers (doubledtrailers.com).
+
+A task was completed and the outcome has been verified against Google Search Console data.
+
+RULE: {$ruleId}
+URL: {$url}
+TASK: {$taskTitle}
+ORIGINAL PLAY BRIEF (summary): {$taskDesc}
+OUTCOME: {$status}
+COMPLETED BY: {$assignee}
+
+GSC BEFORE → AFTER (28-day window):
+{$gscSummary}
+
+Based on this outcome, respond with EXACTLY this JSON structure (no markdown, no backticks):
+{
+  "summary": "2-3 sentence personalized feedback for {$assignee}. If PASS: what worked and why. If PARTIAL: what partially worked and what to try next. If FAIL: honest assessment of why it didn't work.",
+  "what_worked": "Specific element of the fix that drove improvement (or 'Nothing measurable' for FAIL)",
+  "what_didnt_work": "What didn't produce expected results (or 'N/A' for PASS)",
+  "winning_pattern": "If PASS or PARTIAL: a reusable pattern other pages can follow. If FAIL: null",
+  "rule_proposal": "If FAIL: propose a specific modification to rule {$ruleId} — what should the rule check differently? If PASS/PARTIAL: null",
+  "change_type": "One of: none, refine_threshold, modify_diagnosis, modify_action, deprecate_rule, split_rule"
+}
+
+IMPORTANT:
+- Be specific to Double D Trailers: reference Z-Frame, SafeTack, SafeBump, SafeKick where relevant
+- For PASS: identify the exact signal that improved (not generic "good job")
+- For FAIL: be honest — was the rule's theory wrong, or was the fix insufficient?
+- Keep summary under 100 words
+- Do NOT wrap in markdown code blocks
+PROMPT;
+
+        try {
+            $ch = curl_init('https://api.anthropic.com/v1/messages');
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => json_encode([
+                    'model'      => 'claude-sonnet-4-6',
+                    'max_tokens' => 800,
+                    'messages'   => [['role' => 'user', 'content' => $prompt]],
+                ]),
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'x-api-key: ' . $claudeKey,
+                    'anthropic-version: 2023-06-01',
+                ],
+                CURLOPT_TIMEOUT => 60,
+            ]);
+
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode !== 200 || !$response) return null;
+
+            $data = json_decode($response, true);
+            $text = $data['content'][0]['text'] ?? '';
+
+            // Strip markdown fences if present
+            $text = preg_replace('/^```json\s*/', '', $text);
+            $text = preg_replace('/\s*```$/', '', $text);
+
+            $parsed = json_decode($text, true);
+            if (!$parsed || !isset($parsed['summary'])) return null;
+
+            return $parsed;
+        } catch (\Exception $e) {
+            $output->writeln("   [WARN] Learning feedback LLM call failed: " . substr($e->getMessage(), 0, 80));
+            return null;
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    //  STORE LEARNING FEEDBACK
+    // ─────────────────────────────────────────────
+
+    private function storeLearningFeedback(array $review, array $verdict, array $feedback): void
+    {
+        try {
+            $this->db->insert('rule_feedback', [
+                'rule_id'         => $review['rule_id'],
+                'url'             => $review['url'] ?? '',
+                'task_id'         => $review['review_id'] ?? null,
+                'assigned_to'     => $review['assigned_to'] ?? null,
+                'outcome_status'  => $verdict['status'],
+                'fix_description' => substr($review['title'] ?? '', 0, 500),
+                'gsc_before'      => json_encode($review['gsc_before'] ?? []),
+                'gsc_after'       => json_encode($review['gsc_after'] ?? []),
+                'what_worked'     => $feedback['what_worked'] ?? null,
+                'what_didnt_work' => $feedback['what_didnt_work'] ?? null,
+                'proposed_change' => $feedback['rule_proposal'] ?? null,
+                'change_type'     => $feedback['change_type'] ?? 'none',
+                'created_at'      => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Exception $e) {
+            // Non-fatal
         }
     }
 }

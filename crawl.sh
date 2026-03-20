@@ -33,12 +33,17 @@ echo "  Evaluation complete — tasks added to Playbook Board"
 
 # Step 4: Verify outcomes from previous fixes
 echo ""
-echo "[6/7] Verifying outcomes from completed tasks..."
+echo "[6/8] Verifying outcomes from completed tasks..."
 php bin/console app:verify-outcomes || echo "  [WARN] Outcome verification failed or no outcomes to verify"
 
-# Step 5: Generate performance report if enough pages updated
+# Step 5: Propose rule changes based on outcome feedback
 echo ""
-echo "[7/7] Generating performance report..."
+echo "[7/8] Reviewing rule performance — proposing changes for underperforming rules..."
+php bin/console app:propose-rule-changes || echo "  [WARN] Rule change proposal skipped or no feedback yet"
+
+# Step 6: Generate performance report if enough pages updated
+echo ""
+echo "[8/8] Generating performance report..."
 php bin/console app:generate-report || echo "  [WARN] Report generation skipped (fewer than 10 pages updated)"
 
 echo ""

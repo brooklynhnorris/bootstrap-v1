@@ -447,7 +447,14 @@ PROMPT;
         $ownerFeedback = $this->getOwnerFeedback($rule['id']);
         $feedbackSection = '';
         if ($ownerFeedback) {
-            $feedbackSection = "\nOWNER FEEDBACK ON THIS RULE (from Jeanne — incorporate her corrections into your output):\n{$ownerFeedback}\n";
+            $feedbackSection = "\nPAST REVIEWER FEEDBACK ON THIS RULE (incorporate corrections into your output):\n{$ownerFeedback}\n";
+        }
+
+        // Outcome feedback — what worked and what didn't from past verifications
+        $outcomeFeedback = $this->getOutcomeFeedback($rule['id']);
+        $outcomeSection = '';
+        if ($outcomeFeedback) {
+            $outcomeSection = "\n{$outcomeFeedback}\nUSE THIS TO IMPROVE YOUR RECOMMENDATIONS. If past fixes for this rule failed, propose a different approach. If they succeeded, replicate the winning pattern.\n";
         }
 
         return <<<PROMPT
@@ -469,7 +476,7 @@ Full rule context:
 
 VALIDATION: {$ruleNote}
 LLM assessments:{$s1Summary}
-{$feedbackSection}
+{$feedbackSection}{$outcomeSection}
 REAL CORE PAGES ON THIS SITE (use ONLY these URLs when suggesting Core link targets):
 {$coreList}
 
@@ -1150,6 +1157,47 @@ PROMPT;
                     }
                 }
                 $lines[] = $line;
+            }
+
+            return implode("\n", $lines);
+        } catch (\Exception $e) {
+            return '';
+        }
+    }
+
+    // ─────────────────────────────────────────────
+    //  GET OUTCOME FEEDBACK (what worked/didn't from past verifications)
+    // ─────────────────────────────────────────────
+
+    private function getOutcomeFeedback(string $ruleId): string
+    {
+        try {
+            $feedback = $this->db->fetchAllAssociative(
+                "SELECT outcome_status, what_worked, what_didnt_work, proposed_change, change_type, url, created_at
+                 FROM rule_feedback
+                 WHERE rule_id = :rule_id
+                 ORDER BY created_at DESC
+                 LIMIT 5",
+                ['rule_id' => $ruleId]
+            );
+
+            if (empty($feedback)) return '';
+
+            $lines = ["PAST OUTCOME FEEDBACK FOR THIS RULE:"];
+            foreach ($feedback as $f) {
+                $date   = $f['created_at'] ? substr($f['created_at'], 0, 10) : 'unknown';
+                $status = $f['outcome_status'] ?? 'unknown';
+                $url    = $f['url'] ?? '';
+                $lines[] = "- [{$date}] {$status} on {$url}";
+                if (!empty($f['what_worked']) && $f['what_worked'] !== 'N/A') {
+                    $lines[] = "  What worked: {$f['what_worked']}";
+                }
+                if (!empty($f['what_didnt_work']) && $f['what_didnt_work'] !== 'N/A') {
+                    $lines[] = "  What didn't work: {$f['what_didnt_work']}";
+                }
+                if (!empty($f['proposed_change'])) {
+                    $lines[] = "  Proposed change ({$f['change_type']}): {$f['proposed_change']}";
+                }
             }
 
             return implode("\n", $lines);
