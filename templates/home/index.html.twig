@@ -1026,7 +1026,7 @@
     <div id="panel-body"></div>
     <div id="panel-actions">
         <button class="panel-btn start" onclick="startTask(currentTaskId)">▶ Start</button>
-        <button class="panel-btn done"  onclick="markTaskDone(currentTaskId)">✓ Done</button>
+        <button class="panel-btn done"  onclick="completeTask(currentTaskId)">✓ Done</button>
     </div>
     <input type="hidden" id="recheck-modal-taskid">
 </div>
@@ -2133,7 +2133,8 @@
         await refreshBoard();
     }
 
-    function showChatForTask(taskId, taskTitle) {
+    function showChatForTask(taskId, taskTitle, taskDesc, taskPriority) {
+        currentTaskId = parseInt(taskId);
         boardView = false;
         document.getElementById('board-view').style.display = 'none';
         document.getElementById('chat-view').style.display = 'flex';
