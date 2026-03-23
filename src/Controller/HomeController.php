@@ -419,19 +419,22 @@ class HomeController extends AbstractController
             '/orse-trailers'    => '/horse-trailers',
             '/traight-load'     => '/straight-load',
             '/lant-load'        => '/slant-load',
-            'doubledtrailers.comumper'    => 'doubledtrailers.com/bumper',
-            'doubledtrailers.comouth'     => 'doubledtrailers.com/south',
-            'doubledtrailers.comoose'     => 'doubledtrailers.com/goose',
-            'doubledtrailers.comiving'    => 'doubledtrailers.com/living',
-            'doubledtrailers.comath'      => 'doubledtrailers.com/path',
-            'doubledtrailers.com/orse'    => 'doubledtrailers.com/horse',
+            '/ownsmand'         => '/townsmand',
+            '/orse-jockeys'     => '/horse-jockeys',
+            '/orse-racing'      => '/horse-racing',
+            '/ength-in'         => '/length-in',
             '/bout/'            => '/about/',
+            '/esources/'        => '/resources/',
         ];
         foreach ($urlFixes as $broken => $fixed) {
             $text = str_ireplace($broken, $fixed, $text);
         }
 
-        // Fix any remaining pattern: doubledtrailers.com + lowercase letter (missing slash)
+        // Fix doubledtrailers.com + any letter without slash (catches ALL truncated domain+path joins)
+        $text = preg_replace('/doubledtrailers\.com([a-z])/', 'doubledtrailers.com/$1', $text);
+
+        // Also fix inside JSON strings: "url": "https://www.doubledtrailers.com/..." patterns
+        // Re-run the same fix to catch URLs inside code blocks and JSON
         $text = preg_replace('/doubledtrailers\.com([a-z])/', 'doubledtrailers.com/$1', $text);
 
         $text = rtrim($text);
