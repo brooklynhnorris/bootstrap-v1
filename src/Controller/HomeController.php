@@ -230,6 +230,11 @@ class HomeController extends AbstractController
         $recentReviews = $this->loadRecentReviews();
         $overrideCount = $this->loadOverrideCount();
 
+        // ── Load verification outcomes for learning context ──
+        $verificationResults = $this->loadVerificationResults();
+        $ruleFeedback = $this->loadRuleFeedback();
+        $ruleProposals = $this->loadRuleProposals();
+
         // ── Persist conversation ──
         if (!$conversationId) {
             // New conversation — create it
@@ -273,7 +278,8 @@ class HomeController extends AbstractController
             $activeTasks, $pendingRechecks, $topQueries90d, $pageAggregates,
             $brandedQueries, $cannibalizationCandidates, $previousPages, $landingPages,
             $adsCampaigns, $adsKeywords, $adsSearchTerms, $adsDailySpend,
-            $recentReviews, $overrideCount, $crawlData
+            $recentReviews, $overrideCount, $crawlData,
+            $verificationResults, $ruleFeedback, $ruleProposals
         );
 
         // ── Call Claude API ──
@@ -949,20 +955,23 @@ class HomeController extends AbstractController
             );
             if (empty($tables)) return [];
 
-            // Only send pages that have at least one FC rule violation — keeps prompt small
             return $this->db->fetchAllAssociative(
                 "SELECT url, page_type, has_central_entity, has_core_link,
                         word_count, h1, title_tag, h1_matches_title, h2s,
-                        schema_types, is_noindex
+                        schema_types, is_noindex, internal_link_count,
+                        image_count, has_faq_section, has_product_image,
+                        schema_errors
                  FROM page_crawl_snapshots
                  WHERE crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
                    AND (
                      has_central_entity = FALSE
-                     OR (page_type = 'Core' AND word_count < 800)
+                     OR (page_type = 'core' AND word_count < 500)
                      OR h1_matches_title = FALSE
-                     OR (page_type = 'Core' AND (h2s IS NULL OR h2s = '' OR h2s = '[]'))
-                     OR (page_type = 'Core' AND (schema_types IS NULL OR schema_types = '' OR schema_types = '[]'))
-                     OR (page_type = 'Outer' AND has_core_link = FALSE)
+                     OR (page_type = 'core' AND (h2s IS NULL OR h2s = '' OR h2s = '[]'))
+                     OR (page_type = 'core' AND (schema_types IS NULL OR schema_types = '' OR schema_types = '[]'))
+                     OR (page_type = 'outer' AND has_core_link = FALSE)
+                     OR (schema_errors IS NOT NULL AND schema_errors != 'null' AND schema_errors != '[]')
+                     OR internal_link_count > 3
                    )
                  ORDER BY page_type, url
                  LIMIT 50"
@@ -994,6 +1003,44 @@ class HomeController extends AbstractController
         } catch (\Exception $e) { return 0; }
     }
 
+    private function loadVerificationResults(): array
+    {
+        try {
+            return $this->db->fetchAllAssociative(
+                "SELECT rule_id, url, outcome_status, outcome_reason, metric_tracked,
+                        impressions_before, impressions_after, clicks_before, clicks_after,
+                        position_before, position_after, verified_at
+                 FROM rule_outcomes
+                 ORDER BY verified_at DESC LIMIT 15"
+            );
+        } catch (\Exception $e) { return []; }
+    }
+
+    private function loadRuleFeedback(): array
+    {
+        try {
+            return $this->db->fetchAllAssociative(
+                "SELECT rule_id, url, outcome_status, what_worked, what_didnt_work,
+                        proposed_change, change_type, created_at
+                 FROM rule_feedback
+                 WHERE change_type != 'none'
+                 ORDER BY created_at DESC LIMIT 10"
+            );
+        } catch (\Exception $e) { return []; }
+    }
+
+    private function loadRuleProposals(): array
+    {
+        try {
+            return $this->db->fetchAllAssociative(
+                "SELECT rule_id, change_type, summary, rationale, status, created_at
+                 FROM rule_change_proposals
+                 WHERE status = 'pending'
+                 ORDER BY created_at DESC LIMIT 5"
+            );
+        } catch (\Exception $e) { return []; }
+    }
+
     // ─────────────────────────────────────────────
     //  SYSTEM PROMPT BUILDER
     // ─────────────────────────────────────────────
@@ -1007,7 +1054,8 @@ class HomeController extends AbstractController
         array $previousPages = [], array $landingPages = [],
         array $adsCampaigns = [], array $adsKeywords = [],
         array $adsSearchTerms = [], array $adsDailySpend = [],
-        array $recentReviews = [], int $overrideCount = 0, array $crawlData = []
+        array $recentReviews = [], int $overrideCount = 0, array $crawlData = [],
+        array $verificationResults = [], array $ruleFeedback = [], array $ruleProposals = []
     ): string {
         $date = date('l, F j, Y');
 
@@ -1273,10 +1321,62 @@ class HomeController extends AbstractController
             $intro .= "\n\nPAGE CRAWL DATA: No crawl data available. Run php bin/console app:crawl-pages to populate.\n";
         }
 
+        // ── Verification outcomes ──
+        if (!empty($verificationResults)) {
+            $intro .= "\n\nRECENT VERIFICATION OUTCOMES (tasks completed and checked against GSC):\n";
+            foreach ($verificationResults as $v) {
+                $intro .= "- [{$v['outcome_status']}] {$v['rule_id']} | {$v['url']} | {$v['metric_tracked']}: {$v['impressions_before']}→{$v['impressions_after']} imp, {$v['clicks_before']}→{$v['clicks_after']} clicks, pos {$v['position_before']}→{$v['position_after']}\n";
+            }
+        }
+
+        // ── Learning feedback from past outcomes ──
+        if (!empty($ruleFeedback)) {
+            $intro .= "\n\nLEARNING FEEDBACK (what worked and what didn't from past fixes):\n";
+            foreach ($ruleFeedback as $f) {
+                $intro .= "- {$f['rule_id']} [{$f['outcome_status']}] on {$f['url']}: ";
+                if ($f['what_worked'] && $f['what_worked'] !== 'N/A') $intro .= "Worked: {$f['what_worked']}. ";
+                if ($f['what_didnt_work'] && $f['what_didnt_work'] !== 'N/A') $intro .= "Didn't work: {$f['what_didnt_work']}. ";
+                if ($f['proposed_change']) $intro .= "Proposed ({$f['change_type']}): {$f['proposed_change']}";
+                $intro .= "\n";
+            }
+        }
+
+        // ── Pending rule change proposals ──
+        if (!empty($ruleProposals)) {
+            $intro .= "\n\nPENDING RULE CHANGE PROPOSALS (awaiting user approval):\n";
+            foreach ($ruleProposals as $p) {
+                $intro .= "- {$p['rule_id']} ({$p['change_type']}): {$p['summary']}\n";
+                if ($p['rationale']) $intro .= "  Rationale: {$p['rationale']}\n";
+            }
+            $intro .= "When the user asks about rule changes, reference these proposals and help them decide.\n";
+        }
+
+        // ── Schema errors summary ──
+        if (!empty($crawlData)) {
+            $schemaErrorPages = array_filter($crawlData, fn($r) => !empty($r['schema_errors']) && $r['schema_errors'] !== 'null' && $r['schema_errors'] !== '[]');
+            if (!empty($schemaErrorPages)) {
+                $intro .= "\n\nSCHEMA VALIDATION ERRORS (detected during last crawl):\n";
+                foreach ($schemaErrorPages as $p) {
+                    $errors = json_decode($p['schema_errors'], true);
+                    if (is_array($errors)) {
+                        $intro .= "- {$p['url']}: " . implode('; ', $errors) . "\n";
+                    }
+                }
+                $intro .= "These errors match what Google Search Console flagged. Reference them when discussing schema tasks.\n";
+            }
+
+            // Internal link violations
+            $linkViolations = array_filter($crawlData, fn($r) => ($r['internal_link_count'] ?? 0) > 3);
+            if (!empty($linkViolations)) {
+                $intro .= "\n\nINTERNAL LINK CAP VIOLATIONS (max 3 per page):\n";
+                foreach (array_slice($linkViolations, 0, 10) as $p) {
+                    $intro .= "- {$p['url']}: {$p['internal_link_count']} links (max: 3)\n";
+                }
+            }
+        }
+
         $intro .= "\n\n" . $staticRules;
 
         return $intro;
     }
 }
-
-    
