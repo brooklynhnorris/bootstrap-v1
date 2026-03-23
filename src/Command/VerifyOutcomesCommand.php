@@ -357,9 +357,6 @@ class VerifyOutcomesCommand extends Command
 
                 $row = $this->db->fetchAssociative($sql, ['url' => $urlPattern, 'fix_date' => $fixDate]);
             }
-            }
-
-            $row = $this->db->fetchAssociative($sql, ['url' => $urlPattern, 'fix_date' => $fixDate]);
 
             if (!$row || is_null($row['total_impressions'])) {
                 return [];
