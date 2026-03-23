@@ -2486,12 +2486,31 @@
             const resultColor = result === 'pass' ? '#16a34a' : result === 'partial' ? '#ca8a04' : '#dc2626';
             const resultIcon = result === 'pass' ? '&#10003;' : result === 'partial' ? '&#9888;' : '&#10007;';
             const resultLabel = (result || 'unknown').toUpperCase();
+            const attemptNum = task.attempt_number || 1;
+
+            // Show attempt history if multiple attempts
+            if (data.attempts && data.attempts.length > 1) {
+                const histDiv = document.createElement('div');
+                histDiv.className = 'message assistant';
+                let histHtml = '<div class="bubble" style="background:var(--bg-tertiary);border:1px solid var(--border-subtle);">' +
+                    '<div style="font-weight:600;margin-bottom:8px;">Attempt History:</div>';
+                data.attempts.forEach(a => {
+                    const aResult = (a.recheck_result || 'pending').toUpperCase();
+                    const aColor = aResult === 'PASS' ? '#16a34a' : aResult === 'FAIL' ? '#dc2626' : '#9898a0';
+                    const aIcon = aResult === 'PASS' ? '✓' : aResult === 'FAIL' ? '✗' : '⏳';
+                    const aDate = a.completed_at ? new Date(a.completed_at).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '';
+                    histHtml += '<div style="font-size:13px;margin-bottom:4px;color:' + aColor + ';">' + aIcon + ' Attempt ' + a.attempt_number + ' — ' + aResult + (aDate ? ' · ' + aDate : '') + (a.outcome_summary ? ' · ' + escapeHtml(a.outcome_summary) : '') + '</div>';
+                });
+                histHtml += '</div>';
+                histDiv.innerHTML = histHtml;
+                messagesEl.appendChild(histDiv);
+            }
 
             // Show outcome header
             const headerDiv = document.createElement('div');
             headerDiv.className = 'message assistant';
             headerDiv.innerHTML = '<div class="bubble" style="border-left:4px solid ' + resultColor + ';padding-left:12px;">' +
-                '<div style="font-size:16px;font-weight:600;color:' + resultColor + ';margin-bottom:8px;">' + resultIcon + ' Outcome: ' + resultLabel + '</div>' +
+                '<div style="font-size:16px;font-weight:600;color:' + resultColor + ';margin-bottom:8px;">' + resultIcon + ' Outcome: ' + resultLabel + (attemptNum > 1 ? ' (Attempt ' + attemptNum + ')' : '') + '</div>' +
                 '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Task completed and verified against Google Search Console data.</div>' +
                 '</div>';
             messagesEl.appendChild(headerDiv);
@@ -2910,14 +2929,15 @@
 
         // Verification badge
         let verifyBadge = '';
+        const attemptLabel = (task.attempt_number && task.attempt_number > 1) ? ' (Attempt ' + task.attempt_number + ')' : '';
         if (isDone && task.recheck_verified) {
             const result = (task.recheck_result || '').toLowerCase();
             if (result === 'pass') {
-                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#16a34a;background:#f0fdf4;padding:2px 8px;border-radius:4px;margin-top:6px;">&#10003; PASS — Fix verified</div>';
+                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#16a34a;background:#f0fdf4;padding:2px 8px;border-radius:4px;margin-top:6px;">&#10003; PASS' + attemptLabel + '</div>';
             } else if (result === 'partial') {
-                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#ca8a04;background:#fefce8;padding:2px 8px;border-radius:4px;margin-top:6px;">&#9888; PARTIAL — Needs iteration</div>';
+                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#ca8a04;background:#fefce8;padding:2px 8px;border-radius:4px;margin-top:6px;">&#9888; PARTIAL' + attemptLabel + '</div>';
             } else if (result === 'fail') {
-                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#dc2626;background:#fef2f2;padding:2px 8px;border-radius:4px;margin-top:6px;">&#10007; FAIL — Re-evaluate</div>';
+                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#dc2626;background:#fef2f2;padding:2px 8px;border-radius:4px;margin-top:6px;">&#10007; FAIL' + attemptLabel + ' — Click to revise</div>';
             }
         } else if (isDone && task.recheck_date) {
             const recheckDate = new Date(task.recheck_date);

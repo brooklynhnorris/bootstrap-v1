@@ -31,6 +31,7 @@ class HomeController extends AbstractController
             $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_activity_log_created ON activity_log (created_at DESC)');
             $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_days INT DEFAULT NULL');
             $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_criteria TEXT DEFAULT NULL');
+            $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS attempt_number INT DEFAULT 1');
             $this->db->executeStatement("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS persona_name VARCHAR(50) DEFAULT NULL");
         } catch (\Exception $e) {
             // Tables already exist or DB not ready — fail silently
@@ -404,6 +405,35 @@ class HomeController extends AbstractController
         // ── Strip any raw HTML tags the AI accidentally included ──
         $text = preg_replace('/<(h[1-6]|p|br|div|span|a|ul|li|ol|strong|em|b|i)[^>]*>/i', '', $text);
         $text = preg_replace('</(h[1-6]|p|div|span|a|ul|li|ol|strong|em|b|i)>', '', $text);
+
+        // ── Fix truncated/mangled URLs in LLM output ──
+        // Common patterns: /umper-pull → /bumper-pull, /ving-quarters → /living-quarters
+        // Also fix: doubledtrailers.comumper → doubledtrailers.com/bumper
+        $urlFixes = [
+            '/umper-pull'       => '/bumper-pull',
+            '/iving-quarters'   => '/living-quarters',
+            '/ooseneck'         => '/gooseneck',
+            '/afetack'          => '/safetack',
+            '/rail-blazer'      => '/trail-blazer',
+            '/orse-trailer'     => '/horse-trailer',
+            '/orse-trailers'    => '/horse-trailers',
+            '/traight-load'     => '/straight-load',
+            '/lant-load'        => '/slant-load',
+            'doubledtrailers.comumper'    => 'doubledtrailers.com/bumper',
+            'doubledtrailers.comouth'     => 'doubledtrailers.com/south',
+            'doubledtrailers.comoose'     => 'doubledtrailers.com/goose',
+            'doubledtrailers.comiving'    => 'doubledtrailers.com/living',
+            'doubledtrailers.comath'      => 'doubledtrailers.com/path',
+            'doubledtrailers.com/orse'    => 'doubledtrailers.com/horse',
+            '/bout/'            => '/about/',
+        ];
+        foreach ($urlFixes as $broken => $fixed) {
+            $text = str_ireplace($broken, $fixed, $text);
+        }
+
+        // Fix any remaining pattern: doubledtrailers.com + lowercase letter (missing slash)
+        $text = preg_replace('/doubledtrailers\.com([a-z])/', 'doubledtrailers.com/$1', $text);
+
         $text = rtrim($text);
 
         // ── Save assistant response ──
@@ -673,12 +703,65 @@ class HomeController extends AbstractController
         $recheckCriteria = $body['recheck_criteria'] ?? $task['recheck_criteria'] ?? null;
         $recheckDate     = date('Y-m-d', strtotime("+{$recheckDays} days"));
 
+        // Track attempt number
+        $attemptNumber = 1;
+        try {
+            $this->db->executeStatement('CREATE TABLE IF NOT EXISTS task_attempts (
+                id SERIAL PRIMARY KEY,
+                task_id INT NOT NULL,
+                attempt_number INT NOT NULL DEFAULT 1,
+                completed_at TIMESTAMP NOT NULL,
+                recheck_date DATE,
+                recheck_result VARCHAR(20) DEFAULT NULL,
+                outcome_summary TEXT DEFAULT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )');
+            $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_task_attempts_task ON task_attempts (task_id)');
+
+            // If this task was previously done and verified, save that as a past attempt
+            if ($task['status'] === 'done' || $task['recheck_verified']) {
+                $lastAttempt = $this->db->fetchOne('SELECT MAX(attempt_number) FROM task_attempts WHERE task_id = ?', [$id]);
+                $attemptNumber = $lastAttempt ? ((int) $lastAttempt) + 1 : 1;
+
+                // If first completion but there's already a verified result, store attempt 1
+                if ($attemptNumber === 1 && $task['recheck_result']) {
+                    $this->db->insert('task_attempts', [
+                        'task_id'         => $id,
+                        'attempt_number'  => 1,
+                        'completed_at'    => $task['completed_at'] ?? date('Y-m-d H:i:s'),
+                        'recheck_date'    => $task['recheck_date'],
+                        'recheck_result'  => $task['recheck_result'],
+                        'outcome_summary' => 'Original attempt',
+                        'created_at'      => date('Y-m-d H:i:s'),
+                    ]);
+                    $attemptNumber = 2;
+                }
+            } else {
+                $lastAttempt = $this->db->fetchOne('SELECT MAX(attempt_number) FROM task_attempts WHERE task_id = ?', [$id]);
+                $attemptNumber = $lastAttempt ? ((int) $lastAttempt) + 1 : 1;
+            }
+
+            // Record this attempt
+            $this->db->insert('task_attempts', [
+                'task_id'        => $id,
+                'attempt_number' => $attemptNumber,
+                'completed_at'   => date('Y-m-d H:i:s'),
+                'recheck_date'   => $recheckDate,
+                'created_at'     => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Exception $e) {
+            // Non-fatal — attempt tracking is supplementary
+        }
+
         $this->db->update('tasks', [
-            'status'           => 'done',
-            'completed_at'     => date('Y-m-d H:i:s'),
-            'recheck_date'     => $recheckDate,
-            'recheck_days'     => $recheckDays,
-            'recheck_criteria' => $recheckCriteria,
+            'status'            => 'done',
+            'completed_at'      => date('Y-m-d H:i:s'),
+            'recheck_date'      => $recheckDate,
+            'recheck_days'      => $recheckDays,
+            'recheck_criteria'  => $recheckCriteria,
+            'recheck_verified'  => false,
+            'recheck_result'    => null,
+            'attempt_number'    => $attemptNumber,
         ], ['id' => $id]);
 
         // Log activity
@@ -779,9 +862,16 @@ class HomeController extends AbstractController
                 "SELECT * FROM rule_outcomes WHERE review_id = :id ORDER BY verified_at DESC LIMIT 5",
                 ['id' => $id]
             );
-            return new JsonResponse(['feedback' => $feedback, 'outcomes' => $outcomes]);
+            $attempts = [];
+            try {
+                $attempts = $this->db->fetchAllAssociative(
+                    "SELECT * FROM task_attempts WHERE task_id = :id ORDER BY attempt_number ASC",
+                    ['id' => $id]
+                );
+            } catch (\Exception $e) {}
+            return new JsonResponse(['feedback' => $feedback, 'outcomes' => $outcomes, 'attempts' => $attempts]);
         } catch (\Exception $e) {
-            return new JsonResponse(['feedback' => [], 'outcomes' => []]);
+            return new JsonResponse(['feedback' => [], 'outcomes' => [], 'attempts' => []]);
         }
     }
 
@@ -1582,4 +1672,5 @@ PROMPT;
         return $intro;
     }
 }
+
     
