@@ -983,7 +983,7 @@
             gap: 12px; align-items: flex-start;
             transition: box-shadow 0.2s;
         }
-        .result-card:hover { box-shadow: var(--shadow-sm); }
+        .result-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
         .result-icon {
             font-size: 18px; min-width: 28px; height: 28px;
             display: flex; align-items: center; justify-content: center;
@@ -2900,7 +2900,7 @@
                     const result = (task.recheck_result || '').toLowerCase();
                     const icon = result === 'pass' ? '✓' : result === 'partial' ? '⚠' : '✗';
                     const iconClass = result === 'pass' ? 'pass' : result === 'partial' ? 'partial' : 'fail';
-                    return '<div class="result-card">' +
+                    return '<div class="result-card" style="cursor:pointer;" onclick="showChatForTask(' + task.id + ', \'' + (task.title||'').replace(/'/g, "\\'") + '\', \'\', \'' + (task.priority||'') + '\')">' +
                         '<div class="result-icon ' + iconClass + '">' + icon + '</div>' +
                         '<div class="result-content">' +
                             '<div class="result-title">' + escapeHtml(task.title || '') + '</div>' +
