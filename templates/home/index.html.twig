@@ -2537,12 +2537,15 @@
         messagesEl.scrollTop = messagesEl.scrollHeight;
         sendEl.disabled = true;
 
-        // Extract URL from task title/description and fetch page content
-        const urlMatch = (title + ' ' + (description || '')).match(/(\/[a-z0-9\-\/]+\/)/);
+        // Extract URL from task title first (after — dash), then fall back to description
+        let urlMatch = title.match(/—\s*(\/[a-z0-9\-\/]+\/)/);
+        if (!urlMatch) urlMatch = title.match(/(\/[a-z0-9\-\/]+\/)/);
+        if (!urlMatch && description) urlMatch = (description || '').match(/(\/[a-z0-9\-\/]+\/)/);
         let pageContext = '';
         if (urlMatch) {
+            const targetUrl = urlMatch[1];
             try {
-                const pageRes = await fetch('/api/page-data?url=' + encodeURIComponent(urlMatch[1]));
+                const pageRes = await fetch('/api/page-data?url=' + encodeURIComponent(targetUrl));
                 const pageData = await pageRes.json();
                 if (pageData && pageData.url) {
                     pageContext = '\n\nPAGE DATA FROM CRAWL:\n';
