@@ -2537,13 +2537,15 @@
         messagesEl.scrollTop = messagesEl.scrollHeight;
         sendEl.disabled = true;
 
-        // Extract URL from task title first (after — dash), then fall back to description
-        let urlMatch = title.match(/—\s*(\/[a-z0-9\-\/]+\/)/);
-        if (!urlMatch) urlMatch = title.match(/(\/[a-z0-9\-\/]+\/)/);
-        if (!urlMatch && description) urlMatch = (description || '').match(/(\/[a-z0-9\-\/]+\/)/);
+        // Extract URL from task title — look for the LAST url pattern (after any dash variant)
+        const allUrls = (title || '').match(/\/[a-z0-9\-\/]+\//g);
+        let targetUrl = allUrls ? allUrls[allUrls.length - 1] : null;
+        if (!targetUrl && description) {
+            const descUrls = (description || '').match(/\/[a-z0-9\-\/]+\//g);
+            targetUrl = descUrls ? descUrls[0] : null;
+        }
         let pageContext = '';
-        if (urlMatch) {
-            const targetUrl = urlMatch[1];
+        if (targetUrl) {
             try {
                 const pageRes = await fetch('/api/page-data?url=' + encodeURIComponent(targetUrl));
                 const pageData = await pageRes.json();
