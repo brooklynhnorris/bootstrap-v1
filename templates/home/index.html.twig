@@ -856,6 +856,222 @@
             background: rgba(0,0,0,0.25); align-items: center; justify-content: center;
         }
         #add-rule-modal.open { display: flex; }
+
+        /* ── DASHBOARD VIEW ───────────────────────────── */
+        #dashboard-view {
+            flex: 1; overflow-y: auto; padding: 32px 24px;
+            display: none;
+        }
+        #dashboard-view.active { display: block; }
+        .dash-container { max-width: 1100px; margin: 0 auto; }
+        .dash-grid {
+            display: grid; grid-template-columns: repeat(4, 1fr);
+            gap: 16px; margin-bottom: 32px;
+        }
+        @media (max-width: 900px) {
+            .dash-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            transition: box-shadow 0.2s;
+        }
+        .stat-card:hover { box-shadow: var(--shadow-md); }
+        .stat-label {
+            font-size: 12px; color: var(--text-muted);
+            text-transform: uppercase; letter-spacing: 0.5px;
+            margin-bottom: 4px;
+        }
+        .stat-value { font-size: 28px; font-weight: 700; }
+        .stat-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+        .stat-card.blue .stat-value   { color: var(--accent-blue); }
+        .stat-card.green .stat-value  { color: var(--accent-green); }
+        .stat-card.red .stat-value    { color: var(--accent-red); }
+        .stat-card.yellow .stat-value { color: var(--accent-yellow); }
+
+        .dash-section-title {
+            font-size: 16px; font-weight: 600;
+            margin-bottom: 16px; display: flex;
+            align-items: center; gap: 8px;
+        }
+        .dash-badge {
+            font-size: 11px; background: var(--bg-tertiary);
+            color: var(--text-muted); padding: 2px 8px;
+            border-radius: 20px; font-weight: 500;
+        }
+
+        /* Focus cards */
+        .focus-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-lg);
+            padding: 24px; margin-bottom: 16px;
+            display: flex; align-items: center;
+            gap: 20px; cursor: pointer;
+            transition: box-shadow 0.2s, transform 0.15s;
+        }
+        .focus-card:hover {
+            box-shadow: var(--shadow-md);
+            transform: translateY(-1px);
+        }
+        .focus-num {
+            font-size: 32px; font-weight: 700;
+            color: var(--text-muted); min-width: 40px;
+            text-align: center; flex-shrink: 0;
+        }
+        .focus-content { flex: 1; min-width: 0; }
+        .focus-title {
+            font-size: 14px; font-weight: 600;
+            margin-bottom: 4px; color: var(--text-primary);
+        }
+        .focus-url {
+            font-size: 12px; color: var(--accent-blue);
+            font-family: var(--font-mono); margin-bottom: 6px;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .focus-meta { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .focus-tag {
+            font-size: 11px; padding: 2px 8px;
+            border-radius: 4px; font-weight: 500;
+        }
+        .focus-tag.critical { background: #fef2f2; color: #dc2626; }
+        .focus-tag.high     { background: #fff7ed; color: #c2410c; }
+        .focus-tag.medium   { background: #fefce8; color: #a16207; }
+        .focus-tag.low      { background: var(--bg-tertiary); color: var(--text-muted); }
+        .focus-tag.hours    { background: var(--bg-tertiary); color: var(--text-muted); }
+        .focus-rule-id {
+            font-size: 11px; color: var(--text-muted);
+        }
+        .focus-action {
+            padding: 10px 20px; background: var(--accent-blue);
+            color: white; border: none; border-radius: 8px;
+            font-size: 13px; font-weight: 600; cursor: pointer;
+            white-space: nowrap; font-family: var(--font-body);
+            transition: background 0.15s; flex-shrink: 0;
+        }
+        .focus-action:hover { background: #1d4ed8; }
+        .dash-view-all {
+            text-align: center; margin: 16px 0 32px;
+        }
+        .dash-view-all button {
+            padding: 8px 20px; border: 1px solid var(--border-subtle);
+            border-radius: 8px; background: transparent;
+            font-size: 13px; cursor: pointer;
+            color: var(--text-secondary); font-family: var(--font-body);
+            transition: all 0.15s;
+        }
+        .dash-view-all button:hover {
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+
+        /* Results grid */
+        .results-grid {
+            display: grid; grid-template-columns: 1fr 1fr;
+            gap: 16px; margin-bottom: 32px;
+        }
+        @media (max-width: 700px) {
+            .results-grid { grid-template-columns: 1fr; }
+        }
+        .result-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 16px; display: flex;
+            gap: 12px; align-items: flex-start;
+            transition: box-shadow 0.2s;
+        }
+        .result-card:hover { box-shadow: var(--shadow-sm); }
+        .result-icon {
+            font-size: 18px; min-width: 28px; height: 28px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 6px; flex-shrink: 0;
+        }
+        .result-icon.pass { background: #f0fdf4; color: var(--accent-green); }
+        .result-icon.fail { background: #fef2f2; color: var(--accent-red); }
+        .result-icon.partial { background: #fefce8; color: var(--accent-yellow); }
+        .result-content { flex: 1; min-width: 0; }
+        .result-title { font-size: 13px; font-weight: 600; margin-bottom: 2px; }
+        .result-detail {
+            font-size: 12px; color: var(--text-secondary); line-height: 1.5;
+        }
+        .result-metric {
+            font-size: 11px; color: var(--text-muted); margin-top: 4px;
+            font-family: var(--font-mono);
+        }
+
+        /* Rule proposal cards */
+        .proposal-card {
+            background: var(--bg-card);
+            border: 1px solid #fde68a;
+            border-radius: var(--radius-md);
+            padding: 16px; margin-bottom: 12px;
+        }
+        .proposal-header {
+            display: flex; align-items: center;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        .proposal-rule { font-size: 13px; font-weight: 600; }
+        .proposal-type {
+            font-size: 11px; color: var(--accent-yellow);
+            background: #fefce8; padding: 2px 8px; border-radius: 4px;
+        }
+        .proposal-text {
+            font-size: 13px; color: var(--text-secondary);
+            line-height: 1.5; margin-bottom: 12px;
+        }
+        .proposal-actions { display: flex; gap: 8px; }
+        .proposal-actions button {
+            padding: 6px 14px; border-radius: 6px;
+            font-size: 12px; font-weight: 500;
+            cursor: pointer; border: 1px solid var(--border-subtle);
+            background: var(--bg-card); font-family: var(--font-body);
+            transition: all 0.15s;
+        }
+        .proposal-actions button.approve {
+            background: var(--accent-green); color: white;
+            border-color: var(--accent-green);
+        }
+        .proposal-actions button.approve:hover { background: #15803d; }
+        .proposal-actions button.reject { color: var(--text-muted); }
+        .proposal-actions button.reject:hover {
+            color: var(--accent-red);
+            border-color: var(--accent-red);
+        }
+        .proposal-actions button:hover:not(.approve):not(.reject) {
+            border-color: var(--accent-blue);
+            color: var(--accent-blue);
+        }
+        .dash-empty {
+            text-align: center; padding: 24px;
+            color: var(--text-muted); font-size: 13px;
+            font-style: italic;
+        }
+
+        /* Header nav pills */
+        .header-nav-pills {
+            display: flex; gap: 4px;
+            background: var(--bg-tertiary);
+            border-radius: 8px; padding: 3px;
+        }
+        .header-nav-pill {
+            padding: 6px 14px; border: none;
+            background: transparent; border-radius: 6px;
+            font-size: 12px; font-weight: 500;
+            cursor: pointer; color: var(--text-muted);
+            font-family: var(--font-body);
+            transition: all 0.15s;
+        }
+        .header-nav-pill.active {
+            background: var(--bg-card);
+            color: var(--text-primary);
+            box-shadow: var(--shadow-sm);
+            font-weight: 600;
+        }
+        .header-nav-pill:hover:not(.active) { color: var(--text-primary); }
     </style>
 </head>
 <body>
@@ -910,7 +1126,7 @@
     </div>
     <div id="sidebar-scroll">
         <div id="panel-history">
-            <button class="new-chat-btn" onclick="showBoard()">⬛ The Playbook</button>
+            <button class="new-chat-btn" onclick="switchView('dashboard')">⬛ Dashboard</button>
             <div id="history-list">
                 {% if conversations is empty %}
                     <div class="history-empty">No conversations yet.</div>
@@ -962,8 +1178,14 @@
 
     <!-- TOP BAR -->
     <div id="top-bar">
-        <button id="board-back-btn" onclick="showBoard()">← Board</button>
+        <button id="board-back-btn" onclick="switchView('dashboard')">← Dashboard</button>
         <div id="board-title">{{ userName }}'s Playbook</div>
+        <div class="header-nav-pills">
+            <button class="header-nav-pill active" id="nav-dashboard" onclick="switchView('dashboard')">Dashboard</button>
+            <button class="header-nav-pill" id="nav-board" onclick="switchView('board')">Board</button>
+            <button class="header-nav-pill" id="nav-results" onclick="switchView('results')">Results</button>
+            <button class="header-nav-pill" id="nav-rules" onclick="switchView('rules')">Rules</button>
+        </div>
         <div class="topbar-stats">
             <div class="topbar-stat">
                 <span class="topbar-stat-num pending" id="count-pending">{{ taskCounts.urgent }}</span>
@@ -978,7 +1200,7 @@
                 <span>done</span>
             </div>
         </div>
-        <div class="topbar-filter-group">
+        <div class="topbar-filter-group" id="board-filters" style="display:none;">
             <button class="topbar-filter-btn active" id="filter-mine" onclick="setBoardFilter('mine')">My Plays</button>
             <button class="topbar-filter-btn" id="filter-team" onclick="setBoardFilter('team')">Team</button>
             <button class="topbar-filter-btn" id="filter-wins" onclick="setBoardFilter('wins')">Quick Wins</button>
@@ -988,8 +1210,58 @@
         <button class="topbar-filter-btn" onclick="openAddRule()" style="margin-left:2px;background:var(--accent-purple-dim);color:var(--accent-purple);border-color:#c4b5fd;">+ Rule</button>
     </div>
 
+    <!-- DASHBOARD VIEW -->
+    <div id="dashboard-view" class="active">
+        <div class="dash-container">
+
+            <!-- Stats row -->
+            <div class="dash-grid">
+                <div class="stat-card blue">
+                    <div class="stat-label">Active Plays</div>
+                    <div class="stat-value" id="dash-active-plays">—</div>
+                    <div class="stat-sub" id="dash-active-sub">Loading…</div>
+                </div>
+                <div class="stat-card green">
+                    <div class="stat-label">Verified Passes</div>
+                    <div class="stat-value" id="dash-passes">—</div>
+                    <div class="stat-sub" id="dash-passes-sub">Loading…</div>
+                </div>
+                <div class="stat-card red">
+                    <div class="stat-label">Needs Attention</div>
+                    <div class="stat-value" id="dash-attention">—</div>
+                    <div class="stat-sub" id="dash-attention-sub">Loading…</div>
+                </div>
+                <div class="stat-card yellow">
+                    <div class="stat-label">Rule Proposals</div>
+                    <div class="stat-value" id="dash-proposals">—</div>
+                    <div class="stat-sub" id="dash-proposals-sub">Loading…</div>
+                </div>
+            </div>
+
+            <!-- Next Plays -->
+            <div class="dash-section-title">Your Next Plays <span class="dash-badge">Top 3 by impact</span></div>
+            <div id="dash-focus-cards">
+                <div class="dash-empty">Loading plays…</div>
+            </div>
+            <div class="dash-view-all" id="dash-view-all-plays" style="display:none;">
+                <button onclick="switchView('board')">View all plays →</button>
+            </div>
+
+            <!-- Recent Results -->
+            <div class="dash-section-title">Recent Verification Results <span class="dash-badge">Last 7 days</span></div>
+            <div class="results-grid" id="dash-results-grid">
+                <div class="dash-empty" style="grid-column:1/-1;">Loading results…</div>
+            </div>
+
+            <!-- Rule Proposals -->
+            <div class="dash-section-title" id="dash-proposals-title" style="display:none;">Rule Evolution Proposals <span class="dash-badge" id="dash-proposals-badge">0 pending</span></div>
+            <div id="dash-proposals-list"></div>
+
+        </div>
+    </div>
+
     <!-- BOARD VIEW -->
-    <div id="board-view">
+    <div id="board-view" style="display:none;">
         <div class="board-signal-bar" id="signal-bar">
             <span class="signal-icon">♟</span>
             <span>Loading your position on the board, <strong>{{ userName }}</strong>…</span>
@@ -2028,22 +2300,23 @@
     async function saveNewTask() {
         const task = {
             title:           document.getElementById('new-task-title').value,
-            assigned_to:     document.getElementById('new-task-assignee').value,
             priority:        document.getElementById('new-task-priority').value,
             estimated_hours: parseFloat(document.getElementById('new-task-hours').value),
-            recheck_type:    document.getElementById('new-task-recheck').value || null,
         };
         if (!task.title) return alert('Enter a task title');
         await fetch('/api/tasks', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(task) });
         closeAddTask();
         document.getElementById('new-task-title').value = '';
-        refreshTasksPanel();
+        if (currentView === 'dashboard') loadDashboardData();
+        else refreshTasksPanel();
     }
+    const submitNewTask = saveNewTask;
 
     // Refresh Right Tasks Panel
     async function refreshTasksPanel() {
         // Board-first architecture: refresh the board grid instead of a task list
-        if (typeof refreshBoard === 'function') await refreshBoard();
+        if (currentView === 'dashboard') await loadDashboardData();
+        else if (typeof refreshBoard === 'function') await refreshBoard();
     }
 
     // Briefing
@@ -2148,22 +2421,25 @@
 
     async function showBoard() {
         boardView = true;
-        document.getElementById('board-view').style.display = '';
-        document.getElementById('chat-view').style.display = 'none';
-        document.getElementById('board-back-btn').style.display = 'none';
-        document.getElementById('board-title').textContent = USER_NAME + "'s Playbook";
-        const doneBtn = document.getElementById('mark-done-btn');
-        if (doneBtn) doneBtn.style.display = 'none';
-        await refreshBoard();
+        switchView('board');
     }
 
     function showChatForTask(taskId, taskTitle, taskDesc, taskPriority) {
         currentTaskId = parseInt(taskId);
         boardView = false;
+        currentView = 'chat';
+        document.getElementById('dashboard-view').style.display = 'none';
+        document.getElementById('dashboard-view').classList.remove('active');
         document.getElementById('board-view').style.display = 'none';
         document.getElementById('chat-view').style.display = 'flex';
         document.getElementById('board-back-btn').style.display = 'flex';
         document.getElementById('board-title').textContent = taskTitle || 'Play';
+        // Deactivate all nav pills when in chat
+        ['dashboard','board','results','rules'].forEach(v => {
+            const pill = document.getElementById('nav-' + v);
+            if (pill) pill.classList.remove('active');
+        });
+        if (document.getElementById('board-filters')) document.getElementById('board-filters').style.display = 'none';
         const doneBtn = document.getElementById('mark-done-btn');
         if (doneBtn) {
             doneBtn.style.display = 'inline-flex';
@@ -2261,8 +2537,8 @@
         messagesEl.scrollTop = messagesEl.scrollHeight;
         sendEl.disabled = true;
 
-        // Extract URL from task title and fetch page content
-        const urlMatch = (title + ' ' + description).match(/(\/[a-z0-9\-\/]+\/)/);
+        // Extract URL from task title/description and fetch page content
+        const urlMatch = (title + ' ' + (description || '')).match(/(\/[a-z0-9\-\/]+\/)/);
         let pageContext = '';
         if (urlMatch) {
             try {
@@ -2279,6 +2555,7 @@
                     pageContext += 'Internal link count: ' + (pageData.internal_link_count || 0) + '\n';
                     pageContext += 'Image count: ' + (pageData.image_count || 0) + '\n';
                     pageContext += 'H2s: ' + (pageData.h2s || '[]') + '\n';
+                    if (pageData.gsc_impressions) pageContext += 'GSC: ' + pageData.gsc_impressions + ' impressions, ' + pageData.gsc_clicks + ' clicks, position ' + pageData.gsc_position + '\n';
                     if (pageData.body_text_snippet) {
                         pageContext += '\nFULL PAGE BODY TEXT (use this for rewrites — do NOT ask the user to paste content):\n' + pageData.body_text_snippet + '\n';
                     }
@@ -2286,7 +2563,7 @@
             } catch(e) { /* non-fatal */ }
         }
 
-        const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + description + '.' + pageContext + '\n\nINSTRUCTIONS: You have the full page data above. Give a sharp, specific briefing. If the task requires a content rewrite, WRITE THE COMPLETE REWRITE using the page body text above — do NOT ask the user to paste content. If it requires schema changes, output the complete JSON-LD block. Be surgical. Address me as ' + USER_NAME + '. DO NOT create any new tasks or plays — only brief and execute on this specific one.';
+        const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + (description || '') + '.' + pageContext + '\n\nINSTRUCTIONS: You have the full page data above. Give a sharp, specific briefing. If the task requires a content rewrite, WRITE THE COMPLETE REWRITE using the page body text — do NOT ask the user to paste content. If it requires schema changes, output the complete JSON-LD block. Be surgical. Address me as ' + USER_NAME + '. DO NOT create any new tasks or plays — only brief and execute on this specific one.';
         messages.push({ role: 'user', content: prompt });
         // Don't show the raw prompt to the user — only show Logiri's response
 
@@ -2477,11 +2754,240 @@
 
 
 
+    // ── View switching ──────────────────────────────────
+    let currentView = 'dashboard'; // dashboard | board | results | rules
+
+    function switchView(view) {
+        currentView = view;
+        // Update nav pills
+        ['dashboard','board','results','rules'].forEach(v => {
+            const pill = document.getElementById('nav-' + v);
+            if (pill) pill.classList.toggle('active', v === view);
+        });
+        // Toggle views
+        const dashEl  = document.getElementById('dashboard-view');
+        const boardEl = document.getElementById('board-view');
+        const chatEl  = document.getElementById('chat-view');
+        const filters = document.getElementById('board-filters');
+        const backBtn = document.getElementById('board-back-btn');
+
+        dashEl.style.display  = 'none';
+        dashEl.classList.remove('active');
+        boardEl.style.display = 'none';
+        chatEl.style.display  = 'none';
+        if (filters) filters.style.display = 'none';
+        if (backBtn) backBtn.style.display = 'none';
+
+        const doneBtn = document.getElementById('mark-done-btn');
+        if (doneBtn) doneBtn.style.display = 'none';
+
+        if (view === 'dashboard') {
+            dashEl.style.display = 'block';
+            dashEl.classList.add('active');
+            document.getElementById('board-title').textContent = USER_NAME + "'s Dashboard";
+            loadDashboardData();
+        } else if (view === 'board') {
+            boardEl.style.display = '';
+            if (filters) filters.style.display = 'flex';
+            document.getElementById('board-title').textContent = USER_NAME + "'s Playbook";
+            refreshBoard();
+        } else if (view === 'results') {
+            dashEl.style.display = 'block';
+            dashEl.classList.add('active');
+            document.getElementById('board-title').textContent = 'Verification Results';
+            loadDashboardData();
+            // Scroll to results section
+            setTimeout(() => {
+                const resultsTitle = document.querySelector('#dashboard-view .dash-section-title:nth-of-type(2)');
+                if (resultsTitle) resultsTitle.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+        } else if (view === 'rules') {
+            dashEl.style.display = 'block';
+            dashEl.classList.add('active');
+            document.getElementById('board-title').textContent = 'Rules & Proposals';
+            loadDashboardData();
+            setTimeout(() => {
+                const proposalsTitle = document.getElementById('dash-proposals-title');
+                if (proposalsTitle) proposalsTitle.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
+        }
+    }
+
+    // ── Dashboard data loading ──────────────────────────
+    let dashboardLoaded = false;
+
+    async function loadDashboardData() {
+        try {
+            // Fetch tasks for stats + focus cards
+            const tasksRes = await fetch('/api/tasks');
+            const tasksText = await tasksRes.text();
+            let tasks = [];
+            try { tasks = JSON.parse(tasksText); } catch(e) { tasks = []; }
+            if (!Array.isArray(tasks)) tasks = [];
+
+            // Cache tasks
+            window._taskCache = window._taskCache || {};
+            tasks.forEach(t => { if (t.id) window._taskCache[t.id] = t; });
+
+            // ── Stat cards ──
+            const activeTasks = tasks.filter(t => t.status !== 'done');
+            const doneTasks   = tasks.filter(t => t.status === 'done');
+            const passes      = doneTasks.filter(t => t.recheck_verified && (t.recheck_result || '').toLowerCase() === 'pass');
+            const fails       = doneTasks.filter(t => t.recheck_verified && (t.recheck_result || '').toLowerCase() === 'fail');
+            const partials    = doneTasks.filter(t => t.recheck_verified && (t.recheck_result || '').toLowerCase() === 'partial');
+            const critical    = activeTasks.filter(t => t.priority === 'critical').length;
+            const high        = activeTasks.filter(t => t.priority === 'high').length;
+            const medium      = activeTasks.filter(t => t.priority === 'medium').length;
+
+            document.getElementById('dash-active-plays').textContent = activeTasks.length;
+            document.getElementById('dash-active-sub').textContent   = critical + ' critical · ' + high + ' high · ' + medium + ' medium';
+            document.getElementById('dash-passes').textContent       = passes.length;
+            document.getElementById('dash-passes-sub').textContent   = passes.length > 0 ? 'Verified improvements' : 'No verified passes yet';
+            document.getElementById('dash-attention').textContent    = fails.length + partials.length;
+            document.getElementById('dash-attention-sub').textContent = fails.length + ' fails · ' + partials.length + ' partial';
+
+            // Also update the topbar counters
+            updateStatCounters(tasks);
+
+            // ── Focus cards (top 3 by priority) ──
+            const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+            const topPlays = activeTasks
+                .sort((a, b) => (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3))
+                .slice(0, 3);
+
+            const focusContainer = document.getElementById('dash-focus-cards');
+            if (topPlays.length === 0) {
+                focusContainer.innerHTML = '<div class="dash-empty">No active plays — you\'re all caught up!</div>';
+            } else {
+                focusContainer.innerHTML = topPlays.map((task, i) => {
+                    const url = extractUrl(task.title || '') || '';
+                    const hours = task.estimated_hours || '?';
+                    const prio = task.priority || 'medium';
+                    const ruleId = task.rule_id || '';
+                    return '<div class="focus-card" onclick="showChatForTask(' + task.id + ', \'' + escapeHtml((task.title||'').replace(/'/g, "\\'")) + '\')">' +
+                        '<div class="focus-num">' + (i + 1) + '</div>' +
+                        '<div class="focus-content">' +
+                            '<div class="focus-title">' + escapeHtml(task.title || '') + '</div>' +
+                            (url ? '<div class="focus-url">' + escapeHtml(url) + '</div>' : '') +
+                            '<div class="focus-meta">' +
+                                '<span class="focus-tag ' + prio + '">' + prio.charAt(0).toUpperCase() + prio.slice(1) + '</span>' +
+                                '<span class="focus-tag hours">' + hours + 'h</span>' +
+                                (ruleId ? '<span class="focus-rule-id">' + escapeHtml(ruleId) + '</span>' : '') +
+                            '</div>' +
+                        '</div>' +
+                        '<button class="focus-action" onclick="event.stopPropagation();runPlayFromDash(' + task.id + ')">▶ Start Play</button>' +
+                    '</div>';
+                }).join('');
+                const viewAllBtn = document.getElementById('dash-view-all-plays');
+                if (activeTasks.length > 3 && viewAllBtn) {
+                    viewAllBtn.style.display = 'block';
+                    viewAllBtn.querySelector('button').textContent = 'View all ' + activeTasks.length + ' plays →';
+                }
+            }
+
+            // ── Verification results ──
+            const verifiedTasks = doneTasks.filter(t => t.recheck_verified);
+            const resultsGrid = document.getElementById('dash-results-grid');
+            if (verifiedTasks.length === 0) {
+                resultsGrid.innerHTML = '<div class="dash-empty" style="grid-column:1/-1;">No verification results yet. Complete plays and they\'ll be verified against GSC data.</div>';
+            } else {
+                resultsGrid.innerHTML = verifiedTasks.slice(0, 6).map(task => {
+                    const result = (task.recheck_result || '').toLowerCase();
+                    const icon = result === 'pass' ? '✓' : result === 'partial' ? '⚠' : '✗';
+                    const iconClass = result === 'pass' ? 'pass' : result === 'partial' ? 'partial' : 'fail';
+                    return '<div class="result-card">' +
+                        '<div class="result-icon ' + iconClass + '">' + icon + '</div>' +
+                        '<div class="result-content">' +
+                            '<div class="result-title">' + escapeHtml(task.title || '') + '</div>' +
+                            '<div class="result-detail">' + (result === 'pass' ? 'Fix verified — GSC metrics improved.' : result === 'partial' ? 'Partial improvement detected. May need iteration.' : 'No improvement detected. Re-evaluate approach.') + '</div>' +
+                            '<div class="result-metric">' + escapeHtml(result.toUpperCase()) + (task.recheck_date ? ' · Checked ' + new Date(task.recheck_date).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '') + '</div>' +
+                        '</div>' +
+                    '</div>';
+                }).join('');
+            }
+
+            // ── Rule proposals (from outcomes with proposed changes) ──
+            try {
+                const proposalsRes = await fetch('/api/rule-proposals');
+                if (proposalsRes.ok) {
+                    const proposals = await proposalsRes.json();
+                    const proposalsList = document.getElementById('dash-proposals-list');
+                    const proposalsTitle = document.getElementById('dash-proposals-title');
+                    if (Array.isArray(proposals) && proposals.length > 0) {
+                        proposalsTitle.style.display = 'flex';
+                        document.getElementById('dash-proposals-badge').textContent = proposals.length + ' pending';
+                        document.getElementById('dash-proposals').textContent = proposals.length;
+                        document.getElementById('dash-proposals-sub').textContent = 'Awaiting your review';
+                        proposalsList.innerHTML = proposals.map(p => {
+                            return '<div class="proposal-card" id="proposal-' + (p.id || '') + '">' +
+                                '<div class="proposal-header">' +
+                                    '<div class="proposal-rule">' + escapeHtml(p.rule_id || '') + (p.rule_name ? ' — ' + escapeHtml(p.rule_name) : '') + '</div>' +
+                                    '<div class="proposal-type">' + escapeHtml(p.change_type || 'modify') + '</div>' +
+                                '</div>' +
+                                '<div class="proposal-text">' + escapeHtml(p.proposed_change || p.description || '') + '</div>' +
+                                '<div class="proposal-actions">' +
+                                    '<button class="approve" onclick="approveProposal(' + (p.id || 0) + ', this)">✓ Approve</button>' +
+                                    '<button class="reject" onclick="rejectProposal(' + (p.id || 0) + ', this)">✗ Reject</button>' +
+                                '</div>' +
+                            '</div>';
+                        }).join('');
+                    } else {
+                        proposalsTitle.style.display = 'none';
+                        document.getElementById('dash-proposals').textContent = '0';
+                        document.getElementById('dash-proposals-sub').textContent = 'No pending proposals';
+                    }
+                }
+            } catch(e) {
+                // Rule proposals endpoint may not exist yet — show 0
+                document.getElementById('dash-proposals').textContent = '0';
+                document.getElementById('dash-proposals-sub').textContent = 'Endpoint not configured';
+            }
+
+            dashboardLoaded = true;
+        } catch(e) {
+            console.error('Dashboard load failed:', e);
+        }
+    }
+
+    function runPlayFromDash(taskId) {
+        const t = window._taskCache && window._taskCache[taskId];
+        if (t) {
+            showChatForTask(taskId, t.title || '', t.description || '', t.priority || '');
+        }
+    }
+
+    async function approveProposal(id, btn) {
+        try {
+            const res = await fetch('/api/rule-proposals/' + id + '/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            const data = await res.json();
+            const card = document.getElementById('proposal-' + id);
+            if (card) {
+                card.style.opacity = '0.5';
+                card.querySelector('.proposal-actions').innerHTML = '<span style="color:var(--accent-green);font-weight:600;font-size:12px;">✓ Approved</span>';
+            }
+            showNotification(data.message || 'Proposal approved', 'green');
+        } catch(e) { showNotification('Failed to approve', 'red'); }
+    }
+
+    async function rejectProposal(id, btn) {
+        try {
+            const res = await fetch('/api/rule-proposals/' + id + '/reject', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            const data = await res.json();
+            const card = document.getElementById('proposal-' + id);
+            if (card) {
+                card.style.opacity = '0.5';
+                card.querySelector('.proposal-actions').innerHTML = '<span style="color:var(--accent-red);font-weight:600;font-size:12px;">✗ Rejected</span>';
+            }
+            showNotification(data.message || 'Proposal rejected', 'green');
+        } catch(e) { showNotification('Failed to reject', 'red'); }
+    }
+
     // ── Unified startup ──────────────────────────────────
     (async () => {
         try {
             sessionStorage.removeItem('persona_just_selected');
-            await showBoard();
+            // Default to dashboard view
+            switchView('dashboard');
         } catch(startupErr) {
             console.error('Logiri startup error:', startupErr);
         }
@@ -2502,9 +3008,16 @@
     // ── Load conversation from sidebar (switch to chat view) ──
     function loadConversationFromSidebar(id) {
         boardView = false;
+        currentView = 'chat';
+        document.getElementById('dashboard-view').style.display = 'none';
+        document.getElementById('dashboard-view').classList.remove('active');
         document.getElementById('board-view').style.display = 'none';
         document.getElementById('chat-view').style.display = 'flex';
         document.getElementById('board-back-btn').style.display = 'flex';
+        ['dashboard','board','results','rules'].forEach(v => {
+            const pill = document.getElementById('nav-' + v);
+            if (pill) pill.classList.remove('active');
+        });
         loadConversation(id);
     }
 
