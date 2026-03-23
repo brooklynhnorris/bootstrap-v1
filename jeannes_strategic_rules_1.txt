@@ -1,0 +1,137 @@
+JEANNE'S STRATEGIC RULES — MANUAL ADDITIONS
+These rules encode Jeanne's proprietary methodology that the 5-LLM engine
+could not auto-generate from the framework. They require semantic analysis
+beyond basic crawl field checks.
+============================================================
+
+OPQ-MSE-01 | Core Product Page MSE Completeness Audit
+Trigger Source: page_crawl_snapshots
+Trigger Condition: page_type = 'core' AND is_noindex = FALSE AND word_count > 0
+Threshold: Any core product page missing 2 or more of the required MSE elements fires this rule.
+Crawl Parameter: page_type, word_count, has_product_image, has_attributes_section, has_cta_button, has_reviews_section, has_faq_section, has_media_gallery, schema_types
+Diagnosis: On product pages, the Most Significant Element (MSE) carries ranking and conversion signal — not word volume. Per Google Patent US 7,428,700 B2 (Vision-Based Document Segmentation), search engines calculate content significance from a weighted sum of word count + image dimensions + structural element placement. A product page with 400 words but complete MSE (hero image, attribute table, CTAs, reviews, FAQs, media gallery) outranks a 1,200-word competitor page missing these elements. MSE completeness is the single strongest on-page signal for product pages.
+Action Output:
+  CURRENT_STATE: Audit the core product page for each required MSE element:
+    - Main product image (compelling, showing key benefits) — present? y/n
+    - Key attributes section with unique differentiators (product name like "SafeTack 2 Horse Bumper Pull 2026 Series", proprietary features like Z-Frame/SafeBump, size, dimensions, color, price) — present? y/n
+    - Functionality CTA (buy button, request a quote, call) — present? y/n
+    - Reviews/testimonials section — present? y/n
+    - Additional product photos or media gallery — present? y/n
+    - FAQ section with product-specific, long-tail human-generated queries (from actual customer questions, Reddit, FB groups, AI-anticipated queries) — present? y/n
+  YOUR_MOVE:
+    1. Add any missing MSE elements. Each element must be present and visible.
+    2. Product image must be placed in the top 25% of the page showing main benefits.
+    3. Attributes section must list proprietary differentiators (Z-Frame construction, SafeTack reverse-load, SafeBump roof, SafeKick walls) where applicable to this model.
+    4. FAQ section must contain minimum 4 questions sourced from real customer inquiries — not AI-fabricated generic questions.
+    5. Reviews must be real verified customer content. Do not fabricate.
+    6. Body text stays under 500 words. MSE elements carry the page.
+  DONE_WHEN: All 6 MSE elements present on the page. Google Rich Results Test shows Product schema with no errors.
+  RECHECK: 14 days
+Priority: Critical
+Assigned: Brook (content) + Brad (schema) + Kalib (layout)
+Needs New Data: has_product_image, has_attributes_section, has_cta_button, has_reviews_section, has_faq_section, has_media_gallery — these boolean fields need to be added to the WordPress fetcher or crawl pipeline to detect presence of each MSE component in the page DOM.
+
+---
+
+OPQ-PRED-01 | Predicate-Entity Alignment Audit
+Trigger Source: page_crawl_snapshots
+Trigger Condition: page_type IN ('core', 'outer') AND is_noindex = FALSE AND word_count > 0
+Threshold: Any page where the H1 predicate does not match the page's search intent classification, OR where CTAs use predicates mismatched to the target page's intent.
+Crawl Parameter: page_type, h1, title_tag, word_count, cta_text, cta_target_url, search_intent_classification
+Diagnosis: Every page has a central entity and a main predicate. The predicate defines what the user wants to DO with the entity. Misaligned predicates confuse both crawlers and AI citation systems about the page's purpose. A product page using "learn" predicates signals informational intent, causing Google to rank it for research queries instead of purchase queries — and vice versa.
+Action Output:
+  CURRENT_STATE: Check the page's intent classification and verify predicate alignment:
+    - TRANSACTIONAL/PURCHASE pages must use predicates: "buy" "order" "customize" "design" "build" "configure" "request a quote"
+    - INFORMATIONAL PRODUCT pages must use predicates: "learn" "compare" "find" "explore" "discover"
+    - EDUCATIONAL/OUTER pages must use predicates: "understand" "how to" "what is" "guide"
+  YOUR_MOVE:
+    1. Identify the page's primary search intent (transactional, informational, or educational).
+    2. Check that the H1 contains the correct predicate for that intent type.
+    3. Check that the main predicate appears near each CTA on the page.
+    4. Check that CTA anchor text uses predicates matching the TARGET page's intent — not the source page's intent.
+       Example: A CTA saying "Learn More About SafeTack" must link to an informational page about SafeTack, NOT the SafeTack product/purchase page.
+       Example: A CTA saying "Order Your SafeTack Trailer" must link to a transactional/quote page, NOT a blog post.
+    5. Check that predicate synonyms throughout the body text match the page's intent classification.
+  DONE_WHEN: H1 contains intent-matched predicate. All CTAs use predicates matching their target page's intent. No cross-intent predicate mismatches.
+  RECHECK: 14 days
+Priority: High
+Assigned: Brook
+Needs New Data: search_intent_classification (transactional/informational/educational), cta_text, cta_target_url — these fields need to be extracted by the crawl pipeline. Intent classification can be derived from page_type + URL patterns + predicate detection in H1.
+
+---
+
+OPQ-HEAD-01 | Heading Contextual Flow and Macro-Micro Structure Audit
+Trigger Source: page_crawl_snapshots
+Trigger Condition: page_type IN ('core', 'outer') AND is_noindex = FALSE AND word_count > 0
+Threshold: Any page where headings do not follow macro→micro contextual flow, OR where the 75/25 content split is not observed, OR where H2s on informational pages are not in question format.
+Crawl Parameter: page_type, h1, h2s, h3s, word_count, heading_count, question_heading_count
+Diagnosis: Headings are the structural skeleton that both crawlers and AI systems read FIRST to determine page topic and content hierarchy. Per Jeanne's framework, headings must flow from macro context (75% of page — the primary topic) to micro/supplementary context (25% — supporting details at the bottom). AI systems like Google AI Overviews and Perplexity use heading structure to identify extractable answer passages. Pages with flat or random heading structure are deprioritized for citation.
+Action Output:
+  CURRENT_STATE: Audit the heading hierarchy:
+    - Do headings flow from macro context (primary topic) at the top to micro context (supplementary) at the bottom?
+    - Does the macro context section contain approximately 75% of the page content?
+    - Does the micro/supplementary context section contain approximately 25% at the bottom?
+    - On informational pages: are H2s phrased as questions mimicking real search queries?
+    - Do headings alone summarize the entire page content? (Can a bot understand the page from headings only?)
+  YOUR_MOVE:
+    1. Reorganize headings to follow macro→micro flow. Primary topic headings go first, supplementary/side-topic headings move to the bottom 25%.
+    2. On informational content, rewrite H2s as questions that match real human search queries.
+    3. Check each heading's target keyword search volume. Headings addressing zero-volume keywords should be:
+       - Demoted to micro context (bottom 25%) if the content has value
+       - Deleted if the content adds no topical relevance
+    4. Add a contextual bridge paragraph between macro and micro sections on informational core content.
+    5. Verify that reading only the H1, H2s, and H3s gives an accurate summary of the page's full content.
+  DONE_WHEN: Headings follow macro→micro flow. 75/25 content split observed. Informational H2s are question-format. Zero-volume heading keywords demoted or removed. Heading-only summary test passes.
+  RECHECK: 14 days
+Priority: High
+Assigned: Brook
+Needs New Data: heading_count, question_heading_count, heading_search_volumes — heading_count and question_heading_count can be derived from h2s array parsing. Search volumes require GSC or SEMrush data cross-reference per heading keyword.
+
+---
+
+OPQ-LSV-01 | Low Search Volume Content Merger and Topical Relevance Rewrite
+Trigger Source: page_crawl_snapshots + gsc_snapshots
+Trigger Condition: page_type = 'outer' AND is_noindex = FALSE AND word_count < 1000
+Threshold: Any outer page with total GSC impressions < 100 over 90 days, OR any page whose primary topic keyword has 0 monthly search volume. Also fires on pages whose macro context is off-topic relative to the site's central entity (horse trailers).
+Crawl Parameter: page_type, word_count, h1, title_tag, impressions, clicks, primary_keyword, keyword_volume
+Diagnosis: Pages covering low-search-volume or off-topic subjects waste crawl budget, dilute topical authority, and fragment ranking signals. Per Jeanne's framework, LSV content should be merged INTO high-search-volume pages as supplementary context sections (bottom 25%), not maintained as standalone pages. Off-topic pages (e.g., "Buckskin Horses: Why Are They Called Buckskins?") must be reframed with macro context directly relevant to custom horse trailers.
+Action Output:
+  CURRENT_STATE: Assess the page:
+    - What is the page's primary keyword and its monthly search volume?
+    - Total GSC impressions over 90 days?
+    - Is the macro context directly relevant to horse trailers / Double D Trailers?
+  YOUR_MOVE:
+    1. If keyword volume = 0 AND impressions < 100: Merge this page's content into the most relevant high-search-volume page as a section in the micro/supplementary context (bottom 25%). Set up 301 redirect from old URL to the merged page.
+    2. If the page has high impressions but off-topic macro context: Rewrite the macro context (75%) to be directly relevant to horse trailers while preserving the high-impression content in the micro section (25%).
+       Example: "Buckskin Horses: Why Are They Called Buckskins?" → reframe as "What is the Best Horse Trailer Type for Buckskin Horses?" — keep buckskin breed content in the bottom 25% as supplementary context.
+    3. Generate new H1, H2, H3 recommendations that maintain high impressions while adding horse trailer relevance.
+    4. After merging or rewriting, run a new on-page content quality assessment on the target page.
+    5. Ensure the merged/rewritten page meets the 1000-word minimum for outer pages.
+  DONE_WHEN: LSV page either merged (301 redirect in place) or rewritten with horse-trailer-relevant macro context. Target page passes OPQ-003 (1000+ words) and OPQ-004 (central entity present). New GSC assessment scheduled at 30 days.
+  RECHECK: 30 days
+Priority: Medium
+Assigned: Brook
+Needs New Data: primary_keyword, keyword_volume — require SEMrush or keyword research data integration. Can be partially derived from top GSC query per page.
+
+---
+
+OPQ-LAYOUT-01 | Transactional Page Layout Compliance (Sales Page Structure)
+Trigger Source: page_crawl_snapshots
+Trigger Condition: page_type = 'core' AND is_noindex = FALSE AND word_count > 0
+Threshold: Any core product page that does not follow the prescribed layout order: (1) hero image top 25%, (2) H1 with entity + predicate, (3) attributes section, (4) CTA/functionality, (5) reviews, (6) additional media, (7) FAQ section.
+Crawl Parameter: page_type, word_count, has_product_image, h1, has_attributes_section, has_cta_button, has_reviews_section, has_media_gallery, has_faq_section, dom_element_order
+Diagnosis: Per Jeanne's Transactional Page Layout framework (Section 12), the order of elements on a sales page directly affects both conversion rate and MSE detection by search engine DOM traversal algorithms. The hero image must be in the top 25% of the page (per Google Patent US 7,428,700 B2 — content near the vertical center receives highest weight). The H1 must combine the product entity name with a results-driven predicate. Elements out of order reduce MSE detection confidence and break the visual hierarchy that drives quote requests.
+Action Output:
+  YOUR_MOVE:
+    1. Top 25% of page: Compelling product image showing main benefits to users.
+    2. H1: Model name (entity) + results-driven adjective/predicate phrase. Example: "SafeTack 2 Horse Bumper Pull — Patented Reverse-Load Design"
+    3. Key attributes section: Unique differentiators (Z-Frame construction, SafeTack reverse-load, SafeBump roof, SafeKick walls, size, dimensions, custom options).
+    4. Functionality section: Buy/quote button, call CTA — using transactional predicates ("Order," "Request a Quote," "Build Your Trailer").
+    5. Reviews section: Real customer testimonials with AggregateRating schema.
+    6. Additional media: Photos, videos, 360-degree views.
+    7. FAQ section: Product-specific, long-tail queries from actual customers, Reddit, FB groups, and AI-anticipated questions. Minimum 4 questions.
+  DONE_WHEN: All 7 layout sections present in correct order. DOM element order matches prescribed sequence. Body text under 500 words. MSE elements visually prominent.
+  RECHECK: 14 days
+Priority: High
+Assigned: Brook (content) + Kalib (layout)
+Needs New Data: dom_element_order — requires enhanced crawl pipeline that records the sequential order of key DOM elements (image, h1, attributes, CTA, reviews, media, FAQ) on each page.
