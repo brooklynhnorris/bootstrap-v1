@@ -2635,8 +2635,77 @@
     async function requestFixRevision(taskId, url) {
         const task = window._taskCache && window._taskCache[taskId];
         const title = task ? task.title : 'Task #' + taskId;
-        const msg = 'The previous fix for "' + title + '" on ' + url + ' FAILED verification.\n\nSCOPE: ONLY fix the specific error that caused this task to fail. Do NOT generate a full strategy, new plays, or unrelated recommendations.\n\nGive me:\n1. What exactly went wrong (1-2 sentences)\n2. The corrected code or content — ready to paste\n3. Verification step — how to confirm the fix works\n\nKeep it under 200 words. Be surgical.';
-        sendMessage(msg);
+        const fullUrl = 'https://www.doubledtrailers.com' + url;
+
+        // Show loading indicator (don't show the prompt to user)
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'message assistant';
+        loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Generating revised fix for <strong>' + escapeHtml(url) + '</strong>…</div>';
+        loadingDiv.id = 'revision-loading';
+        messagesEl.appendChild(loadingDiv);
+        typingEl.style.display = 'block';
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+        sendEl.disabled = true;
+
+        // Fetch page data for context
+        let pageContext = '';
+        if (url) {
+            try {
+                const pageRes = await fetch('/api/page-data?url=' + encodeURIComponent(url));
+                const pageData = await pageRes.json();
+                if (pageData && pageData.url) {
+                    pageContext = '\nPage data: ' + pageData.word_count + ' words, schema_types: ' + (pageData.schema_types || 'none') + ', schema_errors: ' + (pageData.schema_errors || 'none');
+                }
+            } catch(e) {}
+        }
+
+        const prompt = 'The previous fix for "' + title + '" on ' + url + ' (full URL: ' + fullUrl + ') FAILED verification.' + pageContext +
+            '\n\nVERIFIED BRAND DATA (use these exact values — do NOT guess or modify):' +
+            '\n- Organization name: Double D Trailers' +
+            '\n- URL: https://www.doubledtrailers.com' +
+            '\n- Logo: https://www.doubledtrailers.com/wp-content/uploads/2023/10/Blog-Logo.jpg' +
+            '\n- Facebook: https://www.facebook.com/DoubleDHorseTrailers' +
+            '\n- Instagram: https://www.instagram.com/doubledtrailers' +
+            '\n- YouTube: https://www.youtube.com/doubledtrailers' +
+            '\n- LinkedIn: https://www.linkedin.com/company/double-d-horse-trailers' +
+            '\n- GBP: https://www.google.com/maps/place//data=!4m3!3m2!1s0x89a94a91f7ce6007:0x258a33898d33e04a!12e1?source=g.page.default' +
+            '\n- Founded: 1997 in Pink Hill, NC. HQ: Wilmington, NC' +
+            '\n\nIMPORTANT URL RULE: Never truncate URLs. The page URL is exactly: ' + url + ' — write it in full every time. The full URL is: ' + fullUrl +
+            '\n\nSCOPE: ONLY fix the specific error that caused this task to fail. Do NOT generate strategy, new plays, or unrelated recommendations.' +
+            '\n\nGive me:' +
+            '\n1. What exactly went wrong (1-2 sentences)' +
+            '\n2. The corrected code or content — complete, ready to paste. Use the VERIFIED BRAND DATA above for all URLs and values.' +
+            '\n3. After pasting, validate here: [Rich Results Test](https://search.google.com/test/rich-results?url=' + encodeURIComponent(fullUrl) + ')' +
+            '\n4. If the Rich Results Test shows any errors, paste them back into this chat and I will fix them.' +
+            '\n\nKeep it under 200 words. Be surgical.';
+
+        messages.push({ role: 'user', content: prompt });
+
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 90000);
+            const res = await fetch('/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ messages, conversation_id: conversationId }),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+            const data = await res.json();
+            const reply = data.response || data.error || 'No response.';
+            if (data.conversation_id) conversationId = data.conversation_id;
+            const loadEl = document.getElementById('revision-loading');
+            if (loadEl) loadEl.remove();
+            messages.push({ role: 'assistant', content: reply });
+            appendMessage('assistant', reply);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        } catch(e) {
+            const loadEl = document.getElementById('revision-loading');
+            if (loadEl) loadEl.remove();
+            appendMessage('assistant', 'Could not generate revised fix. Try again.');
+        }
+        typingEl.style.display = 'none';
+        sendEl.disabled = false;
     }
 
     async function requestBriefingForTask(taskId, title, description, priority) {
@@ -2680,7 +2749,23 @@
             } catch(e) { /* non-fatal */ }
         }
 
-        const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + (description || '') + '.' + pageContext + '\n\nINSTRUCTIONS: You have the full page data above. Give a sharp, specific briefing. If the task requires a content rewrite, WRITE THE COMPLETE REWRITE using the page body text — do NOT ask the user to paste content. If it requires schema changes, output the complete JSON-LD block. Be surgical. Address me as ' + USER_NAME + '. DO NOT create any new tasks or plays — only brief and execute on this specific one.';
+        const brandData = '\n\nVERIFIED BRAND DATA (use these exact values for schema/content — never guess):' +
+            '\n- Organization: Double D Trailers' +
+            '\n- URL: https://www.doubledtrailers.com' +
+            '\n- Logo: https://www.doubledtrailers.com/wp-content/uploads/2023/10/Blog-Logo.jpg' +
+            '\n- Facebook: https://www.facebook.com/DoubleDHorseTrailers' +
+            '\n- Instagram: https://www.instagram.com/doubledtrailers' +
+            '\n- YouTube: https://www.youtube.com/doubledtrailers' +
+            '\n- LinkedIn: https://www.linkedin.com/company/double-d-horse-trailers' +
+            '\n- Founded: 1997, Pink Hill NC. HQ: Wilmington, NC' +
+            '\n- Z-Frame: high-tensile zinc-infused construction (NOT aluminum)' +
+            '\n- SafeTack: patented reverse-load swing-out rear tack' +
+            '\n- SafeBump: single-piece molded fiber composite roof with Z-Frame tubing every 16"' +
+            '\n- SafeKick: recycled plastic/rubber wall panels';
+
+        const urlRule = targetUrl ? '\n\nIMPORTANT: The target page URL is exactly: ' + targetUrl + ' — write it in full every time. Never truncate URLs. Full URL: https://www.doubledtrailers.com' + targetUrl : '';
+
+        const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + (description || '') + '.' + pageContext + brandData + urlRule + '\n\nINSTRUCTIONS: You have the full page data above. Give a sharp, specific briefing. If the task requires a content rewrite, WRITE THE COMPLETE REWRITE using the page body text — do NOT ask the user to paste content. If it requires schema changes, output the complete JSON-LD block using the VERIFIED BRAND DATA above. After any schema output, include this validation link: [Validate in Rich Results Test](https://search.google.com/test/rich-results?url=' + encodeURIComponent('https://www.doubledtrailers.com' + (targetUrl || '')) + ') — tell the user to paste any errors back into this chat. Be surgical. Address me as ' + USER_NAME + '. DO NOT create any new tasks or plays — only brief and execute on this specific one.';
         messages.push({ role: 'user', content: prompt });
         // Don't show the raw prompt to the user — only show Logiri's response
 
