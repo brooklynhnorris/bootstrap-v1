@@ -816,6 +816,54 @@ class HomeController extends AbstractController
     }
 
     // ─────────────────────────────────────────────
+    //  PAGE DATA API (for chat context)
+    // ─────────────────────────────────────────────
+
+    #[Route('/api/page-data', name: 'api_page_data', methods: ['GET'])]
+    public function getPageData(Request $request): JsonResponse
+    {
+        $url = $request->query->get('url', '');
+        if (!$url) return new JsonResponse(['error' => 'url required'], 400);
+
+        try {
+            $page = $this->db->fetchAssociative(
+                "SELECT url, page_type, word_count, h1, title_tag, h2s, meta_description,
+                        has_central_entity, central_entity_count, internal_links, internal_link_count,
+                        has_core_link, core_links_found, h1_matches_title, schema_types,
+                        canonical_url, is_noindex, image_count, has_faq_section, has_product_image,
+                        schema_errors, body_text_snippet, first_sentence_text, last_modified_date
+                 FROM page_crawl_snapshots
+                 WHERE url = :url OR url LIKE :urlPattern
+                 ORDER BY crawled_at DESC LIMIT 1",
+                ['url' => $url, 'urlPattern' => '%' . ltrim($url, '/') . '%']
+            );
+
+            if (!$page) return new JsonResponse(['error' => 'Page not found in crawl data'], 404);
+
+            // Also fetch GSC data for this URL
+            try {
+                $gsc = $this->db->fetchAssociative(
+                    "SELECT SUM(impressions) as impressions, SUM(clicks) as clicks,
+                            AVG(position) as position, AVG(ctr) as ctr
+                     FROM gsc_snapshots
+                     WHERE page LIKE :url AND date_range = '28d'",
+                    ['url' => '%' . ltrim($url, '/')]
+                );
+                if ($gsc) {
+                    $page['gsc_impressions'] = (int) ($gsc['impressions'] ?? 0);
+                    $page['gsc_clicks'] = (int) ($gsc['clicks'] ?? 0);
+                    $page['gsc_position'] = round((float) ($gsc['position'] ?? 0), 1);
+                    $page['gsc_ctr'] = round((float) ($gsc['ctr'] ?? 0) * 100, 2);
+                }
+            } catch (\Exception $e) {}
+
+            return new JsonResponse($page);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    // ─────────────────────────────────────────────
     //  ACTIVITY LOG
     // ─────────────────────────────────────────────
 
@@ -1380,3 +1428,5 @@ class HomeController extends AbstractController
         return $intro;
     }
 }
+
+    

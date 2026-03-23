@@ -347,7 +347,7 @@ class CrawlPagesCommand extends Command
         };
 
         // Body text snippet — first 500 chars for keyword checking
-        $bodyTextSnippet = $bodyText ? $sanitizeUtf8(substr(trim($bodyText), 0, 500)) : null;
+        $bodyTextSnippet = $bodyText ? $sanitizeUtf8(substr(trim($bodyText), 0, 5000)) : null;
 
         // First sentence text — extract first sentence after removing leading whitespace
         $firstSentenceText = null;
