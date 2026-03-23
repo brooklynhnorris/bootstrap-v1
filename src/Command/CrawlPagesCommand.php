@@ -206,25 +206,82 @@ class CrawlPagesCommand extends Command
         }
 
         // ── Schema types — handles both top-level @type and @graph arrays (Yoast/RankMath) ──
+        // Also validates required fields per schema type
         $schemaNodes = $xpath->query('//*[@type="application/ld+json"]');
         $schemaTypes = [];
+        $schemaErrors = [];
         foreach ($schemaNodes as $node) {
             $json = json_decode($node->textContent, true);
-            if (!$json) continue;
-            // Top-level @type
+            if (!$json) {
+                $schemaErrors[] = 'Invalid JSON-LD: parse error';
+                continue;
+            }
+
+            // Collect all schema items (top-level and @graph)
+            $items = [];
             if (isset($json['@type'])) {
+                $items[] = $json;
                 $schemaTypes[] = is_array($json['@type']) ? implode(',', $json['@type']) : $json['@type'];
             }
-            // @graph array (Yoast SEO pattern)
             if (isset($json['@graph']) && is_array($json['@graph'])) {
                 foreach ($json['@graph'] as $item) {
                     if (isset($item['@type'])) {
+                        $items[] = $item;
                         $schemaTypes[] = is_array($item['@type']) ? implode(',', $item['@type']) : $item['@type'];
+                    }
+                }
+            }
+
+            // Validate required fields per schema type
+            foreach ($items as $item) {
+                $type = is_array($item['@type']) ? $item['@type'][0] : ($item['@type'] ?? '');
+
+                if ($type === 'Product') {
+                    if (empty($item['name'])) $schemaErrors[] = 'Product: missing "name"';
+                    if (empty($item['image'])) $schemaErrors[] = 'Product: missing "image"';
+                    if (empty($item['brand']['name'] ?? null) && empty($item['brand'] ?? null)) $schemaErrors[] = 'Product: missing "brand.name"';
+                    if (isset($item['image']) && is_string($item['image']) && !filter_var($item['image'], FILTER_VALIDATE_URL)) {
+                        $schemaErrors[] = 'Product: invalid URL in "image": ' . substr($item['image'], 0, 80);
+                    }
+                    if (isset($item['aggregateRating'])) {
+                        $ar = $item['aggregateRating'];
+                        if (empty($ar['ratingValue'])) $schemaErrors[] = 'Product: missing "aggregateRating.ratingValue"';
+                        if (empty($ar['ratingCount'] ?? null) && empty($ar['reviewCount'] ?? null)) {
+                            $schemaErrors[] = 'Product: missing "aggregateRating.ratingCount" or "reviewCount"';
+                        }
+                    }
+                }
+
+                if ($type === 'Organization') {
+                    if (empty($item['name'])) $schemaErrors[] = 'Organization: missing "name"';
+                    if (empty($item['url'])) $schemaErrors[] = 'Organization: missing "url"';
+                    if (isset($item['logo']) && is_string($item['logo']) && !filter_var($item['logo'], FILTER_VALIDATE_URL)) {
+                        $schemaErrors[] = 'Organization: invalid URL in "logo": ' . substr($item['logo'], 0, 80);
+                    }
+                    if (isset($item['sameAs']) && is_array($item['sameAs'])) {
+                        foreach ($item['sameAs'] as $sa) {
+                            if (!filter_var($sa, FILTER_VALIDATE_URL)) {
+                                $schemaErrors[] = 'Organization: invalid sameAs URL: ' . substr($sa, 0, 80);
+                            }
+                        }
+                    }
+                }
+
+                if ($type === 'LocalBusiness') {
+                    if (empty($item['name'])) $schemaErrors[] = 'LocalBusiness: missing "name"';
+                    if (empty($item['telephone'])) $schemaErrors[] = 'LocalBusiness: missing "telephone"';
+                    if (empty($item['address']['streetAddress'] ?? null)) $schemaErrors[] = 'LocalBusiness: missing "address.streetAddress"';
+                }
+
+                if ($type === 'FAQPage') {
+                    if (empty($item['mainEntity']) || !is_array($item['mainEntity'])) {
+                        $schemaErrors[] = 'FAQPage: missing or empty "mainEntity" array';
                     }
                 }
             }
         }
         $schemaTypes = array_values(array_unique($schemaTypes));
+        $schemaErrors = array_values(array_unique($schemaErrors));
 
         // ── ACCURATE word count — strip nav/header/footer/aside/scripts/styles first ──
         $wordCount = 0;
@@ -468,6 +525,7 @@ class CrawlPagesCommand extends Command
             'last_modified_date'   => $lastModifiedDate,
             'has_faq_section'      => $hasFaqSection ? 1 : 0,
             'has_product_image'    => $hasProductImage ? 1 : 0,
+            'schema_errors'        => !empty($schemaErrors) ? $sanitizeUtf8(json_encode($schemaErrors)) : null,
         ];
     }
 
@@ -627,6 +685,7 @@ class CrawlPagesCommand extends Command
                     last_modified_date      DATE DEFAULT NULL,
                     has_faq_section         BOOLEAN DEFAULT FALSE,
                     has_product_image       BOOLEAN DEFAULT FALSE,
+                    schema_errors           TEXT DEFAULT NULL,
                     crawled_at              TIMESTAMP NOT NULL
                 )
             ");
@@ -645,6 +704,7 @@ class CrawlPagesCommand extends Command
                 'last_modified_date'  => 'DATE DEFAULT NULL',
                 'has_faq_section'     => 'BOOLEAN DEFAULT FALSE',
                 'has_product_image'   => 'BOOLEAN DEFAULT FALSE',
+                'schema_errors'       => 'TEXT DEFAULT NULL',
             ];
             foreach ($newCols as $col => $def) {
                 try {
@@ -654,4 +714,3 @@ class CrawlPagesCommand extends Command
         }
     }
 }
-    

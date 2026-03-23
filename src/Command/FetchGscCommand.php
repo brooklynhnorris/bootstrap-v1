@@ -70,9 +70,28 @@ class FetchGscCommand extends Command
         // Ensure expanded table schema
         $this->ensureSchema();
 
-        // Clear old data
-        $this->db->executeStatement("DELETE FROM gsc_snapshots");
-        $output->writeln('Cleared old GSC data.');
+        // Preserve historical data — keep last 4 fetch batches for before/after comparison
+        // Tag each batch with a snapshot_id so we can compare across fetches
+        $snapshotId = date('Y-m-d_H-i');
+        try {
+            // Delete snapshots older than 4 batches to prevent unbounded growth
+            $batches = $this->db->fetchFirstColumn(
+                "SELECT DISTINCT snapshot_id FROM gsc_snapshots ORDER BY snapshot_id DESC"
+            );
+            if (count($batches) >= 4) {
+                $keepBatches = array_slice($batches, 0, 3); // keep 3 most recent + the new one = 4
+                $placeholders = implode(',', array_fill(0, count($keepBatches), '?'));
+                $this->db->executeStatement(
+                    "DELETE FROM gsc_snapshots WHERE snapshot_id NOT IN ({$placeholders})",
+                    $keepBatches
+                );
+                $output->writeln('Pruned old GSC snapshots (keeping last 4 batches).');
+            }
+        } catch (\Exception $e) {
+            // snapshot_id column may not exist yet on first run — fall back to clear all
+            $this->db->executeStatement("DELETE FROM gsc_snapshots");
+            $output->writeln('Cleared old GSC data (first run with history tracking).');
+        }
 
         $totalRows = 0;
 
@@ -89,6 +108,7 @@ class FetchGscCommand extends Command
                 'position'    => round($row['position'] ?? 0, 1),
                 'date_range'  => '28d',
                 'fetched_at'  => date('Y-m-d H:i:s'),
+                'snapshot_id' => $snapshotId,
             ]);
             $totalRows++;
         }
@@ -108,6 +128,7 @@ class FetchGscCommand extends Command
                 'position'    => round($row['position'] ?? 0, 1),
                 'date_range'  => '90d',
                 'fetched_at'  => date('Y-m-d H:i:s'),
+                'snapshot_id' => $snapshotId,
             ]);
             $count90++;
             $totalRows++;
@@ -128,6 +149,7 @@ class FetchGscCommand extends Command
                 'position'    => round($row['position'] ?? 0, 1),
                 'date_range'  => '28d_page',
                 'fetched_at'  => date('Y-m-d H:i:s'),
+                'snapshot_id' => $snapshotId,
             ]);
             $countPages++;
             $totalRows++;
@@ -148,6 +170,7 @@ class FetchGscCommand extends Command
                 'position'    => round($row['position'] ?? 0, 1),
                 'date_range'  => '28d_branded',
                 'fetched_at'  => date('Y-m-d H:i:s'),
+                'snapshot_id' => $snapshotId,
             ]);
             $countBranded++;
             $totalRows++;
@@ -326,12 +349,17 @@ class FetchGscCommand extends Command
 
     private function ensureSchema(): void
     {
-        // Add date_range column if missing
         $cols = $this->db->fetchFirstColumn(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'gsc_snapshots'"
         );
         if (!in_array('date_range', $cols)) {
             $this->db->executeStatement("ALTER TABLE gsc_snapshots ADD COLUMN date_range VARCHAR(20) DEFAULT '28d'");
         }
+        if (!in_array('snapshot_id', $cols)) {
+            $this->db->executeStatement("ALTER TABLE gsc_snapshots ADD COLUMN snapshot_id VARCHAR(20) DEFAULT NULL");
+            $this->db->executeStatement("CREATE INDEX IF NOT EXISTS idx_gsc_snapshot_id ON gsc_snapshots (snapshot_id)");
+        }
     }
 }
+
+    

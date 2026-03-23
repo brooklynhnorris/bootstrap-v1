@@ -735,6 +735,80 @@ class HomeController extends AbstractController
         ));
     }
 
+    #[Route('/api/tasks/{id}/feedback', name: 'api_task_feedback', methods: ['GET'])]
+    public function getTaskFeedback(int $id): JsonResponse
+    {
+        try {
+            $feedback = $this->db->fetchAllAssociative(
+                "SELECT * FROM rule_feedback WHERE task_id = :id ORDER BY created_at DESC LIMIT 5",
+                ['id' => $id]
+            );
+            $outcomes = $this->db->fetchAllAssociative(
+                "SELECT * FROM rule_outcomes WHERE review_id = :id ORDER BY verified_at DESC LIMIT 5",
+                ['id' => $id]
+            );
+            return new JsonResponse(['feedback' => $feedback, 'outcomes' => $outcomes]);
+        } catch (\Exception $e) {
+            return new JsonResponse(['feedback' => [], 'outcomes' => []]);
+        }
+    }
+
+    #[Route('/api/rule-proposals', name: 'api_rule_proposals', methods: ['GET'])]
+    public function listRuleProposals(): JsonResponse
+    {
+        try {
+            $proposals = $this->db->fetchAllAssociative(
+                "SELECT * FROM rule_change_proposals WHERE status = 'pending' ORDER BY created_at DESC LIMIT 20"
+            );
+            return new JsonResponse($proposals);
+        } catch (\Exception $e) {
+            return new JsonResponse([]);
+        }
+    }
+
+    #[Route('/api/rule-proposals/{id}/approve', name: 'api_rule_proposal_approve', methods: ['POST'])]
+    public function approveRuleProposal(int $id, Request $request): JsonResponse
+    {
+        try {
+            $body = json_decode($request->getContent(), true);
+            $approvedBy = $body['approved_by'] ?? 'Unknown';
+            $this->db->update('rule_change_proposals', [
+                'status'      => 'approved',
+                'approved_by' => $approvedBy,
+                'approved_at' => date('Y-m-d H:i:s'),
+            ], ['id' => $id]);
+
+            // Also mark related rule_feedback entries as approved
+            $proposal = $this->db->fetchAssociative('SELECT rule_id FROM rule_change_proposals WHERE id = ?', [$id]);
+            if ($proposal) {
+                $this->db->executeStatement(
+                    "UPDATE rule_feedback SET change_approved = TRUE, approved_by = :by, approved_at = NOW() WHERE rule_id = :rule AND change_approved IS NULL",
+                    ['by' => $approvedBy, 'rule' => $proposal['rule_id']]
+                );
+            }
+
+            return new JsonResponse(['status' => 'approved']);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    #[Route('/api/rule-proposals/{id}/reject', name: 'api_rule_proposal_reject', methods: ['POST'])]
+    public function rejectRuleProposal(int $id, Request $request): JsonResponse
+    {
+        try {
+            $body = json_decode($request->getContent(), true);
+            $this->db->update('rule_change_proposals', [
+                'status'      => 'rejected',
+                'approved_by' => $body['approved_by'] ?? 'Unknown',
+                'approved_at' => date('Y-m-d H:i:s'),
+            ], ['id' => $id]);
+            return new JsonResponse(['status' => 'rejected']);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
     // ─────────────────────────────────────────────
     //  ACTIVITY LOG
     // ─────────────────────────────────────────────
@@ -1204,3 +1278,5 @@ class HomeController extends AbstractController
         return $intro;
     }
 }
+
+    

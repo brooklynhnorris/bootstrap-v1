@@ -312,8 +312,14 @@ class VerifyOutcomesCommand extends Command
             // Normalise URL — GSC stores full URLs
             $urlPattern = '%' . ltrim($url, '/');
 
-            if ($period === 'before') {
-                // 28 days prior to fix date
+            // Try snapshot-based comparison first (most accurate)
+            $snapshots = $this->db->fetchFirstColumn(
+                "SELECT DISTINCT snapshot_id FROM gsc_snapshots WHERE snapshot_id IS NOT NULL ORDER BY snapshot_id DESC LIMIT 4"
+            );
+
+            if (count($snapshots) >= 2) {
+                // We have multiple snapshots — use newest as "after", oldest as "before"
+                $snapshotId = ($period === 'before') ? $snapshots[count($snapshots) - 1] : $snapshots[0];
                 $sql = "SELECT
                             AVG(position)    as avg_position,
                             SUM(clicks)      as total_clicks,
@@ -321,19 +327,36 @@ class VerifyOutcomesCommand extends Command
                             AVG(ctr) * 100   as avg_ctr_pct
                         FROM gsc_snapshots
                         WHERE page LIKE :url
-                        AND fetched_at < :fix_date
+                        AND snapshot_id = :snapshot
                         AND date_range = '28d'";
+
+                $row = $this->db->fetchAssociative($sql, ['url' => $urlPattern, 'snapshot' => $snapshotId]);
             } else {
-                // Most recent 28d data after fix
-                $sql = "SELECT
-                            AVG(position)    as avg_position,
-                            SUM(clicks)      as total_clicks,
-                            SUM(impressions) as total_impressions,
-                            AVG(ctr) * 100   as avg_ctr_pct
-                        FROM gsc_snapshots
-                        WHERE page LIKE :url
-                        AND fetched_at >= :fix_date
-                        AND date_range = '28d'";
+                // Fallback: use fetched_at date comparison
+                if ($period === 'before') {
+                    $sql = "SELECT
+                                AVG(position)    as avg_position,
+                                SUM(clicks)      as total_clicks,
+                                SUM(impressions) as total_impressions,
+                                AVG(ctr) * 100   as avg_ctr_pct
+                            FROM gsc_snapshots
+                            WHERE page LIKE :url
+                            AND fetched_at < :fix_date
+                            AND date_range = '28d'";
+                } else {
+                    $sql = "SELECT
+                                AVG(position)    as avg_position,
+                                SUM(clicks)      as total_clicks,
+                                SUM(impressions) as total_impressions,
+                                AVG(ctr) * 100   as avg_ctr_pct
+                            FROM gsc_snapshots
+                            WHERE page LIKE :url
+                            AND fetched_at >= :fix_date
+                            AND date_range = '28d'";
+                }
+
+                $row = $this->db->fetchAssociative($sql, ['url' => $urlPattern, 'fix_date' => $fixDate]);
+            }
             }
 
             $row = $this->db->fetchAssociative($sql, ['url' => $urlPattern, 'fix_date' => $fixDate]);
@@ -787,3 +810,4 @@ PROMPT;
         }
     }
 }
+    

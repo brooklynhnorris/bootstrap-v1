@@ -2177,7 +2177,78 @@
         const t = window._taskCache && window._taskCache[taskId];
         const desc = taskDesc || (t ? t.description : '');
         const prio = taskPriority || (t ? t.priority : '');
-        requestBriefingForTask(taskId, taskTitle, desc, prio);
+
+        // If task is done and verified, show feedback instead of briefing
+        if (t && t.status === 'done' && t.recheck_verified) {
+            loadTaskFeedback(taskId, t);
+        } else {
+            requestBriefingForTask(taskId, taskTitle, desc, prio);
+        }
+    }
+
+    async function loadTaskFeedback(taskId, task) {
+        const loadingDiv = document.createElement('div');
+        loadingDiv.className = 'message assistant';
+        loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Loading verification results…</div>';
+        messagesEl.appendChild(loadingDiv);
+
+        try {
+            const res = await fetch('/api/tasks/' + taskId + '/feedback');
+            const data = await res.json();
+            loadingDiv.remove();
+
+            const result = (task.recheck_result || '').toLowerCase();
+            const resultColor = result === 'pass' ? '#16a34a' : result === 'partial' ? '#ca8a04' : '#dc2626';
+            const resultIcon = result === 'pass' ? '&#10003;' : result === 'partial' ? '&#9888;' : '&#10007;';
+            const resultLabel = (result || 'unknown').toUpperCase();
+
+            // Show outcome header
+            const headerDiv = document.createElement('div');
+            headerDiv.className = 'message assistant';
+            headerDiv.innerHTML = '<div class="bubble" style="border-left:4px solid ' + resultColor + ';padding-left:12px;">' +
+                '<div style="font-size:16px;font-weight:600;color:' + resultColor + ';margin-bottom:8px;">' + resultIcon + ' Outcome: ' + resultLabel + '</div>' +
+                '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Task completed and verified against Google Search Console data.</div>' +
+                '</div>';
+            messagesEl.appendChild(headerDiv);
+
+            // Show GSC data from outcomes
+            if (data.outcomes && data.outcomes.length > 0) {
+                const o = data.outcomes[0];
+                const metricsDiv = document.createElement('div');
+                metricsDiv.className = 'message assistant';
+                metricsDiv.innerHTML = '<div class="bubble">' +
+                    '<div style="font-weight:600;margin-bottom:6px;">GSC Before → After:</div>' +
+                    '<div style="font-size:13px;font-family:monospace;">' +
+                    'Impressions: ' + (o.impressions_before||0) + ' → ' + (o.impressions_after||0) + '<br>' +
+                    'Clicks: ' + (o.clicks_before||0) + ' → ' + (o.clicks_after||0) + '<br>' +
+                    'Position: ' + (o.position_before||0) + ' → ' + (o.position_after||0) + '<br>' +
+                    'CTR: ' + (o.ctr_before||0) + '% → ' + (o.ctr_after||0) + '%' +
+                    '</div></div>';
+                messagesEl.appendChild(metricsDiv);
+            }
+
+            // Show learning feedback
+            if (data.feedback && data.feedback.length > 0) {
+                const f = data.feedback[0];
+                let feedbackHtml = '<div class="bubble">';
+                feedbackHtml += '<div style="font-weight:600;margin-bottom:6px;">Learning Feedback:</div>';
+                if (f.what_worked) feedbackHtml += '<div style="font-size:13px;margin-bottom:4px;"><strong>What worked:</strong> ' + escapeHtml(f.what_worked) + '</div>';
+                if (f.what_didnt_work && f.what_didnt_work !== 'N/A') feedbackHtml += '<div style="font-size:13px;margin-bottom:4px;"><strong>What didn\'t:</strong> ' + escapeHtml(f.what_didnt_work) + '</div>';
+                if (f.proposed_change) {
+                    feedbackHtml += '<div style="font-size:13px;margin-top:8px;padding:8px;background:var(--bg-tertiary);border-radius:6px;">' +
+                        '<strong>Proposed Rule Change (' + escapeHtml(f.change_type || '') + '):</strong><br>' + escapeHtml(f.proposed_change) + '</div>';
+                }
+                feedbackHtml += '</div>';
+                const feedbackDiv = document.createElement('div');
+                feedbackDiv.className = 'message assistant';
+                feedbackDiv.innerHTML = feedbackHtml;
+                messagesEl.appendChild(feedbackDiv);
+            }
+
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        } catch (e) {
+            loadingDiv.innerHTML = '<div class="bubble">Could not load verification results.</div>';
+        }
     }
 
     async function requestBriefingForTask(taskId, title, description, priority) {
@@ -2327,6 +2398,28 @@
         const hours  = task.estimated_hours || '?';
         const url    = extractUrl(task.title || '');
 
+        // Verification badge
+        let verifyBadge = '';
+        if (isDone && task.recheck_verified) {
+            const result = (task.recheck_result || '').toLowerCase();
+            if (result === 'pass') {
+                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#16a34a;background:#f0fdf4;padding:2px 8px;border-radius:4px;margin-top:6px;">&#10003; PASS — Fix verified</div>';
+            } else if (result === 'partial') {
+                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#ca8a04;background:#fefce8;padding:2px 8px;border-radius:4px;margin-top:6px;">&#9888; PARTIAL — Needs iteration</div>';
+            } else if (result === 'fail') {
+                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#dc2626;background:#fef2f2;padding:2px 8px;border-radius:4px;margin-top:6px;">&#10007; FAIL — Re-evaluate</div>';
+            }
+        } else if (isDone && task.recheck_date) {
+            const recheckDate = new Date(task.recheck_date);
+            const now = new Date();
+            if (recheckDate > now) {
+                const daysLeft = Math.ceil((recheckDate - now) / 86400000);
+                verifyBadge = '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">&#8987; Recheck in ' + daysLeft + ' day' + (daysLeft !== 1 ? 's' : '') + '</div>';
+            } else {
+                verifyBadge = '<div style="font-size:11px;color:#ca8a04;margin-top:6px;">&#9200; Recheck pending</div>';
+            }
+        }
+
         card.innerHTML =
             '<div class="board-card-top">' +
                 '<div class="board-card-hours">' + hours + 'h</div>' +
@@ -2334,6 +2427,7 @@
             '</div>' +
             '<div class="board-card-title">' + escapeHtml(task.title || '') + '</div>' +
             (url ? '<div class="board-card-url">' + escapeHtml(url) + '</div>' : '') +
+            verifyBadge +
             (!isDone ? '<button class="board-card-run" data-id="' + task.id + '" data-title="' + (task.title||'').replace(/"/g,'\'') + '" onclick="event.stopPropagation();runPlay(this)">\u25b6 Run this Play</button>' : '<div class="board-card-done-badge">\u2713 Complete</div>');
 
         if (!isDone) {
