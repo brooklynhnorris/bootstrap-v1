@@ -122,9 +122,43 @@ class VerifyOutcomesCommand extends Command
                 continue;
             }
 
+            // Check schema errors for schema-related rules
+            $schemaErrors = [];
+            $schemaCheck = '';
+            if (str_starts_with($ruleId, 'DDT-SD') || str_starts_with($ruleId, 'TECH-R2') || str_contains(strtolower($review['title'] ?? ''), 'schema')) {
+                try {
+                    $crawlData = $this->db->fetchAssociative(
+                        "SELECT schema_errors, schema_types FROM page_crawl_snapshots WHERE url = :url OR url LIKE :urlPattern LIMIT 1",
+                        ['url' => $url, 'urlPattern' => '%' . ltrim($url, '/')]
+                    );
+                    if ($crawlData && !empty($crawlData['schema_errors'])) {
+                        $parsed = json_decode($crawlData['schema_errors'], true);
+                        if (is_array($parsed) && !empty($parsed)) {
+                            $schemaErrors = $parsed;
+                        }
+                    }
+                } catch (\Exception $e) {}
+
+                if (!empty($schemaErrors)) {
+                    $schemaCheck = "\n   ⚠ SCHEMA ERRORS DETECTED ON THIS PAGE:\n";
+                    foreach ($schemaErrors as $err) {
+                        $schemaCheck .= "     - {$err}\n";
+                    }
+                    $schemaCheck .= "   Schema errors override GSC metrics — marking as FAIL.\n";
+                }
+            }
+
             // Calculate changes
             $changes  = $this->calculateChanges($before, $after);
             $verdict  = $this->determineVerdict($ruleId, $changes);
+
+            // Override verdict to FAIL if schema errors exist on a schema-related task
+            if (!empty($schemaErrors)) {
+                $verdict['status'] = 'FAIL';
+                $verdict['reason'] = 'Schema validation failed: ' . implode('; ', array_slice($schemaErrors, 0, 3));
+                $verdict['next_action'] = 'Fix the schema errors listed above. Validate with Google Rich Results Test before marking complete. Errors: ' . implode(', ', $schemaErrors);
+            }
+
             $icon     = match($verdict['status']) {
                 'PASS'    => '[PASS]',
                 'PARTIAL' => '[PARTIAL]',
@@ -133,6 +167,7 @@ class VerifyOutcomesCommand extends Command
 
             $output->writeln("   {$icon} Outcome: {$verdict['status']}");
             $output->writeln("   " . $verdict['reason']);
+            if ($schemaCheck) $output->writeln($schemaCheck);
             $output->writeln('');
             $output->writeln('   GSC Before → After:');
 
@@ -147,6 +182,8 @@ class VerifyOutcomesCommand extends Command
 
             // ── LEARNING LOOP: LLM reviews the outcome and proposes next steps ──
             $assignee = $review['assigned_to'] ?? 'Team';
+            // Attach schema errors to review so LLM can see them
+            $review['schema_errors'] = $schemaErrors;
             $feedback = $this->generateLearningFeedback($review, $changes, $verdict, $output);
 
             if ($feedback) {
@@ -706,6 +743,17 @@ class VerifyOutcomesCommand extends Command
             $gscSummary .= "  {$metric}: {$c['before']} → {$c['after']} ({$dir}{$c['delta_pct']}%)\n";
         }
 
+        // Schema errors context
+        $schemaContext = '';
+        $reviewSchemaErrors = $review['schema_errors'] ?? [];
+        if (!empty($reviewSchemaErrors)) {
+            $schemaContext = "\nSCHEMA VALIDATION ERRORS FOUND ON THIS PAGE:\n";
+            foreach ($reviewSchemaErrors as $err) {
+                $schemaContext .= "- {$err}\n";
+            }
+            $schemaContext .= "These errors were detected by Logiri's crawl-time JSON-LD validator. Google Search Console has also flagged similar issues.\n";
+        }
+
         $prompt = <<<PROMPT
 You are the Logiri SEO learning engine for Double D Trailers (doubledtrailers.com).
 
@@ -720,6 +768,7 @@ COMPLETED BY: {$assignee}
 
 GSC BEFORE → AFTER (28-day window):
 {$gscSummary}
+{$schemaContext}
 
 Based on this outcome, respond with EXACTLY this JSON structure (no markdown, no backticks):
 {
@@ -807,4 +856,3 @@ PROMPT;
         }
     }
 }
-    
