@@ -327,6 +327,32 @@ class HomeController extends AbstractController
 
         $text = $data['content'][0]['text'] ?? 'No response from Claude.';
 
+        // ── NLP ENTITY VALIDATION ──
+        // If the response contains a rewrite (detected by common patterns),
+        // run a second Claude call to validate entity-predicate alignment
+        $lastUserMsg = '';
+        foreach (array_reverse($messages) as $m) {
+            if ($m['role'] === 'user') { $lastUserMsg = $m['content']; break; }
+        }
+        $isRewriteContext = str_contains($lastUserMsg, 'FULL PAGE BODY TEXT') || str_contains($lastUserMsg, 'content rewrite') || str_contains($lastUserMsg, 'WRITE THE COMPLETE REWRITE');
+
+        if ($isRewriteContext && strlen($text) > 200) {
+            $nlpResult = $this->validateEntityAlignment($text, $lastUserMsg, $claudeKey);
+            if ($nlpResult && !empty($nlpResult['issues'])) {
+                // Append NLP validation results to the response
+                $text .= "\n\n---\n\n**🔬 NLP Entity Validation:**\n";
+                foreach ($nlpResult['issues'] as $issue) {
+                    $text .= "- {$issue}\n";
+                }
+                if (!empty($nlpResult['revised_first_sentence'])) {
+                    $text .= "\n**Suggested first sentence revision:**\n> " . $nlpResult['revised_first_sentence'] . "\n";
+                }
+                $text .= "\n*Entity: " . ($nlpResult['detected_entity'] ?? 'unknown') . " | Matches H1: " . ($nlpResult['matches_h1'] ? 'Yes' : 'No') . " | Subject position: " . ($nlpResult['subject_position'] ?? 'unknown') . "*";
+            } elseif ($nlpResult && empty($nlpResult['issues'])) {
+                $text .= "\n\n---\n✅ **NLP Validated** — Primary entity: *" . ($nlpResult['detected_entity'] ?? 'unknown') . "* | H1 match: Yes | Subject position: correct";
+            }
+        }
+
         // ── Auto-create tasks ──
         $tasksCreated = [];
         if (preg_match('/<!-- TASKS_JSON -->\s*(.*?)\s*<!-- \/TASKS_JSON -->/s', $text, $matches)) {
@@ -804,11 +830,40 @@ class HomeController extends AbstractController
     {
         try {
             $body = json_decode($request->getContent(), true);
+            $feedback = $body['feedback'] ?? null;
             $this->db->update('rule_change_proposals', [
                 'status'      => 'rejected',
                 'approved_by' => $body['approved_by'] ?? 'Unknown',
                 'approved_at' => date('Y-m-d H:i:s'),
             ], ['id' => $id]);
+
+            // Store rejection feedback for the learning loop
+            if ($feedback) {
+                $proposal = $this->db->fetchAssociative('SELECT rule_id FROM rule_change_proposals WHERE id = ?', [$id]);
+                if ($proposal) {
+                    $this->logActivity(
+                        $body['approved_by'] ?? 'Unknown',
+                        'rejected_rule_change',
+                        'rule',
+                        $id,
+                        $proposal['rule_id'],
+                        'Rejection reason: ' . $feedback
+                    );
+                    // Store feedback in rule_feedback table so next evaluation sees it
+                    try {
+                        $this->db->insert('rule_feedback', [
+                            'rule_id'        => $proposal['rule_id'],
+                            'outcome_status' => 'REJECTED',
+                            'what_worked'    => 'N/A',
+                            'what_didnt_work' => 'Rule change proposal rejected by user: ' . $feedback,
+                            'proposed_change' => null,
+                            'change_type'    => 'none',
+                            'created_at'     => date('Y-m-d H:i:s'),
+                        ]);
+                    } catch (\Exception $e) {}
+                }
+            }
+
             return new JsonResponse(['status' => 'rejected']);
         } catch (\Exception $e) {
             return new JsonResponse(['error' => $e->getMessage()], 500);
@@ -1087,6 +1142,105 @@ class HomeController extends AbstractController
                  ORDER BY created_at DESC LIMIT 5"
             );
         } catch (\Exception $e) { return []; }
+    }
+
+    // ─────────────────────────────────────────────
+    //  NLP ENTITY VALIDATION
+    //  Validates first-sentence entity alignment using Claude
+    // ─────────────────────────────────────────────
+
+    private function validateEntityAlignment(string $rewriteText, string $userContext, string $claudeKey): ?array
+    {
+        if (!$claudeKey) return null;
+
+        // Extract H1 from user context
+        $h1 = '';
+        if (preg_match('/H1:\s*(.+?)(?:\n|$)/', $userContext, $m)) {
+            $h1 = trim($m[1]);
+        }
+
+        // Extract first 3 sentences of the rewrite (skip markdown headers)
+        $lines = explode("\n", $rewriteText);
+        $firstSentences = '';
+        $sentenceCount = 0;
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if (!$line || str_starts_with($line, '#') || str_starts_with($line, '**') || str_starts_with($line, '---') || str_starts_with($line, '```')) continue;
+            // Skip lines that look like metadata
+            if (str_starts_with($line, 'Current') || str_starts_with($line, 'Done when') || str_starts_with($line, 'Word count') || str_starts_with($line, 'URL:')) continue;
+            $firstSentences .= $line . ' ';
+            $sentenceCount++;
+            if ($sentenceCount >= 3) break;
+        }
+
+        if (strlen($firstSentences) < 30) return null;
+
+        $prompt = <<<PROMPT
+You are an NLP entity validator for SEO content. Analyze the following text and determine if the first sentence has correct entity-predicate alignment for search engines.
+
+H1 OF THE PAGE: {$h1}
+
+FIRST SENTENCES OF THE REWRITE:
+{$firstSentences}
+
+ANALYSIS RULES:
+1. The primary entity of the first sentence should match the H1's central topic (NOT always the brand name)
+2. If H1 is about "Gooseneck Horse Trailers" → the first sentence's primary subject should be about gooseneck horse trailers
+3. If H1 is about "SafeTack Reverse Load" → the first sentence's primary subject should be SafeTack
+4. Brand name "Double D Trailers" should appear in the first 100 words but does NOT need to be the grammatical subject
+5. The grammatical subject of the first sentence determines what Google NLP identifies as the primary entity
+6. Passive voice buries the intended entity — "Horse trailers are built by Double D" → entity = horse trailers; "Double D Trailers builds horse trailers" → entity = Double D Trailers
+
+Respond with EXACTLY this JSON (no markdown, no backticks):
+{
+  "detected_entity": "The primary entity/subject of the first sentence",
+  "expected_entity": "What the primary entity SHOULD be based on the H1",
+  "matches_h1": true or false,
+  "subject_position": "correct" or "buried" or "missing",
+  "brand_present_in_100_words": true or false,
+  "issues": ["List of specific issues found, or empty array if none"],
+  "revised_first_sentence": "If issues exist, provide a corrected first sentence. If no issues, null"
+}
+PROMPT;
+
+        try {
+            $ch = curl_init('https://api.anthropic.com/v1/messages');
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => json_encode([
+                    'model'      => 'claude-sonnet-4-6',
+                    'max_tokens' => 500,
+                    'messages'   => [['role' => 'user', 'content' => $prompt]],
+                ]),
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'x-api-key: ' . $claudeKey,
+                    'anthropic-version: 2023-06-01',
+                ],
+                CURLOPT_TIMEOUT => 30,
+            ]);
+
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode !== 200 || !$response) return null;
+
+            $data = json_decode($response, true);
+            $text = $data['content'][0]['text'] ?? '';
+
+            // Strip markdown fences
+            $text = preg_replace('/^```json\s*/', '', $text);
+            $text = preg_replace('/\s*```$/', '', $text);
+
+            $parsed = json_decode($text, true);
+            if (!$parsed || !isset($parsed['detected_entity'])) return null;
+
+            return $parsed;
+        } catch (\Exception $e) {
+            return null;
+        }
     }
 
     // ─────────────────────────────────────────────
@@ -1428,5 +1582,4 @@ class HomeController extends AbstractController
         return $intro;
     }
 }
-
     

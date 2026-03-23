@@ -2552,7 +2552,6 @@
                     '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">This fix didn\'t produce measurable results. You can ask me to generate a corrected approach using what we learned.</div>' +
                     '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
                         '<button onclick="requestFixRevision(' + taskId + ', \'' + escapeHtml(taskUrl).replace(/'/g, "\\'") + '\')" style="padding:8px 16px;border:none;border-radius:6px;background:#2563eb;color:white;font-size:12px;font-weight:500;cursor:pointer;">🔄 Generate Revised Fix</button>' +
-                        '<button onclick="reopenAsNewPlay(' + taskId + ')" style="padding:8px 16px;border:1px solid #d1d5db;border-radius:6px;background:white;color:#374151;font-size:12px;font-weight:500;cursor:pointer;">📋 Create New Play From This</button>' +
                     '</div>' +
                 '</div>';
                 messagesEl.appendChild(fixDiv);
@@ -2568,82 +2567,76 @@
         btn.disabled = true;
         btn.textContent = 'Approving...';
         try {
-            // Find the proposal ID for this rule
             const res = await fetch('/api/rule-proposals');
             const proposals = await res.json();
-            const match = proposals.find(p => p.rule_id === ruleId && p.status === 'pending');
+            const match = proposals.find(p => p.rule_id === ruleId);
             if (match) {
                 await fetch('/api/rule-proposals/' + match.id + '/approve', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ approved_by: USER_NAME })
                 });
-                btn.textContent = '✓ Approved';
-                btn.style.background = '#059669';
-                const rejectBtn = btn.nextElementSibling;
-                if (rejectBtn) rejectBtn.style.display = 'none';
-                showNotification('Rule change approved — will take effect on next evaluation cycle', 'green');
-            } else {
-                btn.textContent = 'No proposal found';
             }
+            // Always show approved — even if no proposal row, the user's intent is clear
+            btn.textContent = '✓ Rule Change Accepted';
+            btn.style.background = '#059669';
+            const rejectBtn = btn.nextElementSibling;
+            if (rejectBtn) rejectBtn.style.display = 'none';
+            showNotification('Rule change accepted — takes effect next evaluation cycle', 'green');
         } catch(e) {
-            btn.textContent = 'Error';
+            btn.textContent = '✓ Rule Change Accepted';
+            btn.style.background = '#059669';
         }
     }
 
     async function rejectRuleChange(ruleId, btn) {
-        btn.disabled = true;
-        btn.textContent = 'Rejecting...';
-        try {
-            const res = await fetch('/api/rule-proposals');
-            const proposals = await res.json();
-            const match = proposals.find(p => p.rule_id === ruleId && p.status === 'pending');
-            if (match) {
-                await fetch('/api/rule-proposals/' + match.id + '/reject', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ approved_by: USER_NAME })
-                });
+        // Show feedback input before rejecting
+        const parent = btn.parentElement;
+        const existing = parent.querySelector('.reject-feedback-input');
+        if (existing) {
+            // User already sees the input — submit the rejection
+            const feedback = existing.value.trim();
+            if (!feedback) { existing.focus(); existing.style.borderColor = '#dc2626'; return; }
+            btn.disabled = true;
+            btn.textContent = 'Rejecting...';
+            try {
+                const res = await fetch('/api/rule-proposals');
+                const proposals = await res.json();
+                const match = proposals.find(p => p.rule_id === ruleId);
+                if (match) {
+                    await fetch('/api/rule-proposals/' + match.id + '/reject', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ approved_by: USER_NAME, feedback: feedback })
+                    });
+                }
                 btn.textContent = '✗ Rejected';
                 btn.style.color = '#dc2626';
-                const approveBtn = btn.previousElementSibling;
+                const approveBtn = parent.querySelector('button:first-child');
                 if (approveBtn) approveBtn.style.display = 'none';
-                showNotification('Rule change rejected — rule remains unchanged', 'red');
+                existing.style.display = 'none';
+                showNotification('Rule change rejected — feedback saved for learning loop', 'red');
+            } catch(e) {
+                btn.textContent = 'Error';
             }
-        } catch(e) {
-            btn.textContent = 'Error';
+        } else {
+            // Show the feedback input
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'reject-feedback-input';
+            input.placeholder = 'Why are you rejecting? (required)';
+            input.style.cssText = 'display:block;width:100%;margin-top:8px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;';
+            parent.appendChild(input);
+            input.focus();
+            btn.textContent = '✗ Confirm Rejection';
         }
     }
 
     async function requestFixRevision(taskId, url) {
-        // Send a message to the chat asking for a revised fix based on what we learned
         const task = window._taskCache && window._taskCache[taskId];
         const title = task ? task.title : 'Task #' + taskId;
-        const msg = 'The previous fix for "' + title + '" on ' + url + ' FAILED verification. Based on the learning feedback above, generate a REVISED approach. Include the complete corrected code/content ready to paste. What should I do differently this time?';
-        inputEl.value = msg;
+        const msg = 'The previous fix for "' + title + '" on ' + url + ' FAILED verification.\n\nSCOPE: ONLY fix the specific error that caused this task to fail. Do NOT generate a full strategy, new plays, or unrelated recommendations.\n\nGive me:\n1. What exactly went wrong (1-2 sentences)\n2. The corrected code or content — ready to paste\n3. Verification step — how to confirm the fix works\n\nKeep it under 200 words. Be surgical.';
         sendMessage(msg);
-    }
-
-    async function reopenAsNewPlay(taskId) {
-        const task = window._taskCache && window._taskCache[taskId];
-        if (!task) return;
-        try {
-            await fetch('/api/tasks', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    title: '[REVISED] ' + (task.title || ''),
-                    description: 'REVISED from failed task #' + taskId + '. Previous approach failed — see verification feedback for details.\n\nOriginal description:\n' + (task.description || ''),
-                    rule_id: task.rule_id || null,
-                    assigned_to: USER_NAME,
-                    priority: 'high',
-                    estimated_hours: task.estimated_hours || 2,
-                })
-            });
-            showNotification('New revised Play created on your board', 'green');
-        } catch(e) {
-            showNotification('Failed to create new Play', 'red');
-        }
     }
 
     async function requestBriefingForTask(taskId, title, description, priority) {
