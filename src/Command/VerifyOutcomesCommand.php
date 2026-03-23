@@ -73,6 +73,18 @@ class VerifyOutcomesCommand extends Command
         $output->writeln('+==========================================+');
         $output->writeln('');
 
+        // Auto-fetch fresh GSC data before verifying
+        $output->writeln('Fetching fresh GSC data before verification...');
+        try {
+            $fetchCmd = $this->getApplication()->find('app:fetch-gsc');
+            $fetchCmd->run(new \Symfony\Component\Console\Input\ArrayInput([]), $output);
+            $output->writeln('  GSC data refreshed.');
+        } catch (\Exception $e) {
+            $output->writeln('  [WARN] GSC fetch failed: ' . substr($e->getMessage(), 0, 100));
+            $output->writeln('  Proceeding with existing data.');
+        }
+        $output->writeln('');
+
         // Pull accepted rule_reviews older than $minDays
         $reviews = $this->getReviewsReadyForVerification($minDays, $ruleFilter, $force);
 
@@ -775,4 +787,3 @@ PROMPT;
         }
     }
 }
-    
