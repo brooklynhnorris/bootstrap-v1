@@ -1271,6 +1271,15 @@
         </div>
     </div>
 
+    <!-- RESULTS VIEW -->
+    <div id="results-view" style="display:none;">
+        <div style="padding:24px 32px;max-width:1100px;margin:0 auto;">
+            <div id="results-content">
+                <div class="dash-empty">Loading verification results…</div>
+            </div>
+        </div>
+    </div>
+
     <!-- CHAT VIEW -->
     <div id="chat-view">
         <div id="messages"></div>
@@ -1748,7 +1757,7 @@
             }
             messages.push({ role: 'assistant', content: reply });
             appendMessage('assistant', reply);
-            messagesEl.scrollTop = 0;
+            messagesEl.scrollTop = messagesEl.scrollHeight;
             if (data.tasks_created && data.tasks_created.length > 0) {
                 await refreshTasksPanel();
                 injectPlayButtons(data.tasks_created);
@@ -2890,6 +2899,8 @@
         dashEl.classList.remove('active');
         boardEl.style.display = 'none';
         chatEl.style.display  = 'none';
+        const resultsEl = document.getElementById('results-view');
+        if (resultsEl) resultsEl.style.display = 'none';
         if (filters) filters.style.display = 'none';
         if (backBtn) backBtn.style.display = 'none';
 
@@ -2907,15 +2918,9 @@
             document.getElementById('board-title').textContent = USER_NAME + "'s Playbook";
             refreshBoard();
         } else if (view === 'results') {
-            dashEl.style.display = 'block';
-            dashEl.classList.add('active');
+            document.getElementById('results-view').style.display = 'block';
             document.getElementById('board-title').textContent = 'Verification Results';
-            loadDashboardData();
-            // Scroll to results section
-            setTimeout(() => {
-                const resultsTitle = document.querySelector('#dashboard-view .dash-section-title:nth-of-type(2)');
-                if (resultsTitle) resultsTitle.scrollIntoView({ behavior: 'smooth' });
-            }, 100);
+            loadResultsView();
         } else if (view === 'rules') {
             dashEl.style.display = 'block';
             dashEl.classList.add('active');
@@ -2930,6 +2935,101 @@
 
     // ── Dashboard data loading ──────────────────────────
     let dashboardLoaded = false;
+
+    async function loadResultsView() {
+        const container = document.getElementById('results-content');
+        container.innerHTML = '<div class="dash-empty">Loading…</div>';
+
+        try {
+            const res = await fetch('/api/tasks?status=done');
+            const doneTasks = await res.json();
+            const verified = doneTasks.filter(t => t.recheck_verified);
+            const passes = verified.filter(t => (t.recheck_result||'').toLowerCase() === 'pass');
+            const fails = verified.filter(t => (t.recheck_result||'').toLowerCase() === 'fail');
+            const partials = verified.filter(t => (t.recheck_result||'').toLowerCase() === 'partial');
+            const pending = doneTasks.filter(t => t.recheck_date && !t.recheck_verified);
+
+            let html = '';
+
+            // Stats row
+            html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px;">';
+            html += '<div class="stat-card green"><div class="stat-label">Passed</div><div class="stat-value">' + passes.length + '</div></div>';
+            html += '<div class="stat-card red"><div class="stat-label">Failed</div><div class="stat-value">' + fails.length + '</div></div>';
+            html += '<div class="stat-card yellow"><div class="stat-label">Partial</div><div class="stat-value">' + partials.length + '</div></div>';
+            html += '<div class="stat-card blue"><div class="stat-label">Awaiting Recheck</div><div class="stat-value">' + pending.length + '</div></div>';
+            html += '</div>';
+
+            // Fails first (need attention)
+            if (fails.length > 0) {
+                html += '<div class="dash-section-title" style="color:#dc2626;">Failed — Needs Revision <span class="dash-badge">' + fails.length + '</span></div>';
+                html += '<div class="results-grid">';
+                fails.forEach(t => {
+                    html += buildResultCard(t, 'fail');
+                });
+                html += '</div>';
+            }
+
+            // Passes
+            if (passes.length > 0) {
+                html += '<div class="dash-section-title" style="color:#16a34a;margin-top:24px;">Passed — Verified Wins <span class="dash-badge">' + passes.length + '</span></div>';
+                html += '<div class="results-grid">';
+                passes.forEach(t => {
+                    html += buildResultCard(t, 'pass');
+                });
+                html += '</div>';
+            }
+
+            // Partials
+            if (partials.length > 0) {
+                html += '<div class="dash-section-title" style="color:#ca8a04;margin-top:24px;">Partial — Needs Iteration <span class="dash-badge">' + partials.length + '</span></div>';
+                html += '<div class="results-grid">';
+                partials.forEach(t => {
+                    html += buildResultCard(t, 'partial');
+                });
+                html += '</div>';
+            }
+
+            // Pending
+            if (pending.length > 0) {
+                html += '<div class="dash-section-title" style="margin-top:24px;">Awaiting Recheck <span class="dash-badge">' + pending.length + '</span></div>';
+                html += '<div class="results-grid">';
+                pending.forEach(t => {
+                    const recheckDate = t.recheck_date ? new Date(t.recheck_date).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '';
+                    const daysLeft = t.recheck_date ? Math.ceil((new Date(t.recheck_date) - new Date()) / 86400000) : 0;
+                    html += '<div class="result-card" style="cursor:pointer;" onclick="showChatForTask(' + t.id + ', \'' + (t.title||'').replace(/'/g, "\\'") + '\', \'\', \'\')">' +
+                        '<div class="result-icon" style="background:#eff4ff;color:#2563eb;">⏳</div>' +
+                        '<div class="result-content">' +
+                            '<div class="result-title">' + escapeHtml(t.title || '') + '</div>' +
+                            '<div class="result-detail">Completed — recheck ' + (daysLeft > 0 ? 'in ' + daysLeft + ' days' : 'pending') + '</div>' +
+                            '<div class="result-metric">Recheck: ' + recheckDate + '</div>' +
+                        '</div>' +
+                    '</div>';
+                });
+                html += '</div>';
+            }
+
+            if (verified.length === 0 && pending.length === 0) {
+                html = '<div class="dash-empty">No completed tasks yet. Finish plays and they\'ll appear here after verification.</div>';
+            }
+
+            container.innerHTML = html;
+        } catch(e) {
+            container.innerHTML = '<div class="dash-empty">Could not load results.</div>';
+        }
+    }
+
+    function buildResultCard(task, resultType) {
+        const icon = resultType === 'pass' ? '✓' : resultType === 'partial' ? '⚠' : '✗';
+        const checkedDate = task.recheck_date ? new Date(task.recheck_date).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '';
+        return '<div class="result-card" style="cursor:pointer;" onclick="showChatForTask(' + task.id + ', \'' + (task.title||'').replace(/'/g, "\\'") + '\', \'\', \'\')">' +
+            '<div class="result-icon ' + resultType + '">' + icon + '</div>' +
+            '<div class="result-content">' +
+                '<div class="result-title">' + escapeHtml(task.title || '') + '</div>' +
+                '<div class="result-detail">' + (resultType === 'pass' ? 'Fix verified — GSC metrics confirmed.' : resultType === 'partial' ? 'Partial improvement. May need another pass.' : 'No measurable improvement. Click to see learning feedback and revised approach.') + '</div>' +
+                '<div class="result-metric">' + resultType.toUpperCase() + ' · Checked ' + checkedDate + '</div>' +
+            '</div>' +
+        '</div>';
+    }
 
     async function loadDashboardData() {
         try {
