@@ -437,28 +437,9 @@ class HomeController extends AbstractController
         // Re-run the same fix to catch URLs inside code blocks and JSON
         $text = preg_replace('/doubledtrailers\.com([a-z])/', 'doubledtrailers.com/$1', $text);
 
-        // ── Fix truncated/mangled words in LLM output ──
-        // Common patterns where tokenizer splits words incorrectly
-        $textFixes = [
-            'socialusiness'   => 'social/business',
-            'rganization'     => 'Organization',
-            'Organiza '       => 'Organization ',
-            'orporation'      => 'Corporation',
-            'ompany'          => 'Company',
-            'railer'          => 'Trailer',
-            'orsebox'         => 'Horsebox',
-            'orse trailer'    => 'Horse trailer',
-            'orse Trailer'    => 'Horse Trailer',
-            'Z-Fram '         => 'Z-Frame ',
-            'afeTack'         => 'SafeTack',
-            'afeBump'         => 'SafeBump',
-            'afeKick'         => 'SafeKick',
-            'ouble D'         => 'Double D',
-            'oubled'          => 'Doubled',
-        ];
-        foreach ($textFixes as $broken => $fixed) {
-            $text = str_ireplace($broken, $fixed, $text);
-        }
+        // Note: Text truncation fixes removed — str_ireplace was matching mid-word
+        // and doubling letters (e.g., "Double" → "DDouble"). The root cause is
+        // likely prompt size or model capacity, not fixable via post-processing.
 
         $text = rtrim($text);
 
@@ -1698,3 +1679,4 @@ PROMPT;
         return $intro;
     }
 }
+    
