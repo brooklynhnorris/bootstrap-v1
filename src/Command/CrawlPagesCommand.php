@@ -307,14 +307,26 @@ class CrawlPagesCommand extends Command
 
         // Fallback: strip noisy elements from body
         if (empty(trim($contentText))) {
-            // Remove nav, header, footer, aside, scripts, styles, forms
+            // Remove nav, header, footer, aside, scripts, styles, forms, breadcrumbs
             $noiseSelectors = ['//nav', '//header', '//footer', '//aside',
                                '//script', '//style', '//noscript',
                                '//*[@class="menu"]', '//*[@id="menu"]',
                                '//*[@class="navigation"]', '//*[@role="navigation"]',
                                '//*[@class="sidebar"]', '//*[@id="sidebar"]',
                                '//*[@class="widget"]', '//*[contains(@class,"cookie")]',
-                               '//*[@aria-label="breadcrumb"]'];
+                               // Breadcrumb selectors - comprehensive coverage
+                               '//*[@aria-label="breadcrumb"]',
+                               '//*[@aria-label="Breadcrumb"]',
+                               '//*[contains(@class,"breadcrumb")]',
+                               '//*[contains(@class,"Breadcrumb")]',
+                               '//*[contains(@class,"bread-crumb")]',
+                               '//*[contains(@id,"breadcrumb")]',
+                               '//*[@role="navigation" and contains(@aria-label,"bread")]',
+                               '//ol[contains(@class,"breadcrumb")]',
+                               '//ul[contains(@class,"breadcrumb")]',
+                               '//nav[contains(@class,"breadcrumb")]',
+                               '//*[@itemtype="https://schema.org/BreadcrumbList"]',
+                               '//*[@itemtype="http://schema.org/BreadcrumbList"]'];
             foreach ($noiseSelectors as $sel) {
                 $noiseNodes = $xpath->query($sel);
                 foreach ($noiseNodes as $noiseNode) {
@@ -353,6 +365,18 @@ class CrawlPagesCommand extends Command
         $firstSentenceText = null;
         if ($bodyText) {
             $trimmed = $sanitizeUtf8(trim($bodyText));
+            
+            // Strip common breadcrumb patterns from the start of text
+            // Pattern: "Home > Category > Page" or "Home / Category / Page" or "Home » Page"
+            $trimmed = preg_replace('/^(Home\s*[>\/»›→]\s*)+/i', '', $trimmed);
+            // Pattern: site name at start followed by separator
+            $trimmed = preg_replace('/^Double\s*D\s*Trailers?\s*[>\/»›→]\s*/i', '', $trimmed);
+            // Pattern: generic "You are here:" prefix
+            $trimmed = preg_replace('/^You\s+are\s+here:?\s*/i', '', $trimmed);
+            // Pattern: multiple short words separated by > / » (breadcrumb chain)
+            $trimmed = preg_replace('/^(\w{1,20}\s*[>\/»›→]\s*){2,}/u', '', $trimmed);
+            $trimmed = trim($trimmed);
+            
             // Match up to first period, question mark, or exclamation followed by space or end
             if (preg_match('/^(.+?[.!?])(?:\s|$)/', $trimmed, $fsMatch)) {
                 $firstSentenceText = substr(trim($fsMatch[1]), 0, 500);
@@ -530,7 +554,7 @@ class CrawlPagesCommand extends Command
     }
 
     /**
-     * Extract clean text from a DOM node, stripping nested nav/scripts/styles
+     * Extract clean text from a DOM node, stripping nested nav/scripts/styles/breadcrumbs
      */
     private function extractCleanText(\DOMNode $node, \DOMXPath $xpath): string
     {
@@ -541,7 +565,14 @@ class CrawlPagesCommand extends Command
         $cloneXpath = new \DOMXPath($cloneDoc);
 
         $removeSelectors = ['//script', '//style', '//nav', '//header', '//footer',
-                            '//noscript', '//*[@aria-hidden="true"]'];
+                            '//noscript', '//*[@aria-hidden="true"]',
+                            // Breadcrumb removal
+                            '//*[contains(@class,"breadcrumb")]',
+                            '//*[contains(@id,"breadcrumb")]',
+                            '//*[@aria-label="breadcrumb"]',
+                            '//*[@aria-label="Breadcrumb"]',
+                            '//*[@itemtype="https://schema.org/BreadcrumbList"]',
+                            '//*[@itemtype="http://schema.org/BreadcrumbList"]'];
         foreach ($removeSelectors as $sel) {
             $nodes = $cloneXpath->query($sel);
             foreach ($nodes as $n) {
