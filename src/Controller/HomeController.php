@@ -689,99 +689,58 @@ class HomeController extends AbstractController
     #[Route('/api/tasks/{id}/complete', name: 'api_tasks_complete', methods: ['POST'])]
     public function completeTask(int $id, Request $request): JsonResponse
     {
-        $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
-        if (!$task) return new JsonResponse(['error' => 'Task not found'], 404);
-
-        $body = json_decode($request->getContent(), true) ?: [];
-
-        // Allow caller to override recheck days; otherwise derive from type
-        if (isset($body['recheck_days']) && intval($body['recheck_days']) > 0) {
-            $recheckDays = intval($body['recheck_days']);
-        } else {
-            $recheckDays = match($task['recheck_type']) {
-                '404_fix', 'sitemap_fix'                  => 7,
-                'h1_fix', 'h2_fix', 'schema_fix',
-                'core_link_fix', 'on_page_fix'            => 14,
-                'ranking_drop'                            => 28,
-                default                                   => 14,
-            };
-        }
-
-        $recheckCriteria = $body['recheck_criteria'] ?? $task['recheck_criteria'] ?? null;
-        $recheckDate     = date('Y-m-d', strtotime("+{$recheckDays} days"));
-
-        // Track attempt number
-        $attemptNumber = 1;
         try {
-            $this->db->executeStatement('CREATE TABLE IF NOT EXISTS task_attempts (
-                id SERIAL PRIMARY KEY,
-                task_id INT NOT NULL,
-                attempt_number INT NOT NULL DEFAULT 1,
-                completed_at TIMESTAMP NOT NULL,
-                recheck_date DATE,
-                recheck_result VARCHAR(20) DEFAULT NULL,
-                outcome_summary TEXT DEFAULT NULL,
-                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-            )');
-            $this->db->executeStatement('CREATE INDEX IF NOT EXISTS idx_task_attempts_task ON task_attempts (task_id)');
+            $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
+            if (!$task) return new JsonResponse(['error' => 'Task not found'], 404);
 
-            // If this task was previously done and verified, save that as a past attempt
-            if ($task['status'] === 'done' || $task['recheck_verified']) {
-                $lastAttempt = $this->db->fetchOne('SELECT MAX(attempt_number) FROM task_attempts WHERE task_id = ?', [$id]);
-                $attemptNumber = $lastAttempt ? ((int) $lastAttempt) + 1 : 1;
+            $body = json_decode($request->getContent(), true) ?: [];
 
-                // If first completion but there's already a verified result, store attempt 1
-                if ($attemptNumber === 1 && $task['recheck_result']) {
-                    $this->db->insert('task_attempts', [
-                        'task_id'         => $id,
-                        'attempt_number'  => 1,
-                        'completed_at'    => $task['completed_at'] ?? date('Y-m-d H:i:s'),
-                        'recheck_date'    => $task['recheck_date'],
-                        'recheck_result'  => $task['recheck_result'],
-                        'outcome_summary' => 'Original attempt',
-                        'created_at'      => date('Y-m-d H:i:s'),
-                    ]);
-                    $attemptNumber = 2;
-                }
-            } else {
-                $lastAttempt = $this->db->fetchOne('SELECT MAX(attempt_number) FROM task_attempts WHERE task_id = ?', [$id]);
-                $attemptNumber = $lastAttempt ? ((int) $lastAttempt) + 1 : 1;
+            // Allow caller to override recheck days; otherwise default to 14
+            $recheckDays = 14;
+            if (isset($body['recheck_days']) && intval($body['recheck_days']) > 0) {
+                $recheckDays = intval($body['recheck_days']);
+            } elseif (!empty($task['recheck_type'])) {
+                $recheckDays = match($task['recheck_type']) {
+                    '404_fix', 'sitemap_fix'                  => 7,
+                    'h1_fix', 'h2_fix', 'schema_fix',
+                    'core_link_fix', 'on_page_fix'            => 14,
+                    'ranking_drop'                            => 28,
+                    default                                   => 14,
+                };
             }
 
-            // Record this attempt
-            $this->db->insert('task_attempts', [
-                'task_id'        => $id,
-                'attempt_number' => $attemptNumber,
-                'completed_at'   => date('Y-m-d H:i:s'),
-                'recheck_date'   => $recheckDate,
-                'created_at'     => date('Y-m-d H:i:s'),
+            $recheckCriteria = $body['recheck_criteria'] ?? $task['recheck_criteria'] ?? null;
+            $recheckDate     = date('Y-m-d', strtotime("+{$recheckDays} days"));
+
+            // Simple update - no attempt tracking complexity
+            $this->db->update('tasks', [
+                'status'            => 'done',
+                'completed_at'      => date('Y-m-d H:i:s'),
+                'recheck_date'      => $recheckDate,
+                'recheck_days'      => $recheckDays,
+                'recheck_criteria'  => $recheckCriteria,
+                'recheck_verified'  => false,
+                'recheck_result'    => null,
+            ], ['id' => $id]);
+
+            // Log activity (non-fatal)
+            try {
+                $session = $this->requestStack->getSession();
+                $actor   = $session->get('persona_name', 'Unknown');
+                $this->logActivity($actor, 'completed_task', 'task', $id, $task['title'] ?? '', "Recheck in {$recheckDays} days");
+            } catch (\Exception $e) {
+                // Ignore logging errors
+            }
+
+            return new JsonResponse([
+                'task'             => $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]),
+                'recheck_date'     => $recheckDate,
+                'recheck_days'     => $recheckDays,
+                'recheck_criteria' => $recheckCriteria,
             ]);
         } catch (\Exception $e) {
-            // Non-fatal — attempt tracking is supplementary
+            return new JsonResponse(['error' => $e->getMessage()], 500);
         }
-
-        $this->db->update('tasks', [
-            'status'            => 'done',
-            'completed_at'      => date('Y-m-d H:i:s'),
-            'recheck_date'      => $recheckDate,
-            'recheck_days'      => $recheckDays,
-            'recheck_criteria'  => $recheckCriteria,
-            'recheck_verified'  => false,
-            'recheck_result'    => null,
-            'attempt_number'    => $attemptNumber,
-        ], ['id' => $id]);
-
-        // Log activity
-        $session = $this->requestStack->getSession();
-        $actor   = $session->get('persona_name', 'Unknown');
-        $this->logActivity($actor, 'completed_task', 'task', $id, $task['title'] ?? '', "Recheck in {$recheckDays} days");
-
-        return new JsonResponse([
-            'task'             => $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]),
-            'recheck_date'     => $recheckDate,
-            'recheck_days'     => $recheckDays,
-            'recheck_criteria' => $recheckCriteria,
-        ]);
     }
 
     #[Route('/api/tasks/{id}/recheck-date', name: 'api_tasks_recheck_date', methods: ['POST'])]
