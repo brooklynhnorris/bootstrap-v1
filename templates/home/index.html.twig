@@ -2847,7 +2847,56 @@
 
         const urlRule = targetUrl ? '\n\nIMPORTANT: The target page URL is exactly: ' + targetUrl + ' — write it in full every time. Never truncate URLs. Full URL: https://www.doubledtrailers.com' + targetUrl : '';
 
-        const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + (description || '') + '.' + pageContext + brandData + urlRule + '\n\nINSTRUCTIONS: You have the full page data above. Give a sharp, specific briefing. If the task requires a content rewrite, WRITE THE COMPLETE REWRITE using the page body text — do NOT ask the user to paste content. If it requires schema changes, output the complete JSON-LD block using the VERIFIED BRAND DATA above. After any schema output, include this validation link: [Validate in Rich Results Test](https://search.google.com/test/rich-results?url=' + encodeURIComponent('https://www.doubledtrailers.com' + (targetUrl || '')) + ') — tell the user to paste any errors back into this chat. Be surgical. Address me as ' + USER_NAME + '. DO NOT create any new tasks or plays — only brief and execute on this specific one.';
+        // Extract rule type from task title (e.g., "[ETA-01]", "[KIA-R3]", "[FC-R7]", "[RECHECK-FAIL]")
+        const ruleMatch = (title || '').match(/\[([A-Z0-9\-]+)\]/);
+        const ruleType = ruleMatch ? ruleMatch[1] : null;
+        
+        // Build rule-specific instructions based on rule type
+        let ruleInstructions = '';
+        if (ruleType) {
+            ruleInstructions = '\n\n🎯 CRITICAL — RULE-SPECIFIC INSTRUCTIONS FOR [' + ruleType + ']:\n';
+            
+            if (ruleType.startsWith('ETA') || ruleType === 'FC-R1') {
+                ruleInstructions += 'This is a CENTRAL ENTITY INJECTION task. Your ONLY job is to:\n';
+                ruleInstructions += '1. Check if "Double D Trailers" or "horse trailer" appears in the body text\n';
+                ruleInstructions += '2. If missing, write an opening paragraph (2-3 sentences) that naturally includes the brand name and "horse trailer"\n';
+                ruleInstructions += '3. DO NOT fix schema. DO NOT rewrite the whole page. ONLY add the central entity opener.\n';
+                ruleInstructions += '4. The pass criteria is: has_central_entity = TRUE on next crawl\n';
+            } else if (ruleType.startsWith('KIA') || ruleType === 'FC-R7') {
+                ruleInstructions += 'This is an H1/TITLE ALIGNMENT task. Your ONLY job is to:\n';
+                ruleInstructions += '1. Compare the current H1 to the title tag\n';
+                ruleInstructions += '2. Write a corrected H1 that matches the title intent\n';
+                ruleInstructions += '3. DO NOT fix schema. DO NOT rewrite body content. ONLY fix the H1.\n';
+                ruleInstructions += '4. The pass criteria is: h1_matches_title = TRUE on next crawl\n';
+            } else if (ruleType.startsWith('OPQ') || ruleType === 'FC-R3' || ruleType === 'FC-R6') {
+                ruleInstructions += 'This is a WORD COUNT / CONTENT task. Your job is to:\n';
+                ruleInstructions += '1. Check current word count against the target (500 for core pages, 800 for macro)\n';
+                ruleInstructions += '2. Either TRIM bloated content or EXPAND thin content\n';
+                ruleInstructions += '3. Write the complete replacement body text\n';
+                ruleInstructions += '4. DO NOT fix schema unless asked.\n';
+            } else if (ruleType.startsWith('ILA') || ruleType === 'FC-R5' || ruleType === 'FC-R10') {
+                ruleInstructions += 'This is an INTERNAL LINKING task. Your ONLY job is to:\n';
+                ruleInstructions += '1. Identify where to add a link to a core page\n';
+                ruleInstructions += '2. Suggest the exact anchor text and target URL\n';
+                ruleInstructions += '3. DO NOT rewrite the whole page. ONLY specify the link to add.\n';
+                ruleInstructions += '4. The pass criteria is: has_core_link = TRUE on next crawl\n';
+            } else if (ruleType.startsWith('CI') || ruleType === 'FC-R9') {
+                ruleInstructions += 'This is a SCHEMA task. Your ONLY job is to:\n';
+                ruleInstructions += '1. Check which schema types are missing or broken\n';
+                ruleInstructions += '2. Output the complete JSON-LD block to add/fix\n';
+                ruleInstructions += '3. Use the VERIFIED BRAND DATA above — do not guess values\n';
+                ruleInstructions += '4. DO NOT rewrite body content. ONLY fix schema.\n';
+            } else if (ruleType === 'RECHECK-FAIL') {
+                ruleInstructions += 'This task previously FAILED verification. Review what was tried before and:\n';
+                ruleInstructions += '1. Identify why the previous fix did not work\n';
+                ruleInstructions += '2. Propose a revised approach that addresses the root cause\n';
+                ruleInstructions += '3. Be specific about what was missing from the first attempt\n';
+            }
+            
+            ruleInstructions += '\n⚠️ STAY IN LANE: Do NOT drift into unrelated fixes. The user clicked THIS specific Play for THIS specific rule. Execute ONLY what the rule requires.';
+        }
+
+        const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + (description || '') + '.' + pageContext + brandData + urlRule + ruleInstructions + '\n\nINSTRUCTIONS: You have the full page data above. Give a sharp, specific briefing. If the task requires a content rewrite, WRITE THE COMPLETE REWRITE using the page body text — do NOT ask the user to paste content. If it requires schema changes, output the complete JSON-LD block using the VERIFIED BRAND DATA above. After any schema output, include this validation link: [Validate in Rich Results Test](https://search.google.com/test/rich-results?url=' + encodeURIComponent('https://www.doubledtrailers.com' + (targetUrl || '')) + ') — tell the user to paste any errors back into this chat. Be surgical. Address me as ' + USER_NAME + '. DO NOT create any new tasks or plays — only brief and execute on this specific one.';
         messages.push({ role: 'user', content: prompt });
         // Don't show the raw prompt to the user — only show Logiri's response
 
