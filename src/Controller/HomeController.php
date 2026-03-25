@@ -799,6 +799,20 @@ class HomeController extends AbstractController
         return new JsonResponse(['recheck_date' => $recheckDate, 'recheck_days' => $days]);
     }
 
+    #[Route('/api/tasks/{id}/recheck-date-direct', name: 'api_tasks_recheck_date_direct', methods: ['POST'])]
+    public function updateRecheckDateDirect(int $id, Request $request): JsonResponse
+    {
+        $body = json_decode($request->getContent(), true) ?: [];
+        $date = $body['date'] ?? null;
+        if (!$date || !preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
+            return new JsonResponse(['error' => 'Invalid date format. Use YYYY-MM-DD'], 400);
+        }
+        $this->db->update('tasks', [
+            'recheck_date' => $date,
+        ], ['id' => $id]);
+        return new JsonResponse(['recheck_date' => $date, 'ok' => true]);
+    }
+
     #[Route('/api/tasks/clear-done', name: 'api_tasks_clear_done', methods: ['POST'])]
     public function clearDoneTasks(): JsonResponse
     {
@@ -1684,3 +1698,4 @@ PROMPT;
         return $intro;
     }
 }
+    

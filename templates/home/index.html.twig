@@ -1153,9 +1153,9 @@
                         <div class="task-empty">No rechecks pending</div>
                     {% else %}
                         {% for r in rechecks %}
-                        <div class="recheck-item">
+                        <div class="recheck-item" style="cursor:pointer;" onclick="openRecheckEditor({{ r.id }}, '{{ r.title|e('js') }}', '{{ r.recheck_date }}')">
                             <div class="recheck-info">{{ r.title }}</div>
-                            <div class="recheck-date">Due {{ r.recheck_date|date('M j') }}</div>
+                            <div class="recheck-date">Due {{ r.recheck_date|date('M j') }} <span style="color:#6366f1;font-size:9px;">✎ edit</span></div>
                         </div>
                         {% endfor %}
                     {% endif %}
@@ -2026,6 +2026,64 @@
         const dateEl = document.getElementById('rdate-' + id);
         if (dateEl) dateEl.textContent = data.recheck_date;
         showNotification('Recheck updated: ' + data.recheck_date, 'green');
+        // Refresh the sidebar recheck list
+        loadSidebarRechecks();
+    }
+    
+    async function openRecheckEditor(id, title, currentDate) {
+        const action = prompt(
+            'Task: ' + title + '\nCurrent recheck: ' + currentDate + '\n\nEnter new date (YYYY-MM-DD) or number of days from today:\n(e.g., "2026-03-29" or "4" for 4 days)',
+            currentDate
+        );
+        if (!action || action === currentDate) return;
+        
+        let newDate;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(action)) {
+            // User entered a full date
+            newDate = action;
+        } else if (/^\d+$/.test(action)) {
+            // User entered number of days
+            const d = new Date();
+            d.setDate(d.getDate() + parseInt(action));
+            newDate = d.toISOString().split('T')[0];
+        } else {
+            showNotification('Invalid date format', 'red');
+            return;
+        }
+        
+        const res = await fetch('/api/tasks/' + id + '/recheck-date-direct', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ date: newDate })
+        });
+        
+        if (res.ok) {
+            showNotification('Recheck updated: ' + newDate, 'green');
+            loadSidebarRechecks();
+        } else {
+            showNotification('Failed to update recheck date', 'red');
+        }
+    }
+    
+    async function loadSidebarRechecks() {
+        const res = await fetch('/api/rechecks');
+        const rechecks = await res.json();
+        const list = document.getElementById('recheck-list');
+        if (!list) return;
+        
+        if (rechecks.length === 0) {
+            list.innerHTML = '<div class="task-empty">No rechecks pending</div>';
+            return;
+        }
+        
+        list.innerHTML = rechecks.map(r => {
+            const date = new Date(r.recheck_date);
+            const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+            return `<div class="recheck-item" style="cursor:pointer;" onclick="openRecheckEditor(${r.id}, '${(r.title || '').replace(/'/g, "\\'")}', '${r.recheck_date}')">
+                <div class="recheck-info">${r.title}</div>
+                <div class="recheck-date">Due ${formatted} <span style="color:#6366f1;font-size:9px;">✎ edit</span></div>
+            </div>`;
+        }).join('');
     }
 
     function appendTaskCards(tasksData) {
