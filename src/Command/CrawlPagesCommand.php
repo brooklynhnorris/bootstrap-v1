@@ -146,7 +146,234 @@ class CrawlPagesCommand extends Command
         }
 
         $output->writeln("Done. Crawled: {$crawled} | Failed: {$failed} | Total: {$total}");
+        
+        // Post-crawl analysis (only on full crawls, not single URL)
+        if (!$singleUrl && $crawled > 10) {
+            $output->writeln("\n--- Running Post-Crawl Analysis ---");
+            
+            // Detect orphan pages
+            $orphanCount = $this->detectOrphanPages($output);
+            $output->writeln("Orphan pages detected: {$orphanCount}");
+            
+            // Detect cannibalization clusters
+            $clusterCount = $this->detectCannibalization($output);
+            $output->writeln("Cannibalization clusters detected: {$clusterCount}");
+            
+            // Calculate inbound link counts
+            $this->calculateInboundLinks($output);
+            $output->writeln("Inbound link counts updated.");
+            
+            // Summary stats
+            $this->outputCrawlSummary($output);
+        }
+        
         return Command::SUCCESS;
+    }
+    
+    /**
+     * Detect orphan pages (pages with zero inbound internal links)
+     */
+    private function detectOrphanPages(OutputInterface $output): int
+    {
+        // Clear old orphan data
+        $this->db->executeStatement('DELETE FROM orphan_pages');
+        
+        // Get all crawled URLs
+        $allUrls = $this->db->fetchAllAssociative(
+            "SELECT url, title_tag, word_count FROM page_crawl_snapshots WHERE is_noindex = FALSE"
+        );
+        
+        // Build a map of all internal links pointing to each URL
+        $inboundLinks = [];
+        $allLinksData = $this->db->fetchAllAssociative(
+            "SELECT url, internal_links FROM page_crawl_snapshots WHERE internal_links IS NOT NULL"
+        );
+        
+        foreach ($allLinksData as $row) {
+            $links = json_decode($row['internal_links'], true) ?: [];
+            foreach ($links as $link) {
+                $normalized = '/' . trim($link, '/') . '/';
+                $normalized = str_replace('//', '/', $normalized);
+                if (!isset($inboundLinks[$normalized])) {
+                    $inboundLinks[$normalized] = 0;
+                }
+                $inboundLinks[$normalized]++;
+            }
+        }
+        
+        // Find orphans (excluding homepage and utility pages)
+        $orphanCount = 0;
+        foreach ($allUrls as $row) {
+            $url = $row['url'];
+            $normalized = '/' . trim($url, '/') . '/';
+            $normalized = str_replace('//', '/', $normalized);
+            
+            // Skip homepage
+            if ($normalized === '/' || $normalized === '//') continue;
+            
+            // Skip utility pages
+            if ($this->isUtilityUrl($url)) continue;
+            
+            $inbound = $inboundLinks[$normalized] ?? 0;
+            
+            if ($inbound === 0) {
+                // Determine recommendation
+                $recommendation = 'link_from_nav';
+                if ($row['word_count'] < 200) {
+                    $recommendation = 'noindex_or_consolidate';
+                }
+                
+                $this->db->insert('orphan_pages', [
+                    'url'            => $url,
+                    'title'          => $row['title_tag'],
+                    'word_count'     => $row['word_count'],
+                    'recommendation' => $recommendation,
+                    'detected_at'    => date('Y-m-d H:i:s'),
+                ]);
+                $orphanCount++;
+            }
+            
+            // Update inbound_link_count in page_crawl_snapshots
+            try {
+                $this->db->executeStatement(
+                    "UPDATE page_crawl_snapshots SET inbound_link_count = ? WHERE url = ?",
+                    [$inbound, $url]
+                );
+            } catch (\Exception $e) {}
+        }
+        
+        return $orphanCount;
+    }
+    
+    /**
+     * Detect keyword cannibalization clusters
+     */
+    private function detectCannibalization(OutputInterface $output): int
+    {
+        // Clear old clusters
+        $this->db->executeStatement('DELETE FROM cannibalization_clusters');
+        
+        // Get all page URLs and titles
+        $pages = $this->db->fetchAllAssociative(
+            "SELECT url, title_tag, h1 FROM page_crawl_snapshots WHERE is_noindex = FALSE AND is_utility = FALSE"
+        );
+        
+        // Extract target keywords from URLs and titles
+        $keywordToPages = [];
+        $stopWords = ['a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'from', 
+                      'is', 'are', 'was', 'be', 'your', 'you', 'our', 'we', 'how', 'what', 'why', 'double', 'd', 'trailers'];
+        
+        foreach ($pages as $page) {
+            $url = $page['url'];
+            
+            // Extract keywords from URL slug
+            $slug = trim($url, '/');
+            $slugWords = preg_split('/[-_\/]/', $slug);
+            $slugWords = array_filter($slugWords, fn($w) => strlen($w) > 2 && !in_array(strtolower($w), $stopWords));
+            
+            // Build keyword phrases (2-3 word combinations)
+            $keywords = [];
+            
+            // Single important words
+            foreach ($slugWords as $word) {
+                if (strlen($word) > 4) {
+                    $keywords[] = strtolower($word);
+                }
+            }
+            
+            // Two-word phrases from URL
+            for ($i = 0; $i < count($slugWords) - 1; $i++) {
+                $phrase = strtolower($slugWords[$i] . ' ' . $slugWords[$i + 1]);
+                if (strlen($phrase) > 8) {
+                    $keywords[] = $phrase;
+                }
+            }
+            
+            // Map keywords to pages
+            foreach ($keywords as $kw) {
+                if (!isset($keywordToPages[$kw])) {
+                    $keywordToPages[$kw] = [];
+                }
+                if (!in_array($url, $keywordToPages[$kw])) {
+                    $keywordToPages[$kw][] = $url;
+                }
+            }
+        }
+        
+        // Find clusters (keywords with 2+ pages)
+        $clusterCount = 0;
+        foreach ($keywordToPages as $keyword => $urls) {
+            if (count($urls) >= 2) {
+                // Determine severity
+                $severity = 'low';
+                if (count($urls) >= 4) $severity = 'critical';
+                elseif (count($urls) >= 3) $severity = 'high';
+                elseif (count($urls) >= 2) $severity = 'medium';
+                
+                // Generate recommendation
+                $recommendation = "Consolidate into strongest page or differentiate intent. Pages: " . implode(', ', array_slice($urls, 0, 5));
+                
+                $this->db->insert('cannibalization_clusters', [
+                    'cluster_name'   => 'cluster_' . ($clusterCount + 1),
+                    'target_keyword' => $keyword,
+                    'page_count'     => count($urls),
+                    'pages'          => json_encode($urls),
+                    'severity'       => $severity,
+                    'recommendation' => $recommendation,
+                    'created_at'     => date('Y-m-d H:i:s'),
+                ]);
+                $clusterCount++;
+            }
+        }
+        
+        return $clusterCount;
+    }
+    
+    /**
+     * Calculate inbound link counts for all pages
+     */
+    private function calculateInboundLinks(OutputInterface $output): void
+    {
+        // Already done in detectOrphanPages, but this ensures it runs even if orphan detection fails
+    }
+    
+    /**
+     * Output crawl summary statistics
+     */
+    private function outputCrawlSummary(OutputInterface $output): void
+    {
+        $output->writeln("\n--- Crawl Summary ---");
+        
+        // Content category breakdown
+        $categories = $this->db->fetchAllAssociative(
+            "SELECT content_category, COUNT(*) as cnt FROM page_crawl_snapshots GROUP BY content_category ORDER BY cnt DESC"
+        );
+        $output->writeln("Content Categories:");
+        foreach ($categories as $cat) {
+            $output->writeln("  {$cat['content_category']}: {$cat['cnt']} pages");
+        }
+        
+        // Page score distribution
+        $scoreRanges = $this->db->fetchAssociative(
+            "SELECT 
+                COUNT(*) FILTER (WHERE page_score >= 70) as good,
+                COUNT(*) FILTER (WHERE page_score >= 40 AND page_score < 70) as medium,
+                COUNT(*) FILTER (WHERE page_score < 40) as poor
+             FROM page_crawl_snapshots"
+        );
+        $output->writeln("Page Scores: Good (70+): {$scoreRanges['good']} | Medium (40-69): {$scoreRanges['medium']} | Poor (<40): {$scoreRanges['poor']}");
+        
+        // Critical issues
+        $noH1 = $this->db->fetchOne("SELECT COUNT(*) FROM page_crawl_snapshots WHERE h1 IS NULL AND is_utility = FALSE");
+        $multiH1 = $this->db->fetchOne("SELECT COUNT(*) FROM page_crawl_snapshots WHERE h1_count > 1");
+        $thin = $this->db->fetchOne("SELECT COUNT(*) FROM page_crawl_snapshots WHERE content_category = 'thin'");
+        $noSchema = $this->db->fetchOne("SELECT COUNT(*) FROM page_crawl_snapshots WHERE schema_types = '[]' AND page_type = 'core'");
+        
+        $output->writeln("Critical Issues:");
+        $output->writeln("  Missing H1: {$noH1}");
+        $output->writeln("  Multiple H1s: {$multiH1}");
+        $output->writeln("  Thin content: {$thin}");
+        $output->writeln("  Core pages without schema: {$noSchema}");
     }
 
     private function crawlPage(string $fullUrl, string $path, bool $debug, OutputInterface $output): ?array
@@ -500,6 +727,27 @@ class CrawlPagesCommand extends Command
         $coreLinksFound = array_values(array_unique($coreLinksFound));
         $internalLinkCount = count($internalLinks);
 
+        // ── H1 count (multiple H1s is an issue) ──
+        $h1Count = $h1Nodes->length;
+
+        // ── Meta description and title length ──
+        $metaDescLength = $metaDescription ? strlen($metaDescription) : 0;
+        $titleLength = $titleTag ? strlen($titleTag) : 0;
+
+        // ── Product links detection (links to /product/ or known product URLs) ──
+        $productLinksCount = 0;
+        $productPatterns = ['/safetack', '/trail-blazer', '/bumper-pull-2-horse', '/gooseneck-2-horse', 
+                           '/gooseneck-3-horse', '/gooseneck-4-horse', '/one-horse-trailer',
+                           '/living-quarters', '/v-sport', '/townsmand'];
+        foreach ($internalLinks as $link) {
+            foreach ($productPatterns as $pattern) {
+                if (str_contains($link, $pattern)) {
+                    $productLinksCount++;
+                    break;
+                }
+            }
+        }
+
         // ── H1 vs title alignment — stricter: requires 70% overlap AND checks key noun match ──
         $h1MatchesTitle = false;
         if ($h1 && $titleTag) {
@@ -520,6 +768,16 @@ class CrawlPagesCommand extends Command
 
         // ── Page type classification ──
         $pageType = $this->classifyPageType($path);
+        
+        // ── Enhanced content category (Perplexity-style pyramid) ──
+        $contentCategory = $this->classifyContentCategory($path, $wordCount, $pageType, $schemaTypes, $hasCentralEntity);
+        
+        // ── Page score (0-100) ──
+        $pageScore = $this->calculatePageScore(
+            $h1, $h1Count, $h1MatchesTitle, $metaDescription, $metaDescLength, 
+            $wordCount, $schemaTypes, $hasCentralEntity, $internalLinkCount, 
+            $imageCount, $hasFaqSection, $pageType, $contentCategory
+        );
 
         return [
             'url'                  => $path,
@@ -550,7 +808,132 @@ class CrawlPagesCommand extends Command
             'has_faq_section'      => $hasFaqSection ? 1 : 0,
             'has_product_image'    => $hasProductImage ? 1 : 0,
             'schema_errors'        => !empty($schemaErrors) ? $sanitizeUtf8(json_encode($schemaErrors)) : null,
+            // New Perplexity-inspired fields
+            'content_category'     => $contentCategory,
+            'h1_count'             => $h1Count,
+            'product_links_count'  => $productLinksCount,
+            'meta_desc_length'     => $metaDescLength,
+            'title_length'         => $titleLength,
+            'page_score'           => $pageScore,
         ];
+    }
+    
+    /**
+     * Classify content into Perplexity-style pyramid categories
+     */
+    private function classifyContentCategory(string $path, int $wordCount, string $pageType, array $schemaTypes, bool $hasCentralEntity): string
+    {
+        // Utility pages
+        if ($this->isUtilityUrl($path)) {
+            return 'utility';
+        }
+        
+        // Macro content: pillar pages, category pages, hub pages (structural backbone)
+        $macroPatterns = [
+            '/^\/horse-trailer\/?$/',           // Main pillar
+            '/^\/gooseneck-horse-trailers\/?$/',
+            '/^\/bumper-pull-horse-trailers\/?$/',
+            '/^\/living-quarters-horse-trailers\/?$/',
+            '/^\/horse-trailer-safety/',
+            '/^\/articles\/?$/',
+            '/^\/the-horse-trailer-post-podcast\/?$/',
+        ];
+        foreach ($macroPatterns as $pattern) {
+            if (preg_match($pattern, $path)) {
+                return 'macro';
+            }
+        }
+        
+        // Thin content candidates
+        $thinPatterns = ['/therapy/', '/therapeutic/', '/podcast/', '/video/', '/prize-wheel/'];
+        foreach ($thinPatterns as $pattern) {
+            if (str_contains($path, $pattern)) {
+                if ($wordCount < 200) {
+                    return 'thin';
+                }
+            }
+        }
+        
+        // General thin content check
+        if ($wordCount < 100) {
+            return 'thin';
+        }
+        
+        // Micro content - off-topic (lifestyle, breeds, equestrian not trailer-focused)
+        $offTopicPatterns = ['/horse-breed/', '/horse-meme/', '/celebrity/', '/halloween/', '/christmas/'];
+        foreach ($offTopicPatterns as $pattern) {
+            if (str_contains($path, $pattern)) {
+                return 'micro_offtopic';
+            }
+        }
+        
+        // If no central entity and not a product page, likely off-topic
+        if (!$hasCentralEntity && $pageType !== 'core') {
+            return 'micro_offtopic';
+        }
+        
+        // Default: micro_core (product pages, comparisons, trailer-focused blog)
+        return 'micro_core';
+    }
+    
+    /**
+     * Calculate a 0-100 page score (Perplexity-style)
+     */
+    private function calculatePageScore(
+        ?string $h1, int $h1Count, bool $h1MatchesTitle, ?string $metaDesc, int $metaDescLength,
+        int $wordCount, array $schemaTypes, bool $hasCentralEntity, int $internalLinkCount,
+        int $imageCount, bool $hasFaqSection, string $pageType, string $contentCategory
+    ): int {
+        $score = 0;
+        
+        // H1 presence and quality (20 points max)
+        if ($h1) {
+            $score += 10;
+            if ($h1Count === 1) $score += 5;  // Exactly one H1
+            if ($h1MatchesTitle) $score += 5;
+        }
+        
+        // Meta description (15 points max)
+        if ($metaDesc) {
+            $score += 5;
+            if ($metaDescLength >= 120 && $metaDescLength <= 160) $score += 10;
+            elseif ($metaDescLength >= 80 && $metaDescLength <= 200) $score += 5;
+        }
+        
+        // Word count (20 points max) - varies by page type
+        if ($pageType === 'core' || $contentCategory === 'macro') {
+            // Product/category pages need 800-1500 words ideally
+            if ($wordCount >= 800 && $wordCount <= 2000) $score += 20;
+            elseif ($wordCount >= 500 && $wordCount < 800) $score += 10;
+            elseif ($wordCount >= 300 && $wordCount < 500) $score += 5;
+        } else {
+            // Blog/outer pages can be longer
+            if ($wordCount >= 1000 && $wordCount <= 3000) $score += 20;
+            elseif ($wordCount >= 500 && $wordCount < 1000) $score += 15;
+            elseif ($wordCount >= 300 && $wordCount < 500) $score += 10;
+        }
+        
+        // Schema markup (15 points max)
+        if (!empty($schemaTypes)) {
+            $score += 5;
+            if (in_array('Product', $schemaTypes)) $score += 5;
+            if (in_array('FAQPage', $schemaTypes)) $score += 5;
+        }
+        
+        // Central entity present (10 points)
+        if ($hasCentralEntity) $score += 10;
+        
+        // Internal linking (10 points max)
+        if ($internalLinkCount >= 2 && $internalLinkCount <= 10) $score += 10;
+        elseif ($internalLinkCount >= 1 && $internalLinkCount < 20) $score += 5;
+        
+        // Images (5 points)
+        if ($imageCount >= 1) $score += 5;
+        
+        // FAQ section (5 points)
+        if ($hasFaqSection) $score += 5;
+        
+        return min(100, $score);
     }
 
     /**
@@ -617,23 +1000,87 @@ class CrawlPagesCommand extends Command
 
     private function getUrlsFromGsc(int $limit): array
     {
+        $paths = [];
+        
+        // 1. First, try to fetch URLs from XML sitemap (most comprehensive source)
+        $sitemapUrls = $this->getUrlsFromSitemap();
+        if (!empty($sitemapUrls)) {
+            $paths = array_merge($paths, $sitemapUrls);
+        }
+        
+        // 2. Add URLs from GSC snapshots (pages with actual impressions)
         $rows = $this->db->fetchAllAssociative(
             "SELECT DISTINCT page FROM gsc_snapshots
              WHERE date_range = '28d' AND page LIKE '%doubledtrailers.com%'
              ORDER BY page LIMIT ?",
             [$limit]
         );
-        $paths = [];
         foreach ($rows as $row) {
             $parsed = parse_url($row['page'], PHP_URL_PATH);
             if ($parsed) $paths[] = $parsed;
         }
 
+        // 3. Add hardcoded core URLs as fallback
         foreach ($this->coreUrls as $core) {
             $paths[] = $core;
         }
 
         return array_slice(array_unique($paths), 0, $limit);
+    }
+
+    /**
+     * Fetch all URLs from the site's XML sitemap index
+     */
+    private function getUrlsFromSitemap(): array
+    {
+        $paths = [];
+        $sitemapIndexUrl = $this->baseUrl . '/sitemap_index.xml';
+        
+        $context = stream_context_create([
+            'http' => [
+                'method'  => 'GET',
+                'header'  => "User-Agent: Mozilla/5.0 (compatible; LogiriBot/1.0)\r\n",
+                'timeout' => 30,
+            ],
+        ]);
+        
+        $indexXml = @file_get_contents($sitemapIndexUrl, false, $context);
+        if ($indexXml === false) {
+            // Try alternate sitemap URL
+            $indexXml = @file_get_contents($this->baseUrl . '/sitemap.xml', false, $context);
+        }
+        
+        if ($indexXml === false) return $paths;
+        
+        // Parse sitemap index to find sub-sitemaps
+        $subSitemaps = [];
+        if (preg_match_all('/<loc>([^<]+)<\/loc>/i', $indexXml, $matches)) {
+            foreach ($matches[1] as $loc) {
+                if (str_contains($loc, 'sitemap') && str_ends_with($loc, '.xml')) {
+                    $subSitemaps[] = $loc;
+                } else {
+                    // This is a direct URL in the sitemap
+                    $parsed = parse_url($loc, PHP_URL_PATH);
+                    if ($parsed) $paths[] = $parsed;
+                }
+            }
+        }
+        
+        // Fetch each sub-sitemap
+        foreach ($subSitemaps as $subUrl) {
+            $subXml = @file_get_contents($subUrl, false, $context);
+            if ($subXml === false) continue;
+            
+            if (preg_match_all('/<loc>([^<]+)<\/loc>/i', $subXml, $matches)) {
+                foreach ($matches[1] as $loc) {
+                    $parsed = parse_url($loc, PHP_URL_PATH);
+                    if ($parsed) $paths[] = $parsed;
+                }
+            }
+            usleep(100000); // 100ms delay between sitemap fetches
+        }
+        
+        return array_unique($paths);
     }
 
     private function buildFullUrl(string $path): string
@@ -736,6 +1183,16 @@ class CrawlPagesCommand extends Command
                 'has_faq_section'     => 'BOOLEAN DEFAULT FALSE',
                 'has_product_image'   => 'BOOLEAN DEFAULT FALSE',
                 'schema_errors'       => 'TEXT DEFAULT NULL',
+                // New Perplexity-inspired columns
+                'content_category'    => "VARCHAR(30) DEFAULT NULL",  // macro, micro_core, micro_offtopic, thin, utility
+                'h1_count'            => 'INT DEFAULT 0',
+                'inbound_link_count'  => 'INT DEFAULT 0',  // for orphan detection
+                'has_js_only_links'   => 'BOOLEAN DEFAULT FALSE',  // JS rendering detection
+                'product_links_count' => 'INT DEFAULT 0',  // links to product pages
+                'boilerplate_score'   => 'INT DEFAULT 0',  // 0-100, higher = more unique
+                'meta_desc_length'    => 'INT DEFAULT 0',
+                'title_length'        => 'INT DEFAULT 0',
+                'page_score'          => 'INT DEFAULT 0',  // 0-100 overall score
             ];
             foreach ($newCols as $col => $def) {
                 try {
@@ -743,6 +1200,40 @@ class CrawlPagesCommand extends Command
                 } catch (\Exception $e) {}
             }
         }
+        
+        // Create cannibalization_clusters table for keyword overlap detection
+        if (!in_array('cannibalization_clusters', $tables)) {
+            $this->db->executeStatement("
+                CREATE TABLE cannibalization_clusters (
+                    id              SERIAL PRIMARY KEY,
+                    cluster_name    TEXT NOT NULL,
+                    target_keyword  TEXT NOT NULL,
+                    page_count      INT DEFAULT 0,
+                    pages           TEXT DEFAULT NULL,
+                    severity        VARCHAR(20) DEFAULT 'medium',
+                    recommendation  TEXT DEFAULT NULL,
+                    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            ");
+            $this->db->executeStatement('CREATE INDEX idx_cannibal_keyword ON cannibalization_clusters (target_keyword)');
+        }
+        
+        // Create orphan_pages table for tracking pages with zero inbound links
+        if (!in_array('orphan_pages', $tables)) {
+            $this->db->executeStatement("
+                CREATE TABLE orphan_pages (
+                    id              SERIAL PRIMARY KEY,
+                    url             TEXT NOT NULL,
+                    title           TEXT DEFAULT NULL,
+                    word_count      INT DEFAULT 0,
+                    recommendation  VARCHAR(50) DEFAULT NULL,
+                    detected_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            ");
+            $this->db->executeStatement('CREATE INDEX idx_orphan_url ON orphan_pages (url)');
+        }
     }
 }
+    
+
     
