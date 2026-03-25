@@ -1458,7 +1458,12 @@ PROMPT;
         $intro .= "\n- This is a Symfony application. ALWAYS use `php bin/console` for commands. NEVER say `php artisan` — that is Laravel, not this app.";
         $intro .= "\n- Correct: `php bin/console app:crawl-pages`";
         $intro .= "\n- Wrong: `php artisan app:crawl-pages`";
-        $intro .= "\n\nH1 NOTE: Some Core pages (e.g. /bumper-pull-horse-trailers/, /gooseneck-horse-trailers/) have no H1 tag. This is a confirmed on-page issue, not a crawl data error. Flag these as FC-R7 violations and assign fixes to Brook.";
+        $intro .= "\n\nANTI-HALLUCINATION RULES — CRITICAL:";
+        $intro .= "\n- ONLY reference URLs that appear in the PAGE SIGNALS or CRAWL DATA sections below. If a URL is not listed there, it has not been crawled.";
+        $intro .= "\n- NEVER invent URLs. NEVER guess what URLs might exist. NEVER reference /horse-trailers/, /gooseneck-horse-trailers/, or any URL not explicitly shown in the crawl data.";
+        $intro .= "\n- NEVER fabricate metrics (word count, internal link count, impressions, etc.). If a page is not in the crawl data, say: 'This URL has not been crawled yet. Run php bin/console app:crawl-pages to index it.'";
+        $intro .= "\n- If the user asks about a URL not in crawl data, tell them it needs to be crawled first — do NOT make up data for it.";
+        $intro .= "\n- When suggesting content moves or link targets, ONLY suggest URLs that appear in the crawl data below.";
         $intro .= "\n\nTASK GENERATION RULES:";
         $intro .= "\n- Generate tasks ONLY for the FC rules listed below (FC-R1 through FC-R10). Do NOT generate tasks for cannibalization, keyword research, or other topics not covered by the FC rules.";
         $intro .= "\n- Each task: title, assigned_to, priority (critical/high/medium/low), estimated_hours, recheck_type, recheck_days, recheck_criteria, description.";
@@ -1679,4 +1684,3 @@ PROMPT;
         return $intro;
     }
 }
-    
