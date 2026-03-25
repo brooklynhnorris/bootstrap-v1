@@ -719,7 +719,7 @@ class HomeController extends AbstractController
                 'recheck_date'      => $recheckDate,
                 'recheck_days'      => $recheckDays,
                 'recheck_criteria'  => $recheckCriteria,
-                'recheck_verified'  => false,
+                'recheck_verified'  => 0,  // Use 0/1 for PostgreSQL boolean
                 'recheck_result'    => null,
             ], ['id' => $id]);
 
