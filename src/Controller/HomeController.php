@@ -294,7 +294,7 @@ class HomeController extends AbstractController
 
         $payload = json_encode([
             'model'      => $claudeModel,
-            'max_tokens' => 4096,
+            'max_tokens' => 8192,
             'system'     => $systemPrompt,
             'messages'   => $claudeMessages,
         ]);
@@ -436,6 +436,29 @@ class HomeController extends AbstractController
         // Also fix inside JSON strings: "url": "https://www.doubledtrailers.com/..." patterns
         // Re-run the same fix to catch URLs inside code blocks and JSON
         $text = preg_replace('/doubledtrailers\.com([a-z])/', 'doubledtrailers.com/$1', $text);
+
+        // ── Fix truncated/mangled words in LLM output ──
+        // Common patterns where tokenizer splits words incorrectly
+        $textFixes = [
+            'socialusiness'   => 'social/business',
+            'rganization'     => 'Organization',
+            'Organiza '       => 'Organization ',
+            'orporation'      => 'Corporation',
+            'ompany'          => 'Company',
+            'railer'          => 'Trailer',
+            'orsebox'         => 'Horsebox',
+            'orse trailer'    => 'Horse trailer',
+            'orse Trailer'    => 'Horse Trailer',
+            'Z-Fram '         => 'Z-Frame ',
+            'afeTack'         => 'SafeTack',
+            'afeBump'         => 'SafeBump',
+            'afeKick'         => 'SafeKick',
+            'ouble D'         => 'Double D',
+            'oubled'          => 'Doubled',
+        ];
+        foreach ($textFixes as $broken => $fixed) {
+            $text = str_ireplace($broken, $fixed, $text);
+        }
 
         $text = rtrim($text);
 
@@ -1675,5 +1698,3 @@ PROMPT;
         return $intro;
     }
 }
-
-    

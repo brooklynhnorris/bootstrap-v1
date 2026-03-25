@@ -714,3 +714,4 @@ class CrawlPagesCommand extends Command
         }
     }
 }
+    
