@@ -36,6 +36,16 @@ echo ""
 echo "[6/8] Verifying outcomes from completed tasks..."
 php bin/console app:verify-outcomes || echo "  [WARN] Outcome verification failed or no outcomes to verify"
 
+# Step 4a: Fetch GA4 Engagement metrics
+echo ""
+echo "[4a/8] Fetching GA4 Engagement data..."
+php bin/console app:fetch-ga4-engagement --days=28 --compare || echo "  [WARN] GA4 Engagement fetch failed"
+
+# Step 4b: Fetch Core Web Vitals
+echo ""
+echo "[4b/8] Fetching Core Web Vitals..."
+php bin/console app:fetch-cwv --limit=50 || echo "  [WARN] CWV fetch failed — check PSI_API_KEY"
+
 # Step 5: Propose rule changes based on outcome feedback
 echo ""
 echo "[7/8] Reviewing rule performance — proposing changes for underperforming rules..."
