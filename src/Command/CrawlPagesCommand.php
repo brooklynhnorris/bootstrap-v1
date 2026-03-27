@@ -12,7 +12,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'app:crawl-pages', description: 'Crawl indexed pages and extract structural SEO signals')]
 class CrawlPagesCommand extends Command
 {
-    private string $baseUrl = 'https://doubledtrailers.com';
+    private string $baseUrl = 'https://www.doubledtrailers.com';
 
     private array $coreUrls = [
         '/',
@@ -163,11 +163,205 @@ class CrawlPagesCommand extends Command
             $this->calculateInboundLinks($output);
             $output->writeln("Inbound link counts updated.");
             
+            // Calculate crawl depth from homepage (BFS)
+            $this->calculateCrawlDepth($output);
+            $output->writeln("Crawl depth calculated.");
+            
+            // Populate sitemap_urls table
+            $this->populateSitemapUrls($output);
+            $output->writeln("Sitemap URLs indexed.");
+            
             // Summary stats
             $this->outputCrawlSummary($output);
         }
         
         return Command::SUCCESS;
+    }
+    
+    /**
+     * Calculate crawl depth via BFS from homepage (ILA-007)
+     * Depth 0 = homepage, Depth 1 = linked from homepage, etc.
+     */
+    private function calculateCrawlDepth(OutputInterface $output): void
+    {
+        // Get all pages with their internal links
+        $pages = $this->db->fetchAllAssociative(
+            "SELECT url, internal_links FROM page_crawl_snapshots"
+        );
+        
+        // Build link graph
+        $linkGraph = [];
+        foreach ($pages as $page) {
+            $linkGraph[$page['url']] = [];
+            if ($page['internal_links']) {
+                $links = json_decode($page['internal_links'], true) ?? [];
+                $linkGraph[$page['url']] = $links;
+            }
+        }
+        
+        // BFS from homepage
+        $depths = [];
+        $queue = [['/', 0]]; // Start from homepage
+        $visited = ['/' => true];
+        
+        while (!empty($queue)) {
+            [$currentUrl, $depth] = array_shift($queue);
+            $depths[$currentUrl] = $depth;
+            
+            // Get links from this page
+            $links = $linkGraph[$currentUrl] ?? [];
+            foreach ($links as $link) {
+                // Normalize link
+                $normalizedLink = '/' . trim($link, '/') . '/';
+                $normalizedLink = str_replace('//', '/', $normalizedLink);
+                
+                // Also try without trailing slash
+                $variants = [$link, $normalizedLink, '/' . trim($link, '/')];
+                
+                foreach ($variants as $variant) {
+                    if (!isset($visited[$variant]) && isset($linkGraph[$variant])) {
+                        $visited[$variant] = true;
+                        $queue[] = [$variant, $depth + 1];
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Update crawl_depth for all pages
+        foreach ($depths as $url => $depth) {
+            $this->db->executeStatement(
+                "UPDATE page_crawl_snapshots SET crawl_depth = ? WHERE url = ?",
+                [$depth, $url]
+            );
+        }
+        
+        // Mark unreachable pages (not found in BFS) with NULL depth
+        $output->writeln("  Crawl depth assigned to " . count($depths) . " pages");
+        
+        // Count pages at each depth level
+        $depthCounts = $this->db->fetchAllKeyValue(
+            "SELECT crawl_depth, COUNT(*) FROM page_crawl_snapshots WHERE crawl_depth IS NOT NULL GROUP BY crawl_depth ORDER BY crawl_depth"
+        );
+        foreach ($depthCounts as $d => $c) {
+            $output->writeln("    Depth {$d}: {$c} pages");
+        }
+    }
+    
+    /**
+     * Populate sitemap_urls table from sitemap.xml (TECH-R4)
+     */
+    private function populateSitemapUrls(OutputInterface $output): void
+    {
+        // Clear old sitemap data
+        $this->db->executeStatement('DELETE FROM sitemap_urls');
+        
+        $sitemapUrl = $this->baseUrl . '/sitemap_index.xml';
+        $context = stream_context_create([
+            'http' => [
+                'timeout' => 10,
+                'header'  => "User-Agent: LogiriBot/1.0\r\n",
+            ],
+        ]);
+        
+        $indexXml = @file_get_contents($sitemapUrl, false, $context);
+        if ($indexXml === false) {
+            // Try sitemap.xml
+            $sitemapUrl = $this->baseUrl . '/sitemap.xml';
+            $indexXml = @file_get_contents($sitemapUrl, false, $context);
+            if ($indexXml === false) {
+                $output->writeln("  Could not fetch sitemap");
+                return;
+            }
+        }
+        
+        $sitemapUrls = [];
+        $subSitemaps = [];
+        
+        // Parse index sitemap
+        if (preg_match_all('/<loc>([^<]+)<\/loc>/i', $indexXml, $matches)) {
+            foreach ($matches[1] as $loc) {
+                if (str_contains($loc, 'sitemap') && str_ends_with($loc, '.xml')) {
+                    $subSitemaps[] = $loc;
+                } else {
+                    $sitemapUrls[] = ['url' => $loc, 'sitemap' => $sitemapUrl];
+                }
+            }
+        }
+        
+        // Fetch sub-sitemaps
+        foreach ($subSitemaps as $subUrl) {
+            $subXml = @file_get_contents($subUrl, false, $context);
+            if ($subXml === false) continue;
+            
+            if (preg_match_all('/<url>(.*?)<\/url>/is', $subXml, $urlMatches)) {
+                foreach ($urlMatches[1] as $urlBlock) {
+                    $url = null;
+                    $lastmod = null;
+                    $changefreq = null;
+                    $priority = null;
+                    
+                    if (preg_match('/<loc>([^<]+)<\/loc>/i', $urlBlock, $m)) {
+                        $url = $m[1];
+                    }
+                    if (preg_match('/<lastmod>([^<]+)<\/lastmod>/i', $urlBlock, $m)) {
+                        $lastmod = $m[1];
+                    }
+                    if (preg_match('/<changefreq>([^<]+)<\/changefreq>/i', $urlBlock, $m)) {
+                        $changefreq = $m[1];
+                    }
+                    if (preg_match('/<priority>([^<]+)<\/priority>/i', $urlBlock, $m)) {
+                        $priority = $m[1];
+                    }
+                    
+                    if ($url) {
+                        $sitemapUrls[] = [
+                            'url' => $url,
+                            'sitemap' => $subUrl,
+                            'lastmod' => $lastmod,
+                            'changefreq' => $changefreq,
+                            'priority' => $priority,
+                        ];
+                    }
+                }
+            }
+            usleep(100000);
+        }
+        
+        // Insert into sitemap_urls table
+        $inserted = 0;
+        foreach ($sitemapUrls as $entry) {
+            $path = parse_url($entry['url'], PHP_URL_PATH) ?? $entry['url'];
+            try {
+                $this->db->insert('sitemap_urls', [
+                    'url' => $path,
+                    'sitemap_source' => $entry['sitemap'] ?? null,
+                    'lastmod' => isset($entry['lastmod']) ? date('Y-m-d', strtotime($entry['lastmod'])) : null,
+                    'changefreq' => $entry['changefreq'] ?? null,
+                    'priority' => $entry['priority'] ?? null,
+                    'fetched_at' => date('Y-m-d H:i:s'),
+                ]);
+                $inserted++;
+            } catch (\Exception $e) {
+                // Duplicate or other error, skip
+            }
+        }
+        
+        // Update in_sitemap flag on page_crawl_snapshots
+        $this->db->executeStatement("
+            UPDATE page_crawl_snapshots p
+            SET in_sitemap = TRUE
+            WHERE EXISTS (SELECT 1 FROM sitemap_urls s WHERE s.url = p.url)
+        ");
+        
+        // PostgreSQL-specific alternative if the above doesn't work:
+        $this->db->executeStatement("
+            UPDATE page_crawl_snapshots 
+            SET in_sitemap = 1 
+            WHERE url IN (SELECT url FROM sitemap_urls)
+        ");
+        
+        $output->writeln("  Indexed {$inserted} URLs from sitemap");
     }
     
     /**
@@ -779,6 +973,140 @@ class CrawlPagesCommand extends Command
             $imageCount, $hasFaqSection, $pageType, $contentCategory
         );
 
+        // ══════════════════════════════════════════════════════════════════
+        // NEW TIER C RULE EXTRACTIONS
+        // ══════════════════════════════════════════════════════════════════
+        
+        // ── CTA link detection (CTA-F2) ──
+        $hasCtaLink = false;
+        $ctaPatterns = ['/quote', '/get-quote', '/contact', '/contact-us', '/book-a-video', '/trailer-finder'];
+        foreach ($internalLinks as $link) {
+            foreach ($ctaPatterns as $pattern) {
+                if (str_contains($link, $pattern)) {
+                    $hasCtaLink = true;
+                    break 2;
+                }
+            }
+        }
+        
+        // ── HowTo schema detection (SCH-007, CI-02) ──
+        $hasHowtoSchema = in_array('HowTo', $schemaTypes);
+        
+        // ── Video embed detection (SCH-006, MAO-04) ──
+        $hasVideoEmbed = false;
+        $videoUrls = [];
+        $videoSelectors = [
+            '//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
+            '//video/@src',
+            '//*[@data-video-id]/@data-video-id',
+        ];
+        foreach ($videoSelectors as $sel) {
+            $vidNodes = $xpath->query($sel);
+            if ($vidNodes && $vidNodes->length > 0) {
+                $hasVideoEmbed = true;
+                foreach ($vidNodes as $v) {
+                    $videoUrls[] = $v->nodeValue;
+                }
+            }
+        }
+        
+        // ── Author byline detection (DDT-EEAT-05) ──
+        $hasAuthorByline = false;
+        $authorName = null;
+        $authorSelectors = [
+            '//*[contains(@class,"author")]//a/text()',
+            '//*[contains(@class,"byline")]//text()',
+            '//meta[@name="author"]/@content',
+            '//*[@rel="author"]/text()',
+        ];
+        foreach ($authorSelectors as $sel) {
+            $authorNodes = $xpath->query($sel);
+            if ($authorNodes && $authorNodes->length > 0) {
+                $hasAuthorByline = true;
+                $authorName = trim($authorNodes->item(0)->nodeValue);
+                break;
+            }
+        }
+        
+        // ── Proprietary brand term detection (ETA-002, AIS-003, OPQ-R7) ──
+        $hasZframeMention = str_contains($bodyLower, 'z-frame') || str_contains($bodyLower, 'zframe') || str_contains($bodyLower, 'z frame');
+        $hasSafetackMention = str_contains($bodyLower, 'safetack') || str_contains($bodyLower, 'safe-tack') || str_contains($bodyLower, 'safe tack');
+        $hasSafebumpMention = str_contains($bodyLower, 'safebump') || str_contains($bodyLower, 'safe-bump') || str_contains($bodyLower, 'safe bump');
+        $hasSafekickMention = str_contains($bodyLower, 'safekick') || str_contains($bodyLower, 'safe-kick') || str_contains($bodyLower, 'safe kick');
+        
+        $proprietaryTermCount = 0;
+        if ($hasZframeMention) $proprietaryTermCount++;
+        if ($hasSafetackMention) $proprietaryTermCount++;
+        if ($hasSafebumpMention) $proprietaryTermCount++;
+        if ($hasSafekickMention) $proprietaryTermCount++;
+        
+        // ── Z-Frame definition detection (AIS-003) ──
+        // Check for "Z-Frame is..." or "Z-Frame, a..." pattern
+        $hasZframeDefinition = false;
+        if ($hasZframeMention) {
+            $defPatterns = [
+                '/z-?frame\s+(is|are|refers?\s+to|means?|represents?)\s/i',
+                '/z-?frame[,:]?\s+(a|an|the)\s/i',
+            ];
+            foreach ($defPatterns as $pat) {
+                if (preg_match($pat, $bodyText)) {
+                    $hasZframeDefinition = true;
+                    break;
+                }
+            }
+        }
+        
+        // ── Question-format H2 detection (AIS-008) ──
+        $hasQuestionH2 = false;
+        $questionH2Count = 0;
+        foreach ($h2s as $h2) {
+            if (preg_match('/^(what|why|how|when|where|who|which|can|do|does|is|are|should|will|would)\s/i', $h2) 
+                || str_contains($h2, '?')) {
+                $hasQuestionH2 = true;
+                $questionH2Count++;
+            }
+        }
+        
+        // ── Image analysis (MAO-01, MAO-02, CWV-R7) ──
+        $imagesWithoutAlt = 0;
+        $imagesWithGenericAlt = 0;
+        $hasLazyHeroImage = false;
+        $genericAltPatterns = ['image', 'photo', 'picture', 'img', 'dsc', 'untitled', 'screenshot'];
+        
+        $allImgNodes = $xpath->query('//body//img');
+        $imgIndex = 0;
+        foreach ($allImgNodes as $img) {
+            $imgIndex++;
+            $alt = $img->getAttribute('alt');
+            $loading = $img->getAttribute('loading');
+            
+            // Check for missing alt
+            if (empty($alt)) {
+                $imagesWithoutAlt++;
+            } else {
+                // Check for generic alt text
+                $altLower = strtolower($alt);
+                foreach ($genericAltPatterns as $generic) {
+                    if ($altLower === $generic || preg_match('/^' . preg_quote($generic, '/') . '\d*$/i', $alt)) {
+                        $imagesWithGenericAlt++;
+                        break;
+                    }
+                }
+            }
+            
+            // Check if first/hero image is lazy loaded (bad for LCP)
+            if ($imgIndex <= 2 && strtolower($loading) === 'lazy') {
+                $hasLazyHeroImage = true;
+            }
+        }
+        
+        // ── Mobile viewport detection (CTA-F6) ──
+        $mobileViewportSet = false;
+        $viewportNodes = $xpath->query('//meta[@name="viewport"]/@content');
+        if ($viewportNodes && $viewportNodes->length > 0) {
+            $mobileViewportSet = true;
+        }
+
         return [
             'url'                  => $path,
             'http_status'          => $httpStatus,
@@ -799,7 +1127,7 @@ class CrawlPagesCommand extends Command
             'page_type'            => $pageType,
             'is_utility'           => $this->isUtilityUrl($path) ? 1 : 0,
             'crawled_at'           => date('Y-m-d H:i:s'),
-            // New Tier 1 & 2 fields
+            // Tier 1 & 2 fields
             'internal_link_count'  => $internalLinkCount,
             'body_text_snippet'    => $bodyTextSnippet,
             'first_sentence_text'  => $firstSentenceText,
@@ -808,13 +1136,32 @@ class CrawlPagesCommand extends Command
             'has_faq_section'      => $hasFaqSection ? 1 : 0,
             'has_product_image'    => $hasProductImage ? 1 : 0,
             'schema_errors'        => !empty($schemaErrors) ? $sanitizeUtf8(json_encode($schemaErrors)) : null,
-            // New Perplexity-inspired fields
+            // Perplexity-inspired fields
             'content_category'     => $contentCategory,
             'h1_count'             => $h1Count,
             'product_links_count'  => $productLinksCount,
             'meta_desc_length'     => $metaDescLength,
             'title_length'         => $titleLength,
             'page_score'           => $pageScore,
+            // NEW: Tier C rule fields
+            'has_cta_link'         => $hasCtaLink ? 1 : 0,
+            'has_howto_schema'     => $hasHowtoSchema ? 1 : 0,
+            'has_video_embed'      => $hasVideoEmbed ? 1 : 0,
+            'video_urls'           => !empty($videoUrls) ? json_encode($videoUrls) : null,
+            'has_author_byline'    => $hasAuthorByline ? 1 : 0,
+            'author_name'          => $authorName ? substr($authorName, 0, 200) : null,
+            'has_zframe_mention'   => $hasZframeMention ? 1 : 0,
+            'has_zframe_definition' => $hasZframeDefinition ? 1 : 0,
+            'has_safetack_mention' => $hasSafetackMention ? 1 : 0,
+            'has_safebump_mention' => $hasSafebumpMention ? 1 : 0,
+            'has_safekick_mention' => $hasSafekickMention ? 1 : 0,
+            'proprietary_term_count' => $proprietaryTermCount,
+            'has_question_h2'      => $hasQuestionH2 ? 1 : 0,
+            'question_h2_count'    => $questionH2Count,
+            'images_without_alt'   => $imagesWithoutAlt,
+            'images_with_generic_alt' => $imagesWithGenericAlt,
+            'has_lazy_hero_image'  => $hasLazyHeroImage ? 1 : 0,
+            'mobile_viewport_set'  => $mobileViewportSet ? 1 : 0,
         ];
     }
     
@@ -1183,16 +1530,42 @@ class CrawlPagesCommand extends Command
                 'has_faq_section'     => 'BOOLEAN DEFAULT FALSE',
                 'has_product_image'   => 'BOOLEAN DEFAULT FALSE',
                 'schema_errors'       => 'TEXT DEFAULT NULL',
-                // New Perplexity-inspired columns
-                'content_category'    => "VARCHAR(30) DEFAULT NULL",  // macro, micro_core, micro_offtopic, thin, utility
+                // Perplexity-inspired columns
+                'content_category'    => "VARCHAR(30) DEFAULT NULL",
                 'h1_count'            => 'INT DEFAULT 0',
-                'inbound_link_count'  => 'INT DEFAULT 0',  // for orphan detection
-                'has_js_only_links'   => 'BOOLEAN DEFAULT FALSE',  // JS rendering detection
-                'product_links_count' => 'INT DEFAULT 0',  // links to product pages
-                'boilerplate_score'   => 'INT DEFAULT 0',  // 0-100, higher = more unique
+                'inbound_link_count'  => 'INT DEFAULT 0',
+                'has_js_only_links'   => 'BOOLEAN DEFAULT FALSE',
+                'product_links_count' => 'INT DEFAULT 0',
+                'boilerplate_score'   => 'INT DEFAULT 0',
                 'meta_desc_length'    => 'INT DEFAULT 0',
                 'title_length'        => 'INT DEFAULT 0',
-                'page_score'          => 'INT DEFAULT 0',  // 0-100 overall score
+                'page_score'          => 'INT DEFAULT 0',
+                // NEW: Tier C rule support columns
+                'crawl_depth'         => 'INT DEFAULT NULL',           // ILA-007: clicks from homepage
+                'redirect_chain'      => 'TEXT DEFAULT NULL',          // TECH-R5: redirect hops
+                'redirect_count'      => 'INT DEFAULT 0',              // TECH-R5: number of redirects
+                'final_url'           => 'TEXT DEFAULT NULL',          // TECH-R5: after redirects
+                'has_cta_link'        => 'BOOLEAN DEFAULT FALSE',      // CTA-F2: link to /quote/ or /contact/
+                'has_howto_schema'    => 'BOOLEAN DEFAULT FALSE',      // SCH-007, CI-02
+                'has_video_embed'     => 'BOOLEAN DEFAULT FALSE',      // SCH-006, MAO-04
+                'video_urls'          => 'TEXT DEFAULT NULL',          // SCH-006: YouTube/Vimeo embeds
+                'has_author_byline'   => 'BOOLEAN DEFAULT FALSE',      // DDT-EEAT-05
+                'author_name'         => 'TEXT DEFAULT NULL',          // DDT-EEAT-05
+                'has_zframe_mention'  => 'BOOLEAN DEFAULT FALSE',      // AIS-003, OPQ-R7
+                'has_zframe_definition' => 'BOOLEAN DEFAULT FALSE',    // AIS-003: "Z-Frame is..."
+                'has_safetack_mention'  => 'BOOLEAN DEFAULT FALSE',    // ETA-002
+                'has_safebump_mention'  => 'BOOLEAN DEFAULT FALSE',    // ETA-002
+                'has_safekick_mention'  => 'BOOLEAN DEFAULT FALSE',    // ETA-002
+                'proprietary_term_count' => 'INT DEFAULT 0',           // ETA-002: total brand terms
+                'has_question_h2'     => 'BOOLEAN DEFAULT FALSE',      // AIS-008: question-format H2s
+                'question_h2_count'   => 'INT DEFAULT 0',              // AIS-008
+                'total_image_size_kb' => 'INT DEFAULT NULL',           // MAO-02: aggregate image weight
+                'largest_image_kb'    => 'INT DEFAULT NULL',           // MAO-02
+                'images_without_alt'  => 'INT DEFAULT 0',              // MAO-01, MAO-02
+                'images_with_generic_alt' => 'INT DEFAULT 0',          // MAO-01
+                'has_lazy_hero_image' => 'BOOLEAN DEFAULT FALSE',      // CWV-R7
+                'mobile_viewport_set' => 'BOOLEAN DEFAULT FALSE',      // CTA-F6
+                'in_sitemap'          => 'BOOLEAN DEFAULT FALSE',      // TECH-R4
             ];
             foreach ($newCols as $col => $def) {
                 try {
@@ -1232,8 +1605,60 @@ class CrawlPagesCommand extends Command
             ");
             $this->db->executeStatement('CREATE INDEX idx_orphan_url ON orphan_pages (url)');
         }
+        
+        // NEW: Create page_image_assets table for MAO rules
+        if (!in_array('page_image_assets', $tables)) {
+            $this->db->executeStatement("
+                CREATE TABLE page_image_assets (
+                    id              SERIAL PRIMARY KEY,
+                    page_url        TEXT NOT NULL,
+                    image_src       TEXT NOT NULL,
+                    alt_text        TEXT DEFAULT NULL,
+                    alt_text_length INT DEFAULT 0,
+                    file_size_kb    INT DEFAULT NULL,
+                    image_format    VARCHAR(20) DEFAULT NULL,
+                    width           INT DEFAULT NULL,
+                    height          INT DEFAULT NULL,
+                    is_lazy_loaded  BOOLEAN DEFAULT FALSE,
+                    is_hero_image   BOOLEAN DEFAULT FALSE,
+                    has_brand_term  BOOLEAN DEFAULT FALSE,
+                    crawled_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            ");
+            $this->db->executeStatement('CREATE INDEX idx_image_page ON page_image_assets (page_url)');
+            $this->db->executeStatement('CREATE INDEX idx_image_src ON page_image_assets (image_src)');
+        }
+        
+        // NEW: Create redirect_log table for TECH-R5
+        if (!in_array('redirect_log', $tables)) {
+            $this->db->executeStatement("
+                CREATE TABLE redirect_log (
+                    id              SERIAL PRIMARY KEY,
+                    source_url      TEXT NOT NULL,
+                    final_url       TEXT NOT NULL,
+                    redirect_count  INT DEFAULT 0,
+                    redirect_chain  TEXT DEFAULT NULL,
+                    status_codes    TEXT DEFAULT NULL,
+                    detected_at     TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            ");
+            $this->db->executeStatement('CREATE INDEX idx_redirect_source ON redirect_log (source_url)');
+        }
+        
+        // NEW: Create sitemap_urls table for TECH-R4
+        if (!in_array('sitemap_urls', $tables)) {
+            $this->db->executeStatement("
+                CREATE TABLE sitemap_urls (
+                    id              SERIAL PRIMARY KEY,
+                    url             TEXT NOT NULL UNIQUE,
+                    sitemap_source  TEXT DEFAULT NULL,
+                    lastmod         DATE DEFAULT NULL,
+                    changefreq      VARCHAR(20) DEFAULT NULL,
+                    priority        DECIMAL(2,1) DEFAULT NULL,
+                    fetched_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            ");
+            $this->db->executeStatement('CREATE INDEX idx_sitemap_url ON sitemap_urls (url)');
+        }
     }
 }
-    
-
-    
