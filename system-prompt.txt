@@ -2690,3 +2690,359 @@ Trigger: 10+ pages updated between crawl snapshots
 Report: ranking changes, traffic delta, conversion changes, rule compliance status
 Timing: 14 days, 30 days, 60 days after batch update detected
 Assigned: Logiri (automated), Brook (review), Jeanne (strategic review)
+------------------------------------------------------------
+NEW FIELD RULES - BRAND TERMINOLOGY (ETA-002, AIS-003)
+------------------------------------------------------------
+
+ETA-002 | Proprietary Brand Terms Missing on Core Pages
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, word_count, proprietary_term_count, 
+       has_zframe_mention, has_safetack_mention, 
+       has_safebump_mention, has_safekick_mention
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND is_noindex = FALSE
+  AND proprietary_term_count = 0
+```
+Threshold: proprietary_term_count = 0 on any indexed core page
+Diagnosis: Core product pages without any DDT brand terminology (Z-Frame, SafeTack, SafeBump, SafeKick) fail to differentiate from competitors and miss AI citation opportunities for branded queries.
+Action Output:
+- Current state: Core page has zero mentions of proprietary DDT technology terms.
+- Your move: Add at least one relevant brand term with context. For trailer pages, mention Z-Frame construction. For safety features, mention SafeTack, SafeBump, or SafeKick as applicable.
+- Done when: proprietary_term_count >= 1 on next crawl.
+Priority: High
+Assigned: Brook
+
+---
+
+AIS-003 | Z-Frame Mentioned But Not Defined
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, has_zframe_mention, has_zframe_definition
+FROM page_crawl_snapshots
+WHERE has_zframe_mention = TRUE
+  AND has_zframe_definition = FALSE
+  AND page_type IN ('core', 'outer')
+  AND is_noindex = FALSE
+```
+Threshold: Z-Frame mentioned but no definition sentence present
+Diagnosis: Pages that mention Z-Frame without defining it miss the AI citation pattern. LLMs need a clear "Z-Frame is..." sentence to extract and cite.
+Action Output:
+- Current state: Page mentions Z-Frame but lacks a definition sentence.
+- Your move: Add a definition sentence: "Z-Frame is Double D Trailers' proprietary high-tensile, zinc-infused construction that provides superior strength without the weight of traditional steel."
+- Done when: has_zframe_definition = TRUE on next crawl.
+Priority: High
+Assigned: Brook
+
+---
+
+------------------------------------------------------------
+NEW FIELD RULES - QUESTION H2s (AIS-008)
+------------------------------------------------------------
+
+AIS-008 | No Question-Format H2 Headings for AI PAA
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, word_count, has_question_h2, question_h2_count, h2s
+FROM page_crawl_snapshots
+WHERE page_type = 'outer'
+  AND word_count > 500
+  AND has_question_h2 = FALSE
+  AND is_noindex = FALSE
+```
+Threshold: Outer page with 500+ words but no question-format H2s
+Diagnosis: Pages without question-format H2s cannot be extracted for Google's People Also Ask or AI-generated FAQ snippets. Adding "What is...", "How does...", "Why choose..." H2s creates citable answer blocks.
+Action Output:
+- Current state: Informational page has no question-format H2 headings.
+- Your move: Convert at least 2 H2s to question format (e.g., "What Makes Z-Frame Different?" or "How Does SafeTack Work?"). Follow each with a 2-3 sentence direct answer.
+- Done when: has_question_h2 = TRUE AND question_h2_count >= 2 on next crawl.
+Priority: Medium
+Assigned: Brook
+
+---
+
+------------------------------------------------------------
+NEW FIELD RULES - CTA LINKS (CTA-F4)
+------------------------------------------------------------
+
+CTA-F4 | Outer Pages Missing CTA Link
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, word_count, has_cta_link, has_core_link
+FROM page_crawl_snapshots
+WHERE page_type = 'outer'
+  AND word_count > 500
+  AND has_cta_link = FALSE
+  AND is_noindex = FALSE
+```
+Threshold: Outer page with 500+ words but no link to quote/contact pages
+Diagnosis: Informational pages without conversion paths waste traffic. Every substantive outer page should link to /get-quote/, /contact-us/, or /trailer-finder/.
+Action Output:
+- Current state: Outer page has no CTA link to conversion pages.
+- Your move: Add a contextual link to /get-quote/ or /contact-us/ within the body content. Use action-oriented anchor text like "request a custom quote" or "speak with a trailer specialist."
+- Done when: has_cta_link = TRUE on next crawl.
+Priority: Medium
+Assigned: Brook
+
+---
+
+------------------------------------------------------------
+NEW FIELD RULES - IMAGE ALT TEXT (MAO-01)
+------------------------------------------------------------
+
+MAO-01 | Images Missing Alt Text on Core Pages
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, image_count, images_without_alt, images_with_generic_alt
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND images_without_alt > 0
+  AND is_noindex = FALSE
+```
+Threshold: Any core page with images missing alt text
+Diagnosis: Images without alt text are invisible to search engines and AI systems. Product images should have descriptive alt text including brand terms.
+Action Output:
+- Current state: Core page has {images_without_alt} images without alt text.
+- Your move: Add descriptive alt text to all images. Include model name and relevant brand terms (e.g., "SafeTack reverse-load system in 3-horse gooseneck trailer").
+- Done when: images_without_alt = 0 on next crawl.
+Priority: High
+Assigned: Brook
+
+---
+
+MAO-02 | Images with Generic Alt Text
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, images_with_generic_alt
+FROM page_crawl_snapshots
+WHERE images_with_generic_alt > 2
+  AND page_type IN ('core', 'outer')
+  AND is_noindex = FALSE
+```
+Threshold: More than 2 images with generic alt text (e.g., "image", "photo", "DSC1234")
+Diagnosis: Generic alt text wastes SEO opportunity and provides no value to AI systems trying to understand image content.
+Action Output:
+- Current state: Page has {images_with_generic_alt} images with generic alt text.
+- Your move: Replace generic alt text with descriptive alternatives that include product names and features.
+- Done when: images_with_generic_alt <= 2 on next crawl.
+Priority: Medium
+Assigned: Brook
+
+---
+
+------------------------------------------------------------
+NEW FIELD RULES - CRAWL DEPTH (ILA-007)
+------------------------------------------------------------
+
+ILA-007 | Core Pages Buried Too Deep
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, crawl_depth, page_type, inbound_link_count
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND crawl_depth > 3
+  AND is_noindex = FALSE
+```
+Threshold: Core page more than 3 clicks from homepage
+Diagnosis: Core product pages buried more than 3 clicks deep receive less PageRank and are harder for users and crawlers to find.
+Action Output:
+- Current state: Core page is {crawl_depth} clicks from homepage.
+- Your move: Add a direct link from a Tier 1 or Tier 2 page (homepage, category page) to reduce depth to 3 or less.
+- Done when: crawl_depth <= 3 on next crawl.
+Priority: High
+Assigned: Brook
+
+---
+
+------------------------------------------------------------
+NEW FIELD RULES - LAZY HERO IMAGE (CWV-R7)
+------------------------------------------------------------
+
+CWV-R7 | Lazy-Loaded Hero Image Hurting LCP
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, has_lazy_hero_image, page_type
+FROM page_crawl_snapshots
+WHERE has_lazy_hero_image = TRUE
+  AND page_type = 'core'
+  AND is_noindex = FALSE
+```
+Threshold: Core page with lazy-loaded hero image
+Diagnosis: Lazy-loading the hero/first image delays LCP (Largest Contentful Paint). Above-the-fold images should load immediately.
+Action Output:
+- Current state: Hero image is lazy-loaded, delaying LCP.
+- Your move: Remove loading="lazy" from the first 1-2 images on the page. Add fetchpriority="high" to the hero image.
+- Done when: has_lazy_hero_image = FALSE on next crawl.
+Priority: Critical
+Assigned: Brad
+
+---
+
+------------------------------------------------------------
+NEW FIELD RULES - SITEMAP COVERAGE (TECH-R4)
+------------------------------------------------------------
+
+TECH-R4 | Core Page Missing from Sitemap
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, page_type, in_sitemap
+FROM page_crawl_snapshots
+WHERE page_type = 'core'
+  AND in_sitemap = FALSE
+  AND is_noindex = FALSE
+```
+Threshold: Any indexed core page not in sitemap.xml
+Diagnosis: Core pages missing from sitemap may not be discovered or prioritized by search engines.
+Action Output:
+- Current state: Core page is not included in sitemap.xml.
+- Your move: Add the URL to sitemap.xml and regenerate. Verify with Yoast/RankMath sitemap settings.
+- Done when: in_sitemap = TRUE on next crawl.
+Priority: High
+Assigned: Brad
+
+---
+
+------------------------------------------------------------
+NEW FIELD RULES - VIDEO CONTENT (MAO-04, SCH-006)
+------------------------------------------------------------
+
+MAO-04 | Video Embed Without VideoObject Schema
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, has_video_embed, schema_types
+FROM page_crawl_snapshots
+WHERE has_video_embed = TRUE
+  AND schema_types NOT LIKE '%VideoObject%'
+  AND is_noindex = FALSE
+```
+Threshold: Page has video embed but no VideoObject schema
+Diagnosis: Videos without VideoObject schema cannot appear in video search results or rich snippets.
+Action Output:
+- Current state: Page has embedded video but no VideoObject schema.
+- Your move: Add VideoObject JSON-LD with name, description, thumbnailUrl, uploadDate, and duration.
+- Done when: schema_types includes 'VideoObject' on next crawl.
+Priority: Medium
+Assigned: Brad
+
+---
+
+------------------------------------------------------------
+NEW FIELD RULES - AUTHOR ATTRIBUTION (DDT-EEAT-05)
+------------------------------------------------------------
+
+DDT-EEAT-05 | Long Content Without Author Byline
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, word_count, has_author_byline, author_name
+FROM page_crawl_snapshots
+WHERE word_count > 1000
+  AND has_author_byline = FALSE
+  AND page_type = 'outer'
+  AND is_noindex = FALSE
+```
+Threshold: Outer page with 1000+ words but no author attribution
+Diagnosis: Long-form content without author attribution weakens E-E-A-T signals. Google and AI systems look for expertise indicators.
+Action Output:
+- Current state: Long-form content has no author byline.
+- Your move: Add author name, credentials, and link to author bio page. Use schema Person markup if available.
+- Done when: has_author_byline = TRUE on next crawl.
+Priority: Medium
+Assigned: Brook
+
+---
+
+------------------------------------------------------------
+NEW FIELD RULES - MULTIPLE H1s (OPQ-R4 EXTENSION)
+------------------------------------------------------------
+
+OPQ-R4b | Multiple H1 Tags on Page
+Trigger Source: page_crawl_snapshots
+Trigger Condition: ```sql
+SELECT url, h1_count, h1, page_type
+FROM page_crawl_snapshots
+WHERE h1_count > 1
+  AND is_noindex = FALSE
+  AND is_utility = FALSE
+```
+Threshold: More than 1 H1 tag on any non-utility page
+Diagnosis: Multiple H1 tags dilute heading hierarchy and confuse search engines about the primary topic.
+Action Output:
+- Current state: Page has {h1_count} H1 tags instead of exactly 1.
+- Your move: Keep only the primary H1 and convert others to H2. Check theme templates for hidden H1s.
+- Done when: h1_count = 1 on next crawl.
+Priority: High
+Assigned: Brad
+
+---
+
+------------------------------------------------------------
+GA4 ENGAGEMENT RULES (USE-004)
+------------------------------------------------------------
+
+USE-004 | High Bounce Rate Pages
+Trigger Source: ga4_engagement
+Trigger Condition: ```sql
+SELECT g.url, g.bounce_rate, g.sessions, p.word_count, p.page_type
+FROM ga4_engagement g
+JOIN page_crawl_snapshots p ON g.url = p.url
+WHERE g.high_bounce = TRUE
+  AND g.sessions > 50
+  AND p.page_type IN ('core', 'outer')
+```
+Threshold: Bounce rate > 70% with 50+ sessions
+Diagnosis: High bounce rate indicates content doesn't match user intent or has poor engagement signals.
+Action Output:
+- Current state: Page has {bounce_rate}% bounce rate.
+- Your move: Review title/meta for intent match, add internal links to keep users on site, improve above-the-fold content.
+- Done when: bounce_rate < 60% on next GA4 fetch.
+Priority: Medium
+Assigned: Brook
+
+---
+
+------------------------------------------------------------
+CORE WEB VITALS RULES (CWV-R3, CWV-R8)
+------------------------------------------------------------
+
+CWV-R3 | CLS Score Exceeding Threshold
+Trigger Source: core_web_vitals
+Trigger Condition: ```sql
+SELECT url, cls_score, cls_pass
+FROM core_web_vitals
+WHERE cls_pass = FALSE
+  AND strategy = 'mobile'
+```
+Threshold: CLS > 0.1 on mobile
+Diagnosis: Cumulative Layout Shift above 0.1 causes poor user experience and can hurt rankings.
+Action Output:
+- Current state: CLS score is {cls_score} (threshold: 0.1).
+- Your move: Add width/height to images, reserve space for ads/embeds, avoid inserting content above existing content.
+- Done when: cls_pass = TRUE on next CWV fetch.
+Priority: High
+Assigned: Brad
+
+---
+
+CWV-R8 | TTFB Exceeding Threshold
+Trigger Source: core_web_vitals
+Trigger Condition: ```sql
+SELECT url, ttfb_ms, performance_score
+FROM core_web_vitals
+WHERE ttfb_ms > 800
+  AND strategy = 'mobile'
+```
+Threshold: TTFB > 800ms on mobile
+Diagnosis: Time to First Byte above 800ms indicates server response issues that affect all other performance metrics.
+Action Output:
+- Current state: TTFB is {ttfb_ms}ms (target: <800ms).
+- Your move: Check hosting performance, enable caching, optimize database queries, consider CDN.
+- Done when: ttfb_ms < 800 on next CWV fetch.
+Priority: High
+Assigned: Brad
+
+---
+
+============================================================
+END OF ADDITIONAL RULES
+============================================================
