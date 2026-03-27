@@ -822,6 +822,83 @@ class HomeController extends AbstractController
         return new JsonResponse($this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]));
     }
 
+    #[Route('/api/tasks/{id}/retry', name: 'api_tasks_retry', methods: ['POST'])]
+    public function retryTask(int $id): JsonResponse
+    {
+        try {
+            $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
+            
+            if (!$task) {
+                return new JsonResponse(['error' => 'Task not found'], 404);
+            }
+            
+            // Increment attempt number
+            $attemptNumber = ((int)($task['attempt_number'] ?? 1)) + 1;
+            
+            // Archive current attempt to task_attempts table (if it exists)
+            try {
+                $this->db->executeStatement(
+                    'INSERT INTO task_attempts (task_id, attempt_number, status, recheck_result, completed_at, recheck_date, outcome_summary)
+                     VALUES (?, ?, ?, ?, ?, ?, ?)',
+                    [
+                        $id,
+                        $task['attempt_number'] ?? 1,
+                        $task['status'],
+                        $task['recheck_result'],
+                        $task['completed_at'],
+                        $task['recheck_date'],
+                        'Retried after FAIL - attempt ' . ($task['attempt_number'] ?? 1)
+                    ]
+                );
+            } catch (\Exception $e) {
+                // task_attempts table might not exist - that's OK, continue
+            }
+            
+            // Reset task to pending with incremented attempt number
+            $this->db->executeStatement(
+                'UPDATE tasks SET 
+                    status = ?,
+                    attempt_number = ?,
+                    recheck_verified = ?,
+                    recheck_result = NULL,
+                    recheck_date = NULL,
+                    completed_at = NULL,
+                    updated_at = NOW()
+                 WHERE id = ?',
+                ['pending', $attemptNumber, 0, $id]
+            );
+            
+            // Update title to show it's a retry
+            $currentTitle = $task['title'] ?? '';
+            if (!str_contains($currentTitle, '[RETRY')) {
+                $newTitle = '[RETRY-' . $attemptNumber . '] ' . preg_replace('/^\[RECHECK-FAIL\]\s*/', '', $currentTitle);
+                $this->db->executeStatement(
+                    'UPDATE tasks SET title = ? WHERE id = ?',
+                    [$newTitle, $id]
+                );
+            }
+            
+            // Log activity
+            try {
+                $session = $this->requestStack->getSession();
+                $actor = $session->get('persona_name', 'Unknown');
+                $this->logActivity($actor, 'retried_task', 'task', $id, $task['title'] ?? '', "Attempt #{$attemptNumber}");
+            } catch (\Exception $e) {
+                // Ignore logging errors
+            }
+            
+            return new JsonResponse([
+                'success' => true,
+                'message' => 'Task queued for retry (Attempt #' . $attemptNumber . ')',
+                'task_id' => $id,
+                'attempt_number' => $attemptNumber
+            ]);
+            
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => 'Failed to retry task: ' . $e->getMessage()], 500);
+        }
+    }
+
     #[Route('/api/rechecks', name: 'api_rechecks', methods: ['GET'])]
     public function listRechecks(): JsonResponse
     {
@@ -1657,4 +1734,6 @@ PROMPT;
         return $intro;
     }
 }
+    
+
     

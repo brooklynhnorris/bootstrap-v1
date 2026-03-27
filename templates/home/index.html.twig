@@ -305,10 +305,15 @@
         .board-signal-bar strong { color: var(--text-primary); }
         #board-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(4, minmax(220px, 1fr));
             gap: 14px;
             flex: 1;
-            overflow: hidden;
+            overflow-x: auto;
+            overflow-y: hidden;
+            min-width: 0;
+        }
+        @media (max-width: 1100px) {
+            #board-grid { grid-template-columns: repeat(4, minmax(200px, 1fr)); }
         }
         /* ── BOARD COLUMNS ── */
         .board-column {
@@ -425,6 +430,69 @@
             margin-bottom: 0;
         }
         .signal-icon { font-size: 16px; }
+
+        /* ── RULE CATEGORY FILTER ── */
+        .rule-filter-bar {
+            display: flex; align-items: center; gap: 6px;
+            padding: 8px 0; flex-wrap: wrap;
+        }
+        .rule-filter-pill {
+            padding: 4px 10px; font-size: 11px; font-weight: 600;
+            border-radius: 20px; border: 1px solid var(--border-subtle);
+            background: var(--bg-card); color: var(--text-muted);
+            cursor: pointer; transition: all 0.15s; font-family: var(--font-mono);
+        }
+        .rule-filter-pill:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
+        .rule-filter-pill.active { background: var(--accent-blue-dim); border-color: var(--accent-blue); color: var(--accent-blue); }
+        .rule-filter-label { font-size: 11px; color: var(--text-muted); margin-right: 4px; }
+
+        /* ── COPY BUTTON ── */
+        .copy-btn {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 4px 10px; font-size: 11px; font-weight: 500;
+            border-radius: 5px; border: 1px solid var(--border-subtle);
+            background: var(--bg-card); color: var(--text-secondary);
+            cursor: pointer; transition: all 0.15s; font-family: var(--font-body);
+        }
+        .copy-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); background: var(--accent-blue-dim); }
+        .copy-btn.copied { background: var(--accent-green-dim); border-color: var(--accent-green); color: var(--accent-green); }
+        
+        /* ── RETRY BUTTON ── */
+        .retry-btn {
+            display: inline-flex; align-items: center; gap: 4px;
+            padding: 6px 14px; font-size: 12px; font-weight: 600;
+            border-radius: 6px; border: none;
+            background: var(--accent-red); color: white;
+            cursor: pointer; transition: all 0.15s; font-family: var(--font-body);
+        }
+        .retry-btn:hover { background: #b91c1c; }
+
+        /* ── PROGRESS BAR ── */
+        .progress-bar-container {
+            width: 100%; height: 6px; background: var(--bg-tertiary);
+            border-radius: 3px; overflow: hidden; margin-top: 8px;
+        }
+        .progress-bar-fill {
+            height: 100%; background: var(--accent-green);
+            border-radius: 3px; transition: width 0.3s ease;
+        }
+        .progress-bar-fill.partial { background: var(--accent-yellow); }
+        .progress-bar-fill.fail { background: var(--accent-red); }
+
+        /* ── SKELETON LOADING ── */
+        .skeleton { 
+            background: linear-gradient(90deg, #f0f0f3 25%, #e8e8ec 50%, #f0f0f3 75%);
+            background-size: 200% 100%;
+            animation: skeleton-shimmer 1.5s infinite;
+            border-radius: 4px;
+        }
+        @keyframes skeleton-shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+        .skeleton-title { height: 16px; width: 70%; margin-bottom: 8px; }
+        .skeleton-text { height: 12px; width: 100%; margin-bottom: 6px; }
+        .skeleton-text.short { width: 40%; }
 
         /* ── RIGHT PANEL (task detail + add task) ── */
         #task-detail-panel {
@@ -1266,6 +1334,19 @@
             <span class="signal-icon">♟</span>
             <span>Loading your position on the board, <strong>{{ userName }}</strong>…</span>
         </div>
+        <!-- Rule Category Filter -->
+        <div class="rule-filter-bar" id="rule-filter-bar">
+            <span class="rule-filter-label">Filter:</span>
+            <button class="rule-filter-pill active" data-filter="all" onclick="setRuleFilter('all')">All</button>
+            <button class="rule-filter-pill" data-filter="ETA" onclick="setRuleFilter('ETA')">ETA</button>
+            <button class="rule-filter-pill" data-filter="KIA" onclick="setRuleFilter('KIA')">KIA</button>
+            <button class="rule-filter-pill" data-filter="OPQ" onclick="setRuleFilter('OPQ')">OPQ</button>
+            <button class="rule-filter-pill" data-filter="MAO" onclick="setRuleFilter('MAO')">MAO</button>
+            <button class="rule-filter-pill" data-filter="TECH" onclick="setRuleFilter('TECH')">TECH</button>
+            <button class="rule-filter-pill" data-filter="DDT" onclick="setRuleFilter('DDT')">DDT</button>
+            <button class="rule-filter-pill" data-filter="ILA" onclick="setRuleFilter('ILA')">ILA</button>
+            <button class="rule-filter-pill" data-filter="CWV" onclick="setRuleFilter('CWV')">CWV</button>
+        </div>
         <div id="board-grid">
             <!-- Cards rendered by JS -->
         </div>
@@ -1286,7 +1367,7 @@
         <div class="typing-indicator" id="typing">
             <div class="thinking-bubble">
                 <div class="thinking-bar"><div class="thinking-bar-fill"></div></div>
-                <span class="thinking-text">Scanning the board…</span>
+                <span class="thinking-text" id="thinking-text">Scanning the board…</span>
             </div>
         </div>
         <div id="input-area">
@@ -1788,6 +1869,10 @@
             bubble.innerHTML  = marked.parse(processed);
             renderPendingReviewCards(bubble);
             makeCollapsible(bubble);
+            
+            // Add copy buttons to code blocks
+            addCopyButtonsToCodeBlocks(bubble);
+            
             div.appendChild(bubble);
             if (text.length > 200) {
                 const actions = document.createElement('div');
@@ -1805,6 +1890,28 @@
         }
         messagesEl.appendChild(div);
         messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+    
+    function addCopyButtonsToCodeBlocks(bubble) {
+        const codeBlocks = bubble.querySelectorAll('pre');
+        codeBlocks.forEach((pre, idx) => {
+            // Create wrapper for positioning
+            const wrapper = document.createElement('div');
+            wrapper.style.cssText = 'position:relative;';
+            pre.parentNode.insertBefore(wrapper, pre);
+            wrapper.appendChild(pre);
+            
+            // Create copy button
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'copy-btn';
+            copyBtn.style.cssText = 'position:absolute;top:6px;right:6px;z-index:1;';
+            copyBtn.innerHTML = '📋 Copy';
+            copyBtn.onclick = function() {
+                const code = pre.querySelector('code') ? pre.querySelector('code').textContent : pre.textContent;
+                copyToClipboard(code, copyBtn);
+            };
+            wrapper.appendChild(copyBtn);
+        });
     }
 
     // Review Card Processing
@@ -2785,12 +2892,29 @@
     }
 
     async function requestBriefingForTask(taskId, title, description, priority) {
+        // Update thinking text dynamically
+        const thinkingTexts = [
+            'Pulling page data…',
+            'Analyzing ' + (title.length > 30 ? title.substring(0,27) + '...' : title) + '…',
+            'Checking GSC metrics…',
+            'Preparing your briefing…'
+        ];
+        let textIdx = 0;
+        const thinkingEl = document.getElementById('thinking-text');
+        const thinkingInterval = setInterval(() => {
+            if (thinkingEl && textIdx < thinkingTexts.length) {
+                thinkingEl.textContent = thinkingTexts[textIdx];
+                textIdx++;
+            }
+        }, 2000);
+        
         const loadingDiv = document.createElement('div');
         loadingDiv.className = 'message assistant';
         loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Pulling page data for <strong>' + escapeHtml(title) + '</strong>…</div>';
         loadingDiv.id = 'briefing-loading';
         messagesEl.appendChild(loadingDiv);
         typingEl.style.display = 'block';
+        if (thinkingEl) thinkingEl.textContent = thinkingTexts[0];
         messagesEl.scrollTop = messagesEl.scrollHeight;
         sendEl.disabled = true;
 
@@ -2910,6 +3034,7 @@
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
+            clearInterval(thinkingInterval); // Clear the thinking text animation
             const data = await res.json();
             const reply = data.response || data.error || 'No response.';
             if (data.conversation_id) {
@@ -2922,11 +3047,13 @@
             messages.push({ role: 'assistant', content: reply });
             appendMessage('assistant', reply);
         } catch(e) {
+            clearInterval(thinkingInterval); // Clear interval on error too
             const loadEl = document.getElementById('briefing-loading');
             if (loadEl) loadEl.remove();
             appendMessage('assistant', 'Signal lost — type your question and I will get back on the board.');
         }
         typingEl.style.display = 'none';
+        if (thinkingEl) thinkingEl.textContent = 'Scanning the board…'; // Reset text
         sendEl.disabled = false;
         inputEl.focus();
     }
@@ -2979,11 +3106,20 @@
         const grid = document.getElementById('board-grid');
         if (!grid) return;
 
+        // Apply rule category filter
+        let filteredTasks = tasks;
+        if (activeRuleFilter && activeRuleFilter !== 'all') {
+            filteredTasks = tasks.filter(t => {
+                const ruleMatch = (t.title || '').match(/\[([A-Z]+)/);
+                return ruleMatch && ruleMatch[1] === activeRuleFilter;
+            });
+        }
+
         const cols = {
-            critical: tasks.filter(t => t.priority === 'critical' && t.status !== 'done'),
-            high:     tasks.filter(t => t.priority === 'high'     && t.status !== 'done'),
-            medium:   tasks.filter(t => t.priority === 'medium'   && t.status !== 'done'),
-            done:     tasks.filter(t => t.status === 'done').slice(0, 5),
+            critical: filteredTasks.filter(t => t.priority === 'critical' && t.status !== 'done'),
+            high:     filteredTasks.filter(t => t.priority === 'high'     && t.status !== 'done'),
+            medium:   filteredTasks.filter(t => t.priority === 'medium'   && t.status !== 'done'),
+            done:     filteredTasks.filter(t => t.status === 'done').slice(0, 10),
         };
 
         const colConfig = [
@@ -3082,7 +3218,27 @@
 
     function extractUrl(title) {
         const m = title.match(/(\/[a-z0-9\-\/]+\/)/);
-        return m ? m[1] : null;
+        if (!m) return null;
+        // Clean double slashes
+        return m[1].replace(/\/\//g, '/');
+    }
+    
+    // Copy text to clipboard helper
+    function copyToClipboard(text, btnEl) {
+        navigator.clipboard.writeText(text).then(() => {
+            if (btnEl) {
+                const original = btnEl.innerHTML;
+                btnEl.innerHTML = '✓ Copied';
+                btnEl.classList.add('copied');
+                setTimeout(() => {
+                    btnEl.innerHTML = original;
+                    btnEl.classList.remove('copied');
+                }, 2000);
+            }
+            showNotification('Copied to clipboard', 'green');
+        }).catch(() => {
+            showNotification('Failed to copy', 'red');
+        });
     }
 
 
@@ -3161,13 +3317,31 @@
 
             let html = '';
 
-            // Stats row
-            html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:32px;">';
-            html += '<div class="stat-card green"><div class="stat-label">Passed</div><div class="stat-value">' + passes.length + '</div></div>';
-            html += '<div class="stat-card red"><div class="stat-label">Failed</div><div class="stat-value">' + fails.length + '</div></div>';
-            html += '<div class="stat-card yellow"><div class="stat-label">Partial</div><div class="stat-value">' + partials.length + '</div></div>';
-            html += '<div class="stat-card blue"><div class="stat-label">Awaiting Recheck</div><div class="stat-value">' + pending.length + '</div></div>';
+            // Calculate progress percentages
+            const totalVerified = verified.length;
+            const passPercent = totalVerified > 0 ? Math.round((passes.length / totalVerified) * 100) : 0;
+            const failPercent = totalVerified > 0 ? Math.round((fails.length / totalVerified) * 100) : 0;
+            const partialPercent = totalVerified > 0 ? Math.round((partials.length / totalVerified) * 100) : 0;
+
+            // Stats row with progress
+            html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;">';
+            html += '<div class="stat-card green"><div class="stat-label">Passed</div><div class="stat-value">' + passes.length + '</div><div class="stat-sub">' + passPercent + '% success rate</div></div>';
+            html += '<div class="stat-card red"><div class="stat-label">Failed</div><div class="stat-value">' + fails.length + '</div><div class="stat-sub">Need revision</div></div>';
+            html += '<div class="stat-card yellow"><div class="stat-label">Partial</div><div class="stat-value">' + partials.length + '</div><div class="stat-sub">Iterate again</div></div>';
+            html += '<div class="stat-card blue"><div class="stat-label">Awaiting Recheck</div><div class="stat-value">' + pending.length + '</div><div class="stat-sub">In queue</div></div>';
             html += '</div>';
+            
+            // Progress bar
+            if (totalVerified > 0) {
+                html += '<div style="margin-bottom:32px;">';
+                html += '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:6px;"><span>Verification Progress</span><span>' + passes.length + '/' + totalVerified + ' passed</span></div>';
+                html += '<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--bg-tertiary);">';
+                if (passes.length > 0) html += '<div style="width:' + passPercent + '%;background:#16a34a;"></div>';
+                if (partials.length > 0) html += '<div style="width:' + partialPercent + '%;background:#d97706;"></div>';
+                if (fails.length > 0) html += '<div style="width:' + failPercent + '%;background:#dc2626;"></div>';
+                html += '</div>';
+                html += '</div>';
+            }
 
             // Fails first (need attention)
             if (fails.length > 0) {
@@ -3231,14 +3405,35 @@
     function buildResultCard(task, resultType) {
         const icon = resultType === 'pass' ? '✓' : resultType === 'partial' ? '⚠' : '✗';
         const checkedDate = task.recheck_date ? new Date(task.recheck_date).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '';
+        const retryBtn = resultType === 'fail' 
+            ? '<button class="retry-btn" onclick="event.stopPropagation(); retryFailedTask(' + task.id + ', \'' + (task.title||'').replace(/'/g, "\\'") + '\')">🔄 Retry</button>' 
+            : '';
         return '<div class="result-card" style="cursor:pointer;" onclick="showChatForTask(' + task.id + ', \'' + (task.title||'').replace(/'/g, "\\'") + '\', \'\', \'\')">' +
             '<div class="result-icon ' + resultType + '">' + icon + '</div>' +
             '<div class="result-content">' +
                 '<div class="result-title">' + escapeHtml(task.title || '') + '</div>' +
-                '<div class="result-detail">' + (resultType === 'pass' ? 'Fix verified — GSC metrics confirmed.' : resultType === 'partial' ? 'Partial improvement. May need another pass.' : 'No measurable improvement. Click to see learning feedback and revised approach.') + '</div>' +
-                '<div class="result-metric">' + resultType.toUpperCase() + ' · Checked ' + checkedDate + '</div>' +
+                '<div class="result-detail">' + (resultType === 'pass' ? 'Fix verified — GSC metrics confirmed.' : resultType === 'partial' ? 'Partial improvement. May need another pass.' : 'No measurable improvement. Click to see feedback.') + '</div>' +
+                '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">' +
+                    '<div class="result-metric">' + resultType.toUpperCase() + ' · Checked ' + checkedDate + '</div>' +
+                    retryBtn +
+                '</div>' +
             '</div>' +
         '</div>';
+    }
+    
+    async function retryFailedTask(taskId, title) {
+        // Reset task status to pending for another attempt
+        try {
+            await fetch('/api/tasks/' + taskId + '/retry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            showNotification('Task queued for retry — ' + title.substring(0, 30) + '...', 'green');
+            loadResultsView();
+            refreshBoard();
+        } catch(e) {
+            showNotification('Could not retry task', 'red');
+        }
     }
 
     async function loadDashboardData() {
@@ -3421,11 +3616,21 @@
 
 <script>
     // ── Board filter helper (uses topbar buttons) ──
+    let activeRuleFilter = 'all';
+    
     function setBoardFilter(filter) {
         activeTaskFilter = filter;
         ['mine','team','wins','all'].forEach(f => {
             const btn = document.getElementById('filter-' + f);
             if (btn) btn.classList.toggle('active', f === filter);
+        });
+        refreshBoard();
+    }
+    
+    function setRuleFilter(rulePrefix) {
+        activeRuleFilter = rulePrefix;
+        document.querySelectorAll('.rule-filter-pill').forEach(pill => {
+            pill.classList.toggle('active', pill.dataset.filter === rulePrefix);
         });
         refreshBoard();
     }
