@@ -3,8 +3,6 @@
 namespace App\Command;
 
 use Doctrine\DBAL\Connection;
-use Google\Client as GoogleClient;
-use Google\Service\AnalyticsData;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
 use Symfony\Component\Console\Input\InputInterface;
@@ -16,12 +14,7 @@ use Symfony\Component\Console\Output\OutputInterface;
  * 
  * Supports rules: USE-004 (bounce/dwell), USE-005, CI-03, CI-05 (period comparison)
  * 
- * This command extends your existing GA4 integration to pull engagement metrics
- * that help identify pages with poor user experience signals.
- * 
- * Prerequisites:
- * - GA4 OAuth already configured (you have this from existing GA4 setup)
- * - Same credentials.json and token.json used by FetchGa4Command
+ * Uses same OAuth credentials as FetchGa4Command (environment variables)
  * 
  * Usage:
  *   php bin/console app:fetch-ga4-engagement              # Last 28 days
@@ -31,18 +24,9 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'app:fetch-ga4-engagement', description: 'Fetch GA4 engagement metrics (bounce rate, session duration)')]
 class FetchGa4EngagementCommand extends Command
 {
-    private string $propertyId;
-    private string $credentialsPath;
-    private string $tokenPath;
-
     public function __construct(private Connection $db)
     {
         parent::__construct();
-        
-        // Use same paths as your existing GA4 setup
-        $this->propertyId = $_ENV['GA4_PROPERTY_ID'] ?? getenv('GA4_PROPERTY_ID') ?? '350837592';
-        $this->credentialsPath = dirname(__DIR__, 2) . '/credentials.json';
-        $this->tokenPath = dirname(__DIR__, 2) . '/token.json';
     }
 
     protected function configure(): void
@@ -55,29 +39,37 @@ class FetchGa4EngagementCommand extends Command
 
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
+        $clientId     = $_ENV['GOOGLE_CLIENT_ID'] ?? '';
+        $clientSecret = $_ENV['GOOGLE_CLIENT_SECRET'] ?? '';
+        $refreshToken = $_ENV['GOOGLE_REFRESH_TOKEN'] ?? '';
+        $propertyId   = $_ENV['GA4_PROPERTY_ID'] ?? '';
+
+        if (!$clientId || !$clientSecret || !$refreshToken || !$propertyId) {
+            $output->writeln('<error>Missing Google OAuth credentials or GA4_PROPERTY_ID.</error>');
+            return Command::FAILURE;
+        }
+
         $days = (int) $input->getOption('days');
         $compare = (bool) $input->getOption('compare');
         $limit = (int) $input->getOption('limit');
 
         $this->ensureSchema();
 
-        // Initialize Google Client
-        $client = $this->getAuthenticatedClient($output);
-        if (!$client) {
+        // Get access token
+        $output->writeln('Getting Google access token...');
+        $accessToken = $this->getAccessToken($clientId, $clientSecret, $refreshToken, $output);
+        if (!$accessToken) {
             return Command::FAILURE;
         }
 
-        $analytics = new AnalyticsData($client);
-        $property = 'properties/' . $this->propertyId;
-
         $output->writeln("Fetching GA4 engagement metrics for last {$days} days...");
-        $output->writeln("Property: {$this->propertyId}\n");
+        $output->writeln("Property: {$propertyId}\n");
 
         // Fetch current period
         $startDate = date('Y-m-d', strtotime("-{$days} days"));
         $endDate = date('Y-m-d', strtotime('-1 day'));
 
-        $currentData = $this->fetchEngagementData($analytics, $property, $startDate, $endDate, $limit, $output);
+        $currentData = $this->fetchEngagementData($accessToken, $propertyId, $startDate, $endDate, $limit, $output);
         
         if ($currentData === null) {
             $output->writeln('<error>Failed to fetch current period data</error>');
@@ -93,7 +85,7 @@ class FetchGa4EngagementCommand extends Command
             $priorEndDate = date('Y-m-d', strtotime("-" . ($days + 1) . " days"));
             
             $output->writeln("\nFetching comparison period ({$priorStartDate} to {$priorEndDate})...");
-            $priorData = $this->fetchEngagementData($analytics, $property, $priorStartDate, $priorEndDate, $limit, $output);
+            $priorData = $this->fetchEngagementData($accessToken, $propertyId, $priorStartDate, $priorEndDate, $limit, $output);
             
             if ($priorData) {
                 $output->writeln("Fetched " . count($priorData) . " pages for comparison period");
@@ -110,67 +102,120 @@ class FetchGa4EngagementCommand extends Command
         return Command::SUCCESS;
     }
 
+    private function getAccessToken(string $clientId, string $clientSecret, string $refreshToken, OutputInterface $output): ?string
+    {
+        $tokenUrl = 'https://oauth2.googleapis.com/token';
+        $tokenBody = http_build_query([
+            'client_id'     => $clientId,
+            'client_secret' => $clientSecret,
+            'refresh_token' => $refreshToken,
+            'grant_type'    => 'refresh_token',
+        ]);
+
+        $response = @file_get_contents($tokenUrl, false, stream_context_create([
+            'http' => [
+                'method'  => 'POST',
+                'header'  => 'Content-Type: application/x-www-form-urlencoded',
+                'content' => $tokenBody,
+                'timeout' => 30,
+                'ignore_errors' => true,
+            ],
+        ]));
+
+        if ($response === false) {
+            $output->writeln('<error>Failed to connect to Google OAuth</error>');
+            return null;
+        }
+
+        $data = json_decode($response, true);
+        if (isset($data['error'])) {
+            $output->writeln('<error>OAuth error: ' . ($data['error_description'] ?? $data['error']) . '</error>');
+            return null;
+        }
+
+        return $data['access_token'] ?? null;
+    }
+
     private function fetchEngagementData(
-        AnalyticsData $analytics, 
-        string $property, 
-        string $startDate, 
+        string $accessToken,
+        string $propertyId,
+        string $startDate,
         string $endDate,
         int $limit,
         OutputInterface $output
     ): ?array {
-        try {
-            $response = $analytics->properties->runReport($property, [
-                'dateRanges' => [
-                    ['startDate' => $startDate, 'endDate' => $endDate]
+        $url = "https://analyticsdata.googleapis.com/v1beta/properties/{$propertyId}:runReport";
+
+        $requestBody = json_encode([
+            'dateRanges' => [
+                ['startDate' => $startDate, 'endDate' => $endDate]
+            ],
+            'dimensions' => [
+                ['name' => 'pagePath'],
+            ],
+            'metrics' => [
+                ['name' => 'sessions'],
+                ['name' => 'screenPageViews'],
+                ['name' => 'bounceRate'],
+                ['name' => 'averageSessionDuration'],
+                ['name' => 'engagementRate'],
+                ['name' => 'engagedSessions'],
+                ['name' => 'userEngagementDuration'],
+            ],
+            'orderBys' => [
+                ['metric' => ['metricName' => 'sessions'], 'desc' => true]
+            ],
+            'limit' => $limit,
+        ]);
+
+        $response = @file_get_contents($url, false, stream_context_create([
+            'http' => [
+                'method'  => 'POST',
+                'header'  => [
+                    'Authorization: Bearer ' . $accessToken,
+                    'Content-Type: application/json',
                 ],
-                'dimensions' => [
-                    ['name' => 'pagePath'],
-                ],
-                'metrics' => [
-                    ['name' => 'sessions'],
-                    ['name' => 'screenPageViews'],
-                    ['name' => 'bounceRate'],
-                    ['name' => 'averageSessionDuration'],
-                    ['name' => 'engagementRate'],
-                    ['name' => 'engagedSessions'],
-                    ['name' => 'userEngagementDuration'],
-                    ['name' => 'scrolledUsers'],  // Users who scrolled 90%+
-                ],
-                'orderBys' => [
-                    ['metric' => ['metricName' => 'sessions'], 'desc' => true]
-                ],
-                'limit' => $limit,
-            ]);
+                'content' => $requestBody,
+                'timeout' => 60,
+                'ignore_errors' => true,
+            ],
+        ]));
 
-            $data = [];
-            foreach ($response->getRows() ?? [] as $row) {
-                $dims = $row->getDimensionValues();
-                $mets = $row->getMetricValues();
-
-                $pagePath = $dims[0]->getValue();
-                
-                // Normalize path
-                $pagePath = '/' . trim(parse_url($pagePath, PHP_URL_PATH) ?? $pagePath, '/');
-                if ($pagePath !== '/') $pagePath .= '/';
-
-                $data[$pagePath] = [
-                    'sessions' => (int) $mets[0]->getValue(),
-                    'pageviews' => (int) $mets[1]->getValue(),
-                    'bounce_rate' => (float) $mets[2]->getValue(),
-                    'avg_session_duration' => (float) $mets[3]->getValue(),
-                    'engagement_rate' => (float) $mets[4]->getValue(),
-                    'engaged_sessions' => (int) $mets[5]->getValue(),
-                    'user_engagement_duration' => (float) $mets[6]->getValue(),
-                    'scrolled_users' => (int) $mets[7]->getValue(),
-                ];
-            }
-
-            return $data;
-
-        } catch (\Exception $e) {
-            $output->writeln('<error>GA4 API Error: ' . $e->getMessage() . '</error>');
+        if ($response === false) {
+            $output->writeln('<error>Failed to connect to GA4 API</error>');
             return null;
         }
+
+        $data = json_decode($response, true);
+        
+        if (isset($data['error'])) {
+            $output->writeln('<error>GA4 API error: ' . ($data['error']['message'] ?? 'Unknown error') . '</error>');
+            return null;
+        }
+
+        $result = [];
+        foreach ($data['rows'] ?? [] as $row) {
+            $dims = $row['dimensionValues'] ?? [];
+            $mets = $row['metricValues'] ?? [];
+
+            $pagePath = $dims[0]['value'] ?? '';
+            
+            // Normalize path
+            $pagePath = '/' . trim(parse_url($pagePath, PHP_URL_PATH) ?? $pagePath, '/');
+            if ($pagePath !== '/') $pagePath .= '/';
+
+            $result[$pagePath] = [
+                'sessions' => (int) ($mets[0]['value'] ?? 0),
+                'pageviews' => (int) ($mets[1]['value'] ?? 0),
+                'bounce_rate' => (float) ($mets[2]['value'] ?? 0),
+                'avg_session_duration' => (float) ($mets[3]['value'] ?? 0),
+                'engagement_rate' => (float) ($mets[4]['value'] ?? 0),
+                'engaged_sessions' => (int) ($mets[5]['value'] ?? 0),
+                'user_engagement_duration' => (float) ($mets[6]['value'] ?? 0),
+            ];
+        }
+
+        return $result;
     }
 
     private function storeEngagementData(array $currentData, array $priorData, int $days, OutputInterface $output): int
@@ -192,11 +237,6 @@ class FetchGa4EngagementCommand extends Command
                 $engagementRateDelta = $metrics['engagement_rate'] - $priorMetrics['engagement_rate'];
             }
 
-            // Calculate scroll depth percentage (scrolled_users / sessions)
-            $scrollDepthPct = $metrics['sessions'] > 0 
-                ? ($metrics['scrolled_users'] / $metrics['sessions']) * 100 
-                : 0;
-
             // Delete existing record for this URL + snapshot date
             $this->db->executeStatement(
                 'DELETE FROM ga4_engagement WHERE url = ? AND snapshot_date = ?',
@@ -213,7 +253,6 @@ class FetchGa4EngagementCommand extends Command
                 'avg_session_duration' => $metrics['avg_session_duration'],
                 'engagement_rate' => $metrics['engagement_rate'],
                 'engaged_sessions' => $metrics['engaged_sessions'],
-                'scroll_depth_pct' => $scrollDepthPct,
                 // Period comparison deltas
                 'bounce_rate_delta' => $bounceRateDelta,
                 'sessions_delta' => $sessionsDelta,
@@ -221,7 +260,6 @@ class FetchGa4EngagementCommand extends Command
                 // Flags for rule triggers
                 'high_bounce' => $metrics['bounce_rate'] > 0.7 ? 1 : 0,  // >70% bounce
                 'low_engagement' => $metrics['engagement_rate'] < 0.4 ? 1 : 0,  // <40% engagement
-                'low_scroll_depth' => $scrollDepthPct < 25 ? 1 : 0,  // <25% scroll to bottom
             ]);
 
             $stored++;
@@ -239,8 +277,7 @@ class FetchGa4EngagementCommand extends Command
                 AVG(engagement_rate) as avg_engagement_rate,
                 AVG(avg_session_duration) as avg_duration,
                 SUM(CASE WHEN high_bounce = TRUE THEN 1 ELSE 0 END) as high_bounce_pages,
-                SUM(CASE WHEN low_engagement = TRUE THEN 1 ELSE 0 END) as low_engagement_pages,
-                SUM(CASE WHEN low_scroll_depth = TRUE THEN 1 ELSE 0 END) as low_scroll_pages
+                SUM(CASE WHEN low_engagement = TRUE THEN 1 ELSE 0 END) as low_engagement_pages
             FROM ga4_engagement
             WHERE snapshot_date = ?
         ", [date('Y-m-d')]);
@@ -254,48 +291,7 @@ class FetchGa4EngagementCommand extends Command
             $output->writeln("\n  Problem Pages:");
             $output->writeln(sprintf("    High bounce (>70%%): %d pages", $stats['high_bounce_pages']));
             $output->writeln(sprintf("    Low engagement (<40%%): %d pages", $stats['low_engagement_pages']));
-            $output->writeln(sprintf("    Low scroll depth (<25%%): %d pages", $stats['low_scroll_pages']));
         }
-    }
-
-    private function getAuthenticatedClient(OutputInterface $output): ?GoogleClient
-    {
-        if (!file_exists($this->credentialsPath)) {
-            $output->writeln("<error>credentials.json not found at {$this->credentialsPath}</error>");
-            return null;
-        }
-
-        $client = new GoogleClient();
-        $client->setAuthConfig($this->credentialsPath);
-        $client->setScopes([
-            'https://www.googleapis.com/auth/analytics.readonly',
-        ]);
-        $client->setAccessType('offline');
-
-        // Load existing token
-        if (file_exists($this->tokenPath)) {
-            $token = json_decode(file_get_contents($this->tokenPath), true);
-            $client->setAccessToken($token);
-
-            // Refresh if expired
-            if ($client->isAccessTokenExpired()) {
-                if ($client->getRefreshToken()) {
-                    $newToken = $client->fetchAccessTokenWithRefreshToken($client->getRefreshToken());
-                    if (isset($newToken['access_token'])) {
-                        file_put_contents($this->tokenPath, json_encode($newToken));
-                        $output->writeln("Token refreshed successfully");
-                    }
-                } else {
-                    $output->writeln("<error>Token expired and no refresh token available</error>");
-                    return null;
-                }
-            }
-        } else {
-            $output->writeln("<error>token.json not found. Run OAuth flow first.</error>");
-            return null;
-        }
-
-        return $client;
     }
 
     private function ensureSchema(): void
@@ -318,7 +314,6 @@ class FetchGa4EngagementCommand extends Command
                     avg_session_duration    DECIMAL(10,2) DEFAULT NULL,
                     engagement_rate         DECIMAL(5,4) DEFAULT NULL,
                     engaged_sessions        INT DEFAULT 0,
-                    scroll_depth_pct        DECIMAL(5,2) DEFAULT NULL,
                     -- Period comparison deltas
                     bounce_rate_delta       DECIMAL(5,4) DEFAULT NULL,
                     sessions_delta          INT DEFAULT NULL,
@@ -326,7 +321,6 @@ class FetchGa4EngagementCommand extends Command
                     -- Rule trigger flags
                     high_bounce             BOOLEAN DEFAULT FALSE,
                     low_engagement          BOOLEAN DEFAULT FALSE,
-                    low_scroll_depth        BOOLEAN DEFAULT FALSE,
                     UNIQUE(url, snapshot_date)
                 )
             ");
@@ -336,3 +330,5 @@ class FetchGa4EngagementCommand extends Command
         }
     }
 }
+
+    
