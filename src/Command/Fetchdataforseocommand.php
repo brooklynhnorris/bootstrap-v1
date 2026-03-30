@@ -166,8 +166,8 @@ class FetchDataForSeoCommand extends Command
 
         if (empty($queries)) return null;
 
-        // Use dataforseo_labs/google/bulk_keyword_difficulty/live
-        // Returns search_volume + keyword_difficulty + cpc + competition
+        // Use dataforseo_labs/google/keyword_overview/live
+        // Returns keyword_info.search_volume, keyword_info.cpc, keyword_info.competition
         // $0.01 per request + $0.0001 per result
         $chunks = array_chunk($queries, 100);
         $allResults = [];
@@ -179,7 +179,7 @@ class FetchDataForSeoCommand extends Command
                 'language_name' => 'English',
             ]];
 
-            $result = $this->callApi($login, $password, 'dataforseo_labs/google/bulk_keyword_difficulty/live', $payload);
+            $result = $this->callApi($login, $password, 'dataforseo_labs/google/keyword_overview/live', $payload);
             if ($result) {
                 $allResults = array_merge($allResults, $result);
             }
