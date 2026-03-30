@@ -1051,6 +1051,49 @@
             font-style: italic;
         }
 
+        /* Result detail action buttons */
+        .rdp-action-btn {
+            padding: 8px 16px; border-radius: 6px;
+            font-size: 12px; font-weight: 600;
+            cursor: pointer; font-family: var(--font-body);
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-card);
+            transition: all 0.15s;
+        }
+        .rdp-action-btn.retry {
+            background: var(--accent-blue-dim);
+            border-color: var(--accent-blue-border);
+            color: var(--accent-blue);
+        }
+        .rdp-action-btn.retry:hover {
+            background: var(--accent-blue);
+            color: white;
+        }
+        .rdp-action-btn.revise {
+            background: #fefce8;
+            border-color: #fde68a;
+            color: var(--accent-yellow);
+        }
+        .rdp-action-btn.revise:hover {
+            background: var(--accent-yellow);
+            color: white;
+        }
+
+        /* Inline table action buttons */
+        .table-action-btn {
+            padding: 3px 7px; border-radius: 4px;
+            font-size: 12px; cursor: pointer;
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-card);
+            color: var(--text-muted);
+            transition: all 0.15s;
+        }
+        .table-action-btn:hover { color: var(--text-primary); border-color: var(--border-medium); }
+        .table-action-btn.retry-sm { color: var(--accent-blue); }
+        .table-action-btn.retry-sm:hover { background: var(--accent-blue); color: white; border-color: var(--accent-blue); }
+        .table-action-btn.revise-sm { color: var(--accent-yellow); }
+        .table-action-btn.revise-sm:hover { background: var(--accent-yellow); color: white; border-color: var(--accent-yellow); }
+
         /* Header nav pills */
         .header-nav-pills {
             display: flex; gap: 4px;
@@ -3211,7 +3254,7 @@
         }
 
         let html = '<table class="completed-table"><thead><tr>' +
-            '<th>Status</th><th>Task</th><th>Rule</th><th>Completed</th><th>Recheck</th>' +
+            '<th>Status</th><th>Task</th><th>Rule</th><th>Completed</th><th>Recheck</th><th>Actions</th>' +
             '</tr></thead><tbody>';
 
         tasks.forEach(t => {
@@ -3228,12 +3271,22 @@
             const title = escapeHtml((t.title || '').replace(/^\[[^\]]+\]\s*/, '').substring(0, 70));
             const rule = escapeHtml(t.rule_id || '');
 
+            // Action buttons for fail/partial
+            let actions = '<button class="table-action-btn" onclick="event.stopPropagation();openResultDetail(' + t.id + ')" title="View details">⊕</button>';
+            if (verified && (result === 'fail' || result === 'partial')) {
+                actions += ' <button class="table-action-btn retry-sm" onclick="event.stopPropagation();retryPlay(' + t.id + ')" title="Retry this play">↻</button>';
+                if (t.rule_id) {
+                    actions += ' <button class="table-action-btn revise-sm" onclick="event.stopPropagation();reviseRule(\'' + escapeHtml(t.rule_id) + '\',' + t.id + ')" title="Revise rule">✎</button>';
+                }
+            }
+
             html += '<tr class="clickable" onclick="openResultDetail(' + t.id + ')">' +
                 '<td>' + badge + '</td>' +
                 '<td style="max-width:350px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + title + '</td>' +
                 '<td><span style="font-family:var(--font-mono);font-size:12px;color:var(--accent-blue);">' + rule + '</span></td>' +
                 '<td style="font-size:12px;color:var(--text-muted);">' + completedDate + '</td>' +
                 '<td style="font-size:12px;color:var(--text-muted);">' + recheckDate + '</td>' +
+                '<td style="white-space:nowrap;">' + actions + '</td>' +
                 '</tr>';
         });
 
@@ -3338,6 +3391,23 @@
                 html += '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap;">' + escapeHtml(t.description.substring(0, 800)) + '</div>';
             }
 
+            // ── Action buttons for fail/partial tasks ──
+            if (t && t.recheck_verified) {
+                const result = (t.recheck_result || '').toLowerCase();
+                if (result === 'fail' || result === 'partial') {
+                    html += '<div class="rdp-section-title">Actions</div>';
+                    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+                    html += '<button class="rdp-action-btn retry" onclick="retryPlay(' + t.id + ')">↻ Retry Play</button>';
+                    if (t.rule_id) {
+                        html += '<button class="rdp-action-btn revise" onclick="reviseRule(\'' + escapeHtml(t.rule_id) + '\', ' + t.id + ')">✎ Revise Rule</button>';
+                    }
+                    html += '</div>';
+                    if (t.attempt_number && t.attempt_number > 1) {
+                        html += '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">This was attempt #' + t.attempt_number + '</div>';
+                    }
+                }
+            }
+
             body.innerHTML = html;
         } catch(e) {
             body.innerHTML = '<div class="dash-empty">Could not load outcome data.</div>';
@@ -3346,6 +3416,52 @@
 
     function closeResultsDetail() {
         document.getElementById('results-detail-panel').classList.remove('open');
+    }
+
+    async function retryPlay(taskId) {
+        if (!confirm('Retry this play? It will be reset to Pending and put back on the board.')) return;
+        try {
+            const res = await fetch('/api/tasks/' + taskId + '/retry', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            if (data.error) { showNotification('Error: ' + data.error, 'red'); return; }
+            showNotification(data.message || 'Task queued for retry', 'green');
+            closeResultsDetail();
+            // Refresh the results view
+            loadResultsView();
+        } catch(e) {
+            showNotification('Failed to retry: ' + e.message, 'red');
+        }
+    }
+
+    function reviseRule(ruleId, taskId) {
+        // Check if there's already a pending proposal for this rule
+        const proposalCard = document.getElementById('proposal-' + ruleId);
+        if (proposalCard || document.querySelector('[id^="proposal-"]')) {
+            // Switch to rules view and scroll to the proposal
+            closeResultsDetail();
+            switchView('rules');
+            setTimeout(() => {
+                const card = document.querySelector('.proposal-card');
+                if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 300);
+            return;
+        }
+        // No existing proposal — open chat with a pre-filled prompt about revising this rule
+        closeResultsDetail();
+        const t = window._taskCache && window._taskCache[taskId];
+        const title = t ? t.title : 'Task #' + taskId;
+        showChatForTask(taskId, title, t ? t.description : '', t ? t.priority : 'high');
+        // After chat opens, auto-send a rule revision prompt
+        setTimeout(() => {
+            const input = document.getElementById('input');
+            if (input) {
+                input.value = 'This task FAILed verification. Analyze the outcome data and propose a specific revision to rule ' + ruleId + '. What should we change about the rule\'s trigger, diagnosis, or action to get a better outcome next time?';
+                input.dispatchEvent(new Event('input'));
+            }
+        }, 500);
     }
 
     // ── RULES VIEW ───────────────────────────────────
