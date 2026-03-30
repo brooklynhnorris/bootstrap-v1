@@ -2219,8 +2219,10 @@
         // Clear active task highlight if this was the active one
         if (currentTaskId === taskId) currentTaskId = null;
 
-        // Switch to Rechecks tab and refresh so it appears immediately
-        switchTab('rechecks');
+        // Close detail panel and return to dashboard
+        const detailPanel = document.getElementById('task-detail-panel');
+        if (detailPanel) detailPanel.style.display = 'none';
+        switchView('dashboard');
         await refreshTasksPanel();
 
         showNotification('\u2713 Done \u2014 recheck set for ' + (data.recheck_date || days + 'd'), 'green');
@@ -3288,7 +3290,19 @@
             if (verified && result === 'pass') badge = '<span class="outcome-badge pass">Pass</span>';
             else if (verified && result === 'fail') badge = '<span class="outcome-badge fail">Fail</span>';
             else if (verified && result === 'partial') badge = '<span class="outcome-badge partial">Partial</span>';
-            else badge = '<span class="outcome-badge pending">Awaiting</span>';
+            else {
+                // Show days until recheck instead of bare "Awaiting"
+                let awaitLabel = 'Awaiting';
+                if (t.recheck_date) {
+                    const now = new Date();
+                    const recheck = new Date(t.recheck_date);
+                    const daysLeft = Math.ceil((recheck - now) / (1000 * 60 * 60 * 24));
+                    if (daysLeft > 0) awaitLabel = daysLeft + 'd until recheck';
+                    else if (daysLeft === 0) awaitLabel = 'Recheck today';
+                    else awaitLabel = 'Recheck overdue';
+                }
+                badge = '<span class="outcome-badge pending">' + awaitLabel + '</span>';
+            }
 
             const completedDate = t.completed_at ? new Date(t.completed_at).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '—';
             const recheckDate = t.recheck_date ? new Date(t.recheck_date).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '—';
@@ -3337,8 +3351,21 @@
             // Task info
             const result = t ? (t.recheck_result || '').toLowerCase() : '';
             const resultColor = result === 'pass' ? 'var(--accent-green)' : result === 'fail' ? 'var(--accent-red)' : result === 'partial' ? 'var(--accent-yellow)' : 'var(--text-muted)';
-            const resultLabel = result ? result.toUpperCase() : 'AWAITING';
-            const badge = result ? '<span class="outcome-badge ' + result + '">' + resultLabel + '</span>' : '<span class="outcome-badge pending">Awaiting Recheck</span>';
+            const resultLabel = result ? result.toUpperCase() : 'AWAITING RECHECK';
+            let badge = '';
+            if (result) {
+                badge = '<span class="outcome-badge ' + result + '">' + resultLabel + '</span>';
+            } else {
+                let awaitDetail = 'Awaiting Recheck';
+                if (t && t.recheck_date) {
+                    const recheck = new Date(t.recheck_date);
+                    const daysLeft = Math.ceil((recheck - new Date()) / (1000 * 60 * 60 * 24));
+                    if (daysLeft > 0) awaitDetail = 'Recheck in ' + daysLeft + ' days (' + recheck.toLocaleDateString('en-US', {month:'short', day:'numeric'}) + ')';
+                    else if (daysLeft === 0) awaitDetail = 'Recheck scheduled today';
+                    else awaitDetail = 'Recheck overdue — next cron will verify';
+                }
+                badge = '<span class="outcome-badge pending">' + awaitDetail + '</span>';
+            }
 
             html += '<div style="margin-bottom:16px;">' + badge + '</div>';
 

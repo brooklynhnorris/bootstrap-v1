@@ -61,6 +61,28 @@ php /var/www/html/bin/console app:ensure-schema 2>/dev/null || php -r "
 )');
 
 \$pdo->exec('CREATE TABLE IF NOT EXISTS conversations (id SERIAL PRIMARY KEY, user_id INT DEFAULT NULL, title VARCHAR(255) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, is_archived BOOLEAN DEFAULT FALSE)');
+
+\$pdo->exec('CREATE TABLE IF NOT EXISTS seo_rules (
+    id SERIAL PRIMARY KEY,
+    rule_id VARCHAR(30) NOT NULL UNIQUE,
+    name TEXT NOT NULL DEFAULT \\'\\',
+    category VARCHAR(100) DEFAULT NULL,
+    tier VARCHAR(50) DEFAULT \\'A\\',
+    trigger_source TEXT DEFAULT \\'page_crawl_snapshots\\',
+    trigger_condition TEXT DEFAULT \\'\\',
+    trigger_sql TEXT DEFAULT \\'\\',
+    threshold TEXT DEFAULT \\'\\',
+    diagnosis TEXT DEFAULT \\'\\',
+    action_output TEXT DEFAULT \\'\\',
+    priority VARCHAR(20) DEFAULT \\'Medium\\',
+    assigned VARCHAR(100) DEFAULT \\'Brook\\',
+    ai_relevance TEXT DEFAULT \\'\\',
+    full_text TEXT DEFAULT \\'\\',
+    is_active BOOLEAN DEFAULT TRUE,
+    updated_at TIMESTAMP DEFAULT NOW(),
+    updated_by VARCHAR(100) DEFAULT \\'system\\',
+    created_at TIMESTAMP DEFAULT NOW()
+)');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY, conversation_id INT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role VARCHAR(20) NOT NULL, content TEXT NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS rule_reviews (id SERIAL PRIMARY KEY, conversation_id INT DEFAULT NULL REFERENCES conversations(id) ON DELETE SET NULL, rule_id VARCHAR(20) NOT NULL, verdict VARCHAR(30) NOT NULL, feedback TEXT DEFAULT NULL, reviewed_by VARCHAR(100) DEFAULT NULL, reviewed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS user_overrides (id SERIAL PRIMARY KEY, url TEXT NOT NULL, field VARCHAR(50) NOT NULL, original_value TEXT DEFAULT NULL, override_value TEXT NOT NULL, reason TEXT DEFAULT NULL, overridden_by VARCHAR(100) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(url, field))');
@@ -123,6 +145,9 @@ chown -R www-data:www-data /var/www/html/var/cache
 chmod -R 777 /var/www/html/var/cache
 chmod -R 777 /var/www/html/var/log
 chmod +x /var/www/html/crawl.sh 2>/dev/null || true
+
+# Seed rules from system-prompt.txt into seo_rules table (first deploy only — skips if already populated)
+php /var/www/html/bin/console app:seed-rules 2>&1 || echo "  [WARN] Rule seeding skipped"
 
 # Seed SEMrush if empty
 php -r "

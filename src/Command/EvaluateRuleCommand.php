@@ -855,13 +855,40 @@ PROMPT;
 
     private function loadRules(): array
     {
+        // PRIMARY: Load rules from seo_rules database table
+        try {
+            $dbRules = $this->db->fetchAllAssociative(
+                "SELECT * FROM seo_rules WHERE is_active = TRUE ORDER BY rule_id"
+            );
+            if (!empty($dbRules)) {
+                $rules = [];
+                foreach ($dbRules as $row) {
+                    $rules[] = [
+                        'id'                => $row['rule_id'],
+                        'name'              => $row['name'],
+                        'full_text'         => $row['full_text'],
+                        'trigger_source'    => $row['trigger_source'],
+                        'trigger_condition' => $row['trigger_condition'],
+                        'trigger_sql'       => $row['trigger_sql'],
+                        'threshold'         => $row['threshold'],
+                        'diagnosis'         => $row['diagnosis'],
+                        'priority'          => $row['priority'],
+                        'assigned'          => $row['assigned'],
+                    ];
+                }
+                return $rules;
+            }
+        } catch (\Exception $e) {
+            // Table doesn't exist yet — fall through to file
+        }
+
+        // FALLBACK: Parse from system-prompt.txt (for first deploy before seed runs)
         $promptPath = dirname(__DIR__, 2) . '/system-prompt.txt';
         if (!file_exists($promptPath)) return [];
 
         $content = file_get_contents($promptPath);
         $rules   = [];
 
-        // Match any rule ID pattern: OPQ-001, TECH-R1, DDT-SD-002, DDT-EEAT-03, DDT-LOCAL-01, CTA-F4, OPQ-R4b, etc.
         preg_match_all('/\n([A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-[A-Z]?\d+[a-z]?)\s*\|\s*([^\n]+)\n(.*?)(?=\n[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-[A-Z]?\d+[a-z]?\s*\||\nSECTION\s+\d+|\nRESULTS VERIFICATION|\n={10,}|\z)/s', $content, $matches, PREG_SET_ORDER);
 
         foreach ($matches as $match) {
@@ -877,9 +904,7 @@ PROMPT;
             if (preg_match('/Trigger Source:\s*([^\n]+)/', $ruleText, $m)) $triggerSource = trim($m[1]);
             if (preg_match('/Trigger Condition:\s*(.*?)(?=\nThreshold:|$)/s', $ruleText, $m)) {
                 $triggerCondition = trim($m[1]);
-                // Extract SQL if present (may be on multiple lines)
                 $triggerSql = $triggerCondition;
-                // Clean SQL markers
                 $triggerSql = preg_replace('/```sql\s*/', '', $triggerSql);
                 $triggerSql = preg_replace('/```\s*/', '', $triggerSql);
                 $triggerSql = trim($triggerSql);
@@ -1537,4 +1562,7 @@ GLOSSARY;
         }
     }
 }
+
+    
+
     

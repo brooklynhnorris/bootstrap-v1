@@ -1011,64 +1011,53 @@ class HomeController extends AbstractController
             $changeType  = $proposal['change_type'] ?? 'modify_action';
             $newRuleText = $proposal['new_rule_text'] ?? '';
 
-            // ── AUTO-APPLY: Write the new rule to system-prompt.txt ──
+            // ── AUTO-APPLY: Update the rule in seo_rules database table ──
             $applied = false;
             $applyError = null;
 
             if (!empty($newRuleText)) {
-                $promptPath = dirname(__DIR__, 1) . '/../system-prompt.txt';
-                if (file_exists($promptPath)) {
-                    try {
-                        $content = file_get_contents($promptPath);
-                        $originalContent = $content; // backup
+                try {
+                    // Parse fields from the new rule text
+                    $updates = ['full_text' => $newRuleText, 'updated_at' => date('Y-m-d H:i:s'), 'updated_by' => $approvedBy];
 
-                        // Regex to find the existing rule block:
-                        // Starts with \n{RULE_ID} | {name}\n
-                        // Ends before the next rule ID line, SECTION marker, or end of file
-                        $escapedId = preg_quote($ruleId, '/');
-                        $pattern = '/(\n)' . $escapedId . '\s*\|[^\n]*\n.*?(?=\n[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-R?\d+\s*\||\nSECTION\s+\d+|\nRESULTS VERIFICATION|\n={10,}|\z)/s';
-
-                        if (preg_match($pattern, $content)) {
-                            if ($changeType === 'split_rule') {
-                                // For split_rule: replace original with new rule text
-                                // (new_rule_text may contain multiple rule definitions)
-                                $content = preg_replace($pattern, "\n" . trim($newRuleText) . "\n", $content, 1);
-                            } else {
-                                // For modify_action, refine_threshold, modify_diagnosis:
-                                // Replace the entire rule block with the new text
-                                $content = preg_replace($pattern, "\n" . trim($newRuleText) . "\n", $content, 1);
-                            }
-
-                            // Verify the replacement didn't corrupt the file
-                            // (new content should still be parseable — check the rule ID exists)
-                            if (str_contains($content, $ruleId)) {
-                                file_put_contents($promptPath, $content);
-                                $applied = true;
-                            } else {
-                                // Replacement failed — rule ID missing from new content, restore
-                                $applyError = 'Rule ID not found in replacement text — file not modified';
-                            }
-                        } else {
-                            // Rule not found in file — might be a new rule or different format
-                            // For split_rule with a new rule, append at the end of the relevant section
-                            if ($changeType === 'split_rule') {
-                                // Append before the last section marker or end of file
-                                $insertPoint = strrpos($content, "\nRESULTS VERIFICATION");
-                                if ($insertPoint === false) $insertPoint = strrpos($content, "\n===");
-                                if ($insertPoint === false) $insertPoint = strlen($content);
-
-                                $content = substr($content, 0, $insertPoint) . "\n\n" . trim($newRuleText) . "\n" . substr($content, $insertPoint);
-                                file_put_contents($promptPath, $content);
-                                $applied = true;
-                            } else {
-                                $applyError = "Rule {$ruleId} not found in system-prompt.txt — manual update needed";
-                            }
-                        }
-                    } catch (\Exception $e) {
-                        $applyError = 'File write failed: ' . substr($e->getMessage(), 0, 100);
+                    if (preg_match('/Trigger Source:\s*([^\n]+)/', $newRuleText, $m)) $updates['trigger_source'] = trim($m[1]);
+                    if (preg_match('/Trigger Condition:\s*(.*?)(?=\nThreshold:|$)/s', $newRuleText, $m)) {
+                        $updates['trigger_condition'] = trim($m[1]);
+                        $sql = preg_replace('/```sql\s*/', '', $updates['trigger_condition']);
+                        $sql = preg_replace('/```\s*/', '', $sql);
+                        $updates['trigger_sql'] = trim($sql);
                     }
-                } else {
-                    $applyError = 'system-prompt.txt not found at expected path';
+                    if (preg_match('/Threshold:\s*(.*?)(?=\nDiagnosis:|$)/s', $newRuleText, $m)) $updates['threshold'] = trim($m[1]);
+                    if (preg_match('/Diagnosis:\s*(.*?)(?=\nAction Output:|$)/s', $newRuleText, $m)) $updates['diagnosis'] = trim($m[1]);
+                    if (preg_match('/Action Output:\s*(.*?)(?=\nPriority:|$)/s', $newRuleText, $m)) $updates['action_output'] = trim($m[1]);
+                    if (preg_match('/Priority:\s*([^\n]+)/', $newRuleText, $m)) $updates['priority'] = trim($m[1]);
+                    if (preg_match('/Assigned:\s*([^\n]+)/', $newRuleText, $m)) $updates['assigned'] = trim($m[1]);
+
+                    // Check if rule exists in DB
+                    $existing = $this->db->fetchAssociative('SELECT id FROM seo_rules WHERE rule_id = ?', [$ruleId]);
+
+                    if ($existing) {
+                        $this->db->update('seo_rules', $updates, ['rule_id' => $ruleId]);
+                        $applied = true;
+                    } elseif ($changeType === 'split_rule') {
+                        // New rule from a split — extract the rule ID from new text
+                        if (preg_match('/^([A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-[A-Z]?\d+[a-z]?)\s*\|/', trim($newRuleText), $nm)) {
+                            $newId = trim($nm[1]);
+                            $newName = '';
+                            if (preg_match('/\|\s*([^\n]+)/', $newRuleText, $nm2)) $newName = trim($nm2[1]);
+                            $updates['rule_id'] = $newId;
+                            $updates['name'] = $newName;
+                            $updates['is_active'] = true;
+                            $this->db->insert('seo_rules', $updates);
+                            $applied = true;
+                        } else {
+                            $applyError = 'Could not extract rule ID from new rule text';
+                        }
+                    } else {
+                        $applyError = "Rule {$ruleId} not found in seo_rules table";
+                    }
+                } catch (\Exception $e) {
+                    $applyError = 'DB update failed: ' . substr($e->getMessage(), 0, 100);
                 }
             } else {
                 $applyError = 'No new_rule_text in proposal — nothing to apply';
@@ -1096,12 +1085,12 @@ class HomeController extends AbstractController
                 $id,
                 $ruleId,
                 $applied
-                    ? "Auto-applied {$changeType} to system-prompt.txt. Rule {$ruleId} updated."
+                    ? "Auto-applied {$changeType} to seo_rules table. Rule {$ruleId} updated."
                     : "Approved but not auto-applied: " . ($applyError ?? 'unknown reason')
             );
 
             $message = $applied
-                ? "Rule {$ruleId} updated and applied to system-prompt.txt. Changes will take effect on next cron run."
+                ? "Rule {$ruleId} updated in database. Changes take effect on next cron run."
                 : "Proposal approved but could not auto-apply: {$applyError}";
 
             return new JsonResponse([
@@ -1613,7 +1602,33 @@ PROMPT;
         }
 
         $promptFile  = dirname(__DIR__, 2) . '/system-prompt.txt';
-        $staticRules = file_exists($promptFile) ? file_get_contents($promptFile) : '';
+
+        // Build rules context from seo_rules DB table (primary) or file (fallback)
+        $staticRules = '';
+        try {
+            $dbRules = $this->db->fetchAllAssociative("SELECT * FROM seo_rules WHERE is_active = TRUE ORDER BY category, rule_id");
+            if (!empty($dbRules)) {
+                $parts = [];
+                $parts[] = "LOGIRI RULES ENGINE -- DOUBLE D TRAILERS (from database, " . count($dbRules) . " active rules)";
+                $currentCat = '';
+                foreach ($dbRules as $r) {
+                    if ($r['category'] !== $currentCat) {
+                        $currentCat = $r['category'];
+                        $parts[] = "\n--- " . strtoupper($currentCat) . " ---";
+                    }
+                    $parts[] = "\n{$r['rule_id']} | {$r['name']}";
+                    $parts[] = "Priority: {$r['priority']} | Assigned: {$r['assigned']}";
+                    if ($r['diagnosis']) $parts[] = "Diagnosis: " . substr($r['diagnosis'], 0, 300);
+                    if ($r['threshold']) $parts[] = "Threshold: " . substr($r['threshold'], 0, 200);
+                }
+                $staticRules = implode("\n", $parts);
+            }
+        } catch (\Exception $e) {
+            // Table doesn't exist yet — fall through to file
+        }
+        if (empty($staticRules)) {
+            $staticRules = file_exists($promptFile) ? file_get_contents($promptFile) : '';
+        }
 
         $intro  = "You are Logiri, the AI Signal Engine and strategic operator for Double D Trailers (doubledtrailers.com).";
         $intro .= "\n\nYOUR PERSONA & BEHAVIOR:";
@@ -1877,8 +1892,3 @@ PROMPT;
         return $intro;
     }
 }
-    
-
-    
-
-    
