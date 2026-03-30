@@ -861,8 +861,8 @@ PROMPT;
         $content = file_get_contents($promptPath);
         $rules   = [];
 
-        // Match any rule ID pattern: OPQ-001, TECH-R1, DDT-SD-002, DDT-EEAT-03, DDT-LOCAL-01, etc.
-        preg_match_all('/\n([A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-R?\d+)\s*\|\s*([^\n]+)\n(.*?)(?=\n[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-R?\d+\s*\||\nSECTION\s+\d+|\nRESULTS VERIFICATION|\n={10,}|\z)/s', $content, $matches, PREG_SET_ORDER);
+        // Match any rule ID pattern: OPQ-001, TECH-R1, DDT-SD-002, DDT-EEAT-03, DDT-LOCAL-01, CTA-F4, OPQ-R4b, etc.
+        preg_match_all('/\n([A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-[A-Z]?\d+[a-z]?)\s*\|\s*([^\n]+)\n(.*?)(?=\n[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-[A-Z]?\d+[a-z]?\s*\||\nSECTION\s+\d+|\nRESULTS VERIFICATION|\n={10,}|\z)/s', $content, $matches, PREG_SET_ORDER);
 
         foreach ($matches as $match) {
             $ruleText         = trim($match[3]);
@@ -1537,5 +1537,4 @@ GLOSSARY;
         }
     }
 }
-
     
