@@ -28,8 +28,8 @@ class FetchDataForSeoCommand extends Command
             ->addOption('skip-volumes', null, InputOption::VALUE_NONE, 'Skip keyword search volume fetch')
             ->addOption('skip-serp', null, InputOption::VALUE_NONE, 'Skip live SERP position checks')
             ->addOption('skip-backlinks', null, InputOption::VALUE_NONE, 'Skip backlink summary')
-            ->addOption('limit', null, InputOption::VALUE_OPTIONAL, 'Max keywords to fetch', 500)
-            ->addOption('serp-limit', null, InputOption::VALUE_OPTIONAL, 'Max SERP queries to check live', 20);
+            ->addOption('limit', null, InputOption::VALUE_OPTIONAL, 'Max keywords to fetch (0 = all)', 1000)
+            ->addOption('serp-limit', null, InputOption::VALUE_OPTIONAL, 'Max SERP queries to check live (0 = all verified tasks)', 50);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
