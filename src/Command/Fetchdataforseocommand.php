@@ -166,7 +166,8 @@ class FetchDataForSeoCommand extends Command
 
         if (empty($queries)) return null;
 
-        // Use DataForSEO Labs bulk_search_volume — no Google Ads token needed
+        // Use dataforseo_labs/google/bulk_keyword_difficulty/live
+        // Returns search_volume + keyword_difficulty + cpc + competition
         // $0.01 per request + $0.0001 per result
         $chunks = array_chunk($queries, 100);
         $allResults = [];
@@ -178,7 +179,7 @@ class FetchDataForSeoCommand extends Command
                 'language_name' => 'English',
             ]];
 
-            $result = $this->callApi($login, $password, 'dataforseo_labs/google/bulk_search_volume/live', $payload);
+            $result = $this->callApi($login, $password, 'dataforseo_labs/google/bulk_keyword_difficulty/live', $payload);
             if ($result) {
                 $allResults = array_merge($allResults, $result);
             }
@@ -501,48 +502,36 @@ class FetchDataForSeoCommand extends Command
         foreach ($results as $result) {
             $items = $result['items'] ?? [];
             foreach ($items as $item) {
+                // bulk_keyword_difficulty returns: keyword, keyword_data.keyword_info.search_volume, keyword_difficulty
                 $keyword = $item['keyword'] ?? '';
                 if (!$keyword) continue;
 
-                $kwInfo = $item['keyword_info'] ?? $item;
+                $kwInfo = $item['keyword_data']['keyword_info'] ?? $item['keyword_info'] ?? [];
                 $volume = $kwInfo['search_volume'] ?? $item['search_volume'] ?? 0;
                 $cpc = $kwInfo['cpc'] ?? $item['cpc'] ?? 0;
                 $comp = $kwInfo['competition'] ?? $item['competition'] ?? 0;
+                $difficulty = $item['keyword_difficulty'] ?? 0;
 
                 try {
-                    // Try to update existing dataforseo_keywords row
-                    $updated = $this->db->executeStatement(
-                        "UPDATE dataforseo_keywords SET
-                            search_volume = :vol,
-                            cpc = :cpc,
-                            competition = :comp
-                         WHERE keyword = :keyword
-                         AND snapshot_id = (SELECT MAX(snapshot_id) FROM dataforseo_keywords WHERE keyword = :keyword2)",
+                    // Upsert into dataforseo_keywords
+                    $snapshotId = date('Y-m-d_H-i');
+                    $this->db->executeStatement(
+                        "INSERT INTO dataforseo_keywords (keyword, search_volume, cpc, competition, keyword_difficulty, snapshot_id, source, fetched_at)
+                         VALUES (:keyword, :vol, :cpc, :comp, :diff, :snapshot, 'volume', NOW())
+                         ON CONFLICT (keyword, snapshot_id) DO UPDATE SET
+                            search_volume = EXCLUDED.search_volume,
+                            cpc = EXCLUDED.cpc,
+                            competition = EXCLUDED.competition,
+                            keyword_difficulty = EXCLUDED.keyword_difficulty",
                         [
+                            'keyword'  => $keyword,
                             'vol'      => $volume,
                             'cpc'      => $cpc,
                             'comp'     => $comp,
-                            'keyword'  => $keyword,
-                            'keyword2' => $keyword,
+                            'diff'     => $difficulty,
+                            'snapshot' => $snapshotId,
                         ]
                     );
-
-                    // If no existing row, insert a new one
-                    if ($updated === 0) {
-                        $this->db->executeStatement(
-                            "INSERT INTO dataforseo_keywords (keyword, search_volume, cpc, competition, snapshot_id, source, fetched_at)
-                             VALUES (:keyword, :vol, :cpc, :comp, :snapshot, 'volume', NOW())
-                             ON CONFLICT (keyword, snapshot_id) DO UPDATE SET search_volume = EXCLUDED.search_volume, cpc = EXCLUDED.cpc, competition = EXCLUDED.competition",
-                            [
-                                'keyword'  => $keyword,
-                                'vol'      => $volume,
-                                'cpc'      => $cpc,
-                                'comp'     => $comp,
-                                'snapshot'  => date('Y-m-d_H-i'),
-                            ]
-                        );
-                    }
-
                     $saved++;
                 } catch (\Exception $e) {}
             }
@@ -616,6 +605,7 @@ class FetchDataForSeoCommand extends Command
                     search_volume   INT DEFAULT 0,
                     cpc             NUMERIC(8,2) DEFAULT 0,
                     competition     NUMERIC(5,4) DEFAULT 0,
+                    keyword_difficulty INT DEFAULT 0,
                     position        INT DEFAULT 0,
                     url             TEXT DEFAULT '',
                     snapshot_id     VARCHAR(20) NOT NULL,
@@ -624,6 +614,7 @@ class FetchDataForSeoCommand extends Command
                     UNIQUE(keyword, snapshot_id)
                 )
             ");
+            $this->db->executeStatement("ALTER TABLE dataforseo_keywords ADD COLUMN IF NOT EXISTS keyword_difficulty INT DEFAULT 0");
 
             $this->db->executeStatement("
                 CREATE TABLE IF NOT EXISTS competitor_keyword_gaps (
