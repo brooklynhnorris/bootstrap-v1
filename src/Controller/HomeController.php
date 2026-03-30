@@ -329,26 +329,42 @@ class HomeController extends AbstractController
         $text = $data['content'][0]['text'] ?? 'No response from Claude.';
 
         // ── NLP ENTITY VALIDATION ──
-        // If the response contains a rewrite (detected by common patterns),
-        // run a second Claude call to validate entity-predicate alignment
+        // Only run on actual page content rewrites (not task briefings or general chat).
+        // The user must have pasted FULL PAGE BODY TEXT *and* the response must contain
+        // actual rewritten content (not just instructions about what to change).
         $lastUserMsg = '';
         foreach (array_reverse($messages) as $m) {
             if ($m['role'] === 'user') { $lastUserMsg = $m['content']; break; }
         }
-        $isRewriteContext = str_contains($lastUserMsg, 'FULL PAGE BODY TEXT') || str_contains($lastUserMsg, 'content rewrite') || str_contains($lastUserMsg, 'WRITE THE COMPLETE REWRITE');
+        $isRewriteContext = str_contains($lastUserMsg, 'FULL PAGE BODY TEXT')
+            || str_contains($lastUserMsg, 'WRITE THE COMPLETE REWRITE');
+        // Exclude task briefings — they start with "I just opened the Play:" or "Give me my SEO briefing"
+        $isBriefing = str_contains($lastUserMsg, 'I just opened the Play:')
+            || str_contains($lastUserMsg, 'Give me my SEO briefing')
+            || str_contains($lastUserMsg, 'content rewrite'); // too broad — only match explicit rewrite requests
 
-        if ($isRewriteContext && strlen($text) > 200) {
+        if ($isRewriteContext && !$isBriefing && strlen($text) > 500) {
             $nlpResult = $this->validateEntityAlignment($text, $lastUserMsg, $claudeKey);
             if ($nlpResult && !empty($nlpResult['issues'])) {
-                // Append NLP validation results to the response
-                $text .= "\n\n---\n\n**🔬 NLP Entity Validation:**\n";
+                // Only append if the NLP found real issues (not "this is editorial text")
+                $hasRealIssues = true;
                 foreach ($nlpResult['issues'] as $issue) {
-                    $text .= "- {$issue}\n";
+                    if (str_contains($issue, 'editorial') || str_contains($issue, 'meta-commentary')
+                        || str_contains($issue, 'not page content') || str_contains($issue, 'prompt scaffolding')
+                        || str_contains($issue, 'instructional')) {
+                        $hasRealIssues = false;
+                        break;
+                    }
                 }
-                if (!empty($nlpResult['revised_first_sentence'])) {
-                    $text .= "\n**Suggested first sentence revision:**\n> " . $nlpResult['revised_first_sentence'] . "\n";
+                if ($hasRealIssues) {
+                    $text .= "\n\n---\n\n**🔬 NLP Entity Validation:**\n";
+                    foreach ($nlpResult['issues'] as $issue) {
+                        $text .= "- {$issue}\n";
+                    }
+                    if (!empty($nlpResult['revised_first_sentence'])) {
+                        $text .= "\n**Suggested first sentence revision:**\n> " . $nlpResult['revised_first_sentence'] . "\n";
+                    }
                 }
-                $text .= "\n*Entity: " . ($nlpResult['detected_entity'] ?? 'unknown') . " | Matches H1: " . ($nlpResult['matches_h1'] ? 'Yes' : 'No') . " | Subject position: " . ($nlpResult['subject_position'] ?? 'unknown') . "*";
             } elseif ($nlpResult && empty($nlpResult['issues'])) {
                 $text .= "\n\n---\n✅ **NLP Validated** — Primary entity: *" . ($nlpResult['detected_entity'] ?? 'unknown') . "* | H1 match: Yes | Subject position: correct";
             }
@@ -402,9 +418,26 @@ class HomeController extends AbstractController
             $text = rtrim($text);
         }
 
-        // ── Strip any raw HTML tags the AI accidentally included ──
-        $text = preg_replace('/<(h[1-6]|p|br|div|span|a|ul|li|ol|strong|em|b|i)[^>]*>/i', '', $text);
-        $text = preg_replace('</(h[1-6]|p|div|span|a|ul|li|ol|strong|em|b|i)>', '', $text);
+        // ── Fix HTML tag artifacts in LLM output ──
+        // Preserve tags inside code blocks (backtick-wrapped), strip stray ones in prose
+        // First: protect code blocks
+        $codeBlocks = [];
+        $text = preg_replace_callback('/```[\s\S]*?```|`[^`]+`/', function($match) use (&$codeBlocks) {
+            $placeholder = '%%CODEBLOCK_' . count($codeBlocks) . '%%';
+            $codeBlocks[$placeholder] = $match[0];
+            return $placeholder;
+        }, $text);
+
+        // Strip stray HTML tags in prose (not in code blocks)
+        $text = preg_replace('/<\/?(h[1-6]|p|br|div|span|a|ul|li|ol|strong|em|b|i)[^>]*>/i', '', $text);
+
+        // Clean up empty angle bracket artifacts: <> or < >
+        $text = str_replace(['<>', '< >'], '', $text);
+
+        // Restore code blocks
+        foreach ($codeBlocks as $placeholder => $original) {
+            $text = str_replace($placeholder, $original, $text);
+        }
 
         // ── Fix truncated/mangled URLs in LLM output ──
         // Common patterns: /umper-pull → /bumper-pull, /ving-quarters → /living-quarters
@@ -425,6 +458,8 @@ class HomeController extends AbstractController
             '/ength-in'         => '/length-in',
             '/bout/'            => '/about/',
             '/esources/'        => '/resources/',
+            '/2h-straight-bp'   => '/2h-straight-bp',
+            '/1-horse-trailer'  => '/1-horse-trailer',
         ];
         foreach ($urlFixes as $broken => $fixed) {
             $text = str_ireplace($broken, $fixed, $text);
@@ -433,13 +468,23 @@ class HomeController extends AbstractController
         // Fix doubledtrailers.com + any letter without slash (catches ALL truncated domain+path joins)
         $text = preg_replace('/doubledtrailers\.com([a-z])/', 'doubledtrailers.com/$1', $text);
 
-        // Also fix inside JSON strings: "url": "https://www.doubledtrailers.com/..." patterns
-        // Re-run the same fix to catch URLs inside code blocks and JSON
-        $text = preg_replace('/doubledtrailers\.com([a-z])/', 'doubledtrailers.com/$1', $text);
+        // Fix double-slash in URLs: /path// → /path/
+        $text = preg_replace('#(/[a-z0-9\-]+)//#', '$1/', $text);
 
-        // Note: Text truncation fixes removed — str_ireplace was matching mid-word
-        // and doubling letters (e.g., "Double" → "DDouble"). The root cause is
-        // likely prompt size or model capacity, not fixable via post-processing.
+        // Fix URLs that start mid-word (e.g., "on `umper-pull-2-horse`" — missing leading /b)
+        // Match word boundaries where a known DDT URL segment appears truncated
+        $urlPrefixFixes = [
+            'umper-pull'      => 'bumper-pull',
+            'ooseneck-'       => 'gooseneck-',
+            'afetack-'        => 'safetack-',
+            'rail-blazer'     => 'trail-blazer',
+            'orse-trailer'    => 'horse-trailer',
+            'iving-quarters'  => 'living-quarters',
+        ];
+        foreach ($urlPrefixFixes as $truncated => $full) {
+            // Only fix when it looks like a URL context (after / or ` or whitespace)
+            $text = preg_replace('/(?<=[\s`\/])' . preg_quote($truncated, '/') . '/', $full, $text);
+        }
 
         $text = rtrim($text);
 
@@ -1734,6 +1779,3 @@ PROMPT;
         return $intro;
     }
 }
-    
-
-    
