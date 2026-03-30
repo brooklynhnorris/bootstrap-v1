@@ -305,15 +305,10 @@
         .board-signal-bar strong { color: var(--text-primary); }
         #board-grid {
             display: grid;
-            grid-template-columns: repeat(4, minmax(220px, 1fr));
+            grid-template-columns: repeat(4, 1fr);
             gap: 14px;
             flex: 1;
-            overflow-x: auto;
-            overflow-y: hidden;
-            min-width: 0;
-        }
-        @media (max-width: 1100px) {
-            #board-grid { grid-template-columns: repeat(4, minmax(200px, 1fr)); }
+            overflow: hidden;
         }
         /* ── BOARD COLUMNS ── */
         .board-column {
@@ -430,69 +425,6 @@
             margin-bottom: 0;
         }
         .signal-icon { font-size: 16px; }
-
-        /* ── RULE CATEGORY FILTER ── */
-        .rule-filter-bar {
-            display: flex; align-items: center; gap: 6px;
-            padding: 8px 0; flex-wrap: wrap;
-        }
-        .rule-filter-pill {
-            padding: 4px 10px; font-size: 11px; font-weight: 600;
-            border-radius: 20px; border: 1px solid var(--border-subtle);
-            background: var(--bg-card); color: var(--text-muted);
-            cursor: pointer; transition: all 0.15s; font-family: var(--font-mono);
-        }
-        .rule-filter-pill:hover { border-color: var(--accent-blue); color: var(--accent-blue); }
-        .rule-filter-pill.active { background: var(--accent-blue-dim); border-color: var(--accent-blue); color: var(--accent-blue); }
-        .rule-filter-label { font-size: 11px; color: var(--text-muted); margin-right: 4px; }
-
-        /* ── COPY BUTTON ── */
-        .copy-btn {
-            display: inline-flex; align-items: center; gap: 4px;
-            padding: 4px 10px; font-size: 11px; font-weight: 500;
-            border-radius: 5px; border: 1px solid var(--border-subtle);
-            background: var(--bg-card); color: var(--text-secondary);
-            cursor: pointer; transition: all 0.15s; font-family: var(--font-body);
-        }
-        .copy-btn:hover { border-color: var(--accent-blue); color: var(--accent-blue); background: var(--accent-blue-dim); }
-        .copy-btn.copied { background: var(--accent-green-dim); border-color: var(--accent-green); color: var(--accent-green); }
-        
-        /* ── RETRY BUTTON ── */
-        .retry-btn {
-            display: inline-flex; align-items: center; gap: 4px;
-            padding: 6px 14px; font-size: 12px; font-weight: 600;
-            border-radius: 6px; border: none;
-            background: var(--accent-red); color: white;
-            cursor: pointer; transition: all 0.15s; font-family: var(--font-body);
-        }
-        .retry-btn:hover { background: #b91c1c; }
-
-        /* ── PROGRESS BAR ── */
-        .progress-bar-container {
-            width: 100%; height: 6px; background: var(--bg-tertiary);
-            border-radius: 3px; overflow: hidden; margin-top: 8px;
-        }
-        .progress-bar-fill {
-            height: 100%; background: var(--accent-green);
-            border-radius: 3px; transition: width 0.3s ease;
-        }
-        .progress-bar-fill.partial { background: var(--accent-yellow); }
-        .progress-bar-fill.fail { background: var(--accent-red); }
-
-        /* ── SKELETON LOADING ── */
-        .skeleton { 
-            background: linear-gradient(90deg, #f0f0f3 25%, #e8e8ec 50%, #f0f0f3 75%);
-            background-size: 200% 100%;
-            animation: skeleton-shimmer 1.5s infinite;
-            border-radius: 4px;
-        }
-        @keyframes skeleton-shimmer {
-            0% { background-position: 200% 0; }
-            100% { background-position: -200% 0; }
-        }
-        .skeleton-title { height: 16px; width: 70%; margin-bottom: 8px; }
-        .skeleton-text { height: 12px; width: 100%; margin-bottom: 6px; }
-        .skeleton-text.short { width: 40%; }
 
         /* ── RIGHT PANEL (task detail + add task) ── */
         #task-detail-panel {
@@ -1051,7 +983,7 @@
             gap: 12px; align-items: flex-start;
             transition: box-shadow 0.2s;
         }
-        .result-card:hover { box-shadow: var(--shadow-md); transform: translateY(-1px); }
+        .result-card:hover { box-shadow: var(--shadow-sm); }
         .result-icon {
             font-size: 18px; min-width: 28px; height: 28px;
             display: flex; align-items: center; justify-content: center;
@@ -1221,9 +1153,9 @@
                         <div class="task-empty">No rechecks pending</div>
                     {% else %}
                         {% for r in rechecks %}
-                        <div class="recheck-item" style="cursor:pointer;" onclick="openRecheckEditor({{ r.id }}, '{{ r.title|e('js') }}', '{{ r.recheck_date }}')">
+                        <div class="recheck-item">
                             <div class="recheck-info">{{ r.title }}</div>
-                            <div class="recheck-date">Due {{ r.recheck_date|date('M j') }} <span style="color:#6366f1;font-size:9px;">✎ edit</span></div>
+                            <div class="recheck-date">Due {{ r.recheck_date|date('M j') }}</div>
                         </div>
                         {% endfor %}
                     {% endif %}
@@ -1334,30 +1266,8 @@
             <span class="signal-icon">♟</span>
             <span>Loading your position on the board, <strong>{{ userName }}</strong>…</span>
         </div>
-        <!-- Rule Category Filter -->
-        <div class="rule-filter-bar" id="rule-filter-bar">
-            <span class="rule-filter-label">Filter:</span>
-            <button class="rule-filter-pill active" data-filter="all" onclick="setRuleFilter('all')">All</button>
-            <button class="rule-filter-pill" data-filter="ETA" onclick="setRuleFilter('ETA')">ETA</button>
-            <button class="rule-filter-pill" data-filter="KIA" onclick="setRuleFilter('KIA')">KIA</button>
-            <button class="rule-filter-pill" data-filter="OPQ" onclick="setRuleFilter('OPQ')">OPQ</button>
-            <button class="rule-filter-pill" data-filter="MAO" onclick="setRuleFilter('MAO')">MAO</button>
-            <button class="rule-filter-pill" data-filter="TECH" onclick="setRuleFilter('TECH')">TECH</button>
-            <button class="rule-filter-pill" data-filter="DDT" onclick="setRuleFilter('DDT')">DDT</button>
-            <button class="rule-filter-pill" data-filter="ILA" onclick="setRuleFilter('ILA')">ILA</button>
-            <button class="rule-filter-pill" data-filter="CWV" onclick="setRuleFilter('CWV')">CWV</button>
-        </div>
         <div id="board-grid">
             <!-- Cards rendered by JS -->
-        </div>
-    </div>
-
-    <!-- RESULTS VIEW -->
-    <div id="results-view" style="display:none;">
-        <div style="padding:24px 32px;max-width:1100px;margin:0 auto;">
-            <div id="results-content">
-                <div class="dash-empty">Loading verification results…</div>
-            </div>
         </div>
     </div>
 
@@ -1367,7 +1277,7 @@
         <div class="typing-indicator" id="typing">
             <div class="thinking-bubble">
                 <div class="thinking-bar"><div class="thinking-bar-fill"></div></div>
-                <span class="thinking-text" id="thinking-text">Scanning the board…</span>
+                <span class="thinking-text">Scanning the board…</span>
             </div>
         </div>
         <div id="input-area">
@@ -1838,7 +1748,7 @@
             }
             messages.push({ role: 'assistant', content: reply });
             appendMessage('assistant', reply);
-            messagesEl.scrollTop = messagesEl.scrollHeight;
+            messagesEl.scrollTop = 0;
             if (data.tasks_created && data.tasks_created.length > 0) {
                 await refreshTasksPanel();
                 injectPlayButtons(data.tasks_created);
@@ -1869,10 +1779,6 @@
             bubble.innerHTML  = marked.parse(processed);
             renderPendingReviewCards(bubble);
             makeCollapsible(bubble);
-            
-            // Add copy buttons to code blocks
-            addCopyButtonsToCodeBlocks(bubble);
-            
             div.appendChild(bubble);
             if (text.length > 200) {
                 const actions = document.createElement('div');
@@ -1890,28 +1796,6 @@
         }
         messagesEl.appendChild(div);
         messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
-    
-    function addCopyButtonsToCodeBlocks(bubble) {
-        const codeBlocks = bubble.querySelectorAll('pre');
-        codeBlocks.forEach((pre, idx) => {
-            // Create wrapper for positioning
-            const wrapper = document.createElement('div');
-            wrapper.style.cssText = 'position:relative;';
-            pre.parentNode.insertBefore(wrapper, pre);
-            wrapper.appendChild(pre);
-            
-            // Create copy button
-            const copyBtn = document.createElement('button');
-            copyBtn.className = 'copy-btn';
-            copyBtn.style.cssText = 'position:absolute;top:6px;right:6px;z-index:1;';
-            copyBtn.innerHTML = '📋 Copy';
-            copyBtn.onclick = function() {
-                const code = pre.querySelector('code') ? pre.querySelector('code').textContent : pre.textContent;
-                copyToClipboard(code, copyBtn);
-            };
-            wrapper.appendChild(copyBtn);
-        });
     }
 
     // Review Card Processing
@@ -2106,8 +1990,9 @@
         // Clear active task highlight if this was the active one
         if (currentTaskId === taskId) currentTaskId = null;
 
-        // Return to dashboard view with refreshed data
-        switchView('dashboard');
+        // Switch to Rechecks tab and refresh so it appears immediately
+        switchTab('rechecks');
+        await refreshTasksPanel();
 
         showNotification('\u2713 Done \u2014 recheck set for ' + (data.recheck_date || days + 'd'), 'green');
     }
@@ -2133,64 +2018,6 @@
         const dateEl = document.getElementById('rdate-' + id);
         if (dateEl) dateEl.textContent = data.recheck_date;
         showNotification('Recheck updated: ' + data.recheck_date, 'green');
-        // Refresh the sidebar recheck list
-        loadSidebarRechecks();
-    }
-    
-    async function openRecheckEditor(id, title, currentDate) {
-        const action = prompt(
-            'Task: ' + title + '\nCurrent recheck: ' + currentDate + '\n\nEnter new date (YYYY-MM-DD) or number of days from today:\n(e.g., "2026-03-29" or "4" for 4 days)',
-            currentDate
-        );
-        if (!action || action === currentDate) return;
-        
-        let newDate;
-        if (/^\d{4}-\d{2}-\d{2}$/.test(action)) {
-            // User entered a full date
-            newDate = action;
-        } else if (/^\d+$/.test(action)) {
-            // User entered number of days
-            const d = new Date();
-            d.setDate(d.getDate() + parseInt(action));
-            newDate = d.toISOString().split('T')[0];
-        } else {
-            showNotification('Invalid date format', 'red');
-            return;
-        }
-        
-        const res = await fetch('/api/tasks/' + id + '/recheck-date-direct', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: newDate })
-        });
-        
-        if (res.ok) {
-            showNotification('Recheck updated: ' + newDate, 'green');
-            loadSidebarRechecks();
-        } else {
-            showNotification('Failed to update recheck date', 'red');
-        }
-    }
-    
-    async function loadSidebarRechecks() {
-        const res = await fetch('/api/rechecks');
-        const rechecks = await res.json();
-        const list = document.getElementById('recheck-list');
-        if (!list) return;
-        
-        if (rechecks.length === 0) {
-            list.innerHTML = '<div class="task-empty">No rechecks pending</div>';
-            return;
-        }
-        
-        list.innerHTML = rechecks.map(r => {
-            const date = new Date(r.recheck_date);
-            const formatted = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-            return `<div class="recheck-item" style="cursor:pointer;" onclick="openRecheckEditor(${r.id}, '${(r.title || '').replace(/'/g, "\\'")}', '${r.recheck_date}')">
-                <div class="recheck-info">${r.title}</div>
-                <div class="recheck-date">Due ${formatted} <span style="color:#6366f1;font-size:9px;">✎ edit</span></div>
-            </div>`;
-        }).join('');
     }
 
     function appendTaskCards(tasksData) {
@@ -2650,31 +2477,12 @@
             const resultColor = result === 'pass' ? '#16a34a' : result === 'partial' ? '#ca8a04' : '#dc2626';
             const resultIcon = result === 'pass' ? '&#10003;' : result === 'partial' ? '&#9888;' : '&#10007;';
             const resultLabel = (result || 'unknown').toUpperCase();
-            const attemptNum = task.attempt_number || 1;
-
-            // Show attempt history if multiple attempts
-            if (data.attempts && data.attempts.length > 1) {
-                const histDiv = document.createElement('div');
-                histDiv.className = 'message assistant';
-                let histHtml = '<div class="bubble" style="background:var(--bg-tertiary);border:1px solid var(--border-subtle);">' +
-                    '<div style="font-weight:600;margin-bottom:8px;">Attempt History:</div>';
-                data.attempts.forEach(a => {
-                    const aResult = (a.recheck_result || 'pending').toUpperCase();
-                    const aColor = aResult === 'PASS' ? '#16a34a' : aResult === 'FAIL' ? '#dc2626' : '#9898a0';
-                    const aIcon = aResult === 'PASS' ? '✓' : aResult === 'FAIL' ? '✗' : '⏳';
-                    const aDate = a.completed_at ? new Date(a.completed_at).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '';
-                    histHtml += '<div style="font-size:13px;margin-bottom:4px;color:' + aColor + ';">' + aIcon + ' Attempt ' + a.attempt_number + ' — ' + aResult + (aDate ? ' · ' + aDate : '') + (a.outcome_summary ? ' · ' + escapeHtml(a.outcome_summary) : '') + '</div>';
-                });
-                histHtml += '</div>';
-                histDiv.innerHTML = histHtml;
-                messagesEl.appendChild(histDiv);
-            }
 
             // Show outcome header
             const headerDiv = document.createElement('div');
             headerDiv.className = 'message assistant';
             headerDiv.innerHTML = '<div class="bubble" style="border-left:4px solid ' + resultColor + ';padding-left:12px;">' +
-                '<div style="font-size:16px;font-weight:600;color:' + resultColor + ';margin-bottom:8px;">' + resultIcon + ' Outcome: ' + resultLabel + (attemptNum > 1 ? ' (Attempt ' + attemptNum + ')' : '') + '</div>' +
+                '<div style="font-size:16px;font-weight:600;color:' + resultColor + ';margin-bottom:8px;">' + resultIcon + ' Outcome: ' + resultLabel + '</div>' +
                 '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:8px;">Task completed and verified against Google Search Console data.</div>' +
                 '</div>';
             messagesEl.appendChild(headerDiv);
@@ -2702,17 +2510,9 @@
                 feedbackHtml += '<div style="font-weight:600;margin-bottom:6px;">Learning Feedback:</div>';
                 if (f.what_worked) feedbackHtml += '<div style="font-size:13px;margin-bottom:4px;"><strong>What worked:</strong> ' + escapeHtml(f.what_worked) + '</div>';
                 if (f.what_didnt_work && f.what_didnt_work !== 'N/A') feedbackHtml += '<div style="font-size:13px;margin-bottom:4px;"><strong>What didn\'t:</strong> ' + escapeHtml(f.what_didnt_work) + '</div>';
-
-                // Rule change proposal with approve/reject buttons
                 if (f.proposed_change) {
-                    feedbackHtml += '<div style="margin-top:12px;padding:12px;background:#fefce8;border:1px solid #fde68a;border-radius:8px;">' +
-                        '<div style="font-weight:600;margin-bottom:6px;color:#92400e;">⚡ Proposed Rule Change (' + escapeHtml(f.change_type || '') + '):</div>' +
-                        '<div style="font-size:13px;color:#78350f;margin-bottom:12px;">' + escapeHtml(f.proposed_change) + '</div>' +
-                        '<div style="display:flex;gap:8px;">' +
-                            '<button onclick="approveRuleChange(\'' + escapeHtml(f.rule_id || task.rule_id || '') + '\', this)" style="padding:6px 14px;border:none;border-radius:6px;background:#16a34a;color:white;font-size:12px;font-weight:500;cursor:pointer;">✓ Approve Change</button>' +
-                            '<button onclick="rejectRuleChange(\'' + escapeHtml(f.rule_id || task.rule_id || '') + '\', this)" style="padding:6px 14px;border:1px solid #d1d5db;border-radius:6px;background:white;color:#6b7280;font-size:12px;font-weight:500;cursor:pointer;">✗ Reject</button>' +
-                        '</div>' +
-                    '</div>';
+                    feedbackHtml += '<div style="font-size:13px;margin-top:8px;padding:8px;background:var(--bg-tertiary);border-radius:6px;">' +
+                        '<strong>Proposed Rule Change (' + escapeHtml(f.change_type || '') + '):</strong><br>' + escapeHtml(f.proposed_change) + '</div>';
                 }
                 feedbackHtml += '</div>';
                 const feedbackDiv = document.createElement('div');
@@ -2721,306 +2521,23 @@
                 messagesEl.appendChild(feedbackDiv);
             }
 
-            // For FAIL tasks: offer to generate corrected version
-            if (result === 'fail') {
-                const fixDiv = document.createElement('div');
-                fixDiv.className = 'message assistant';
-
-                // Extract URL from task title
-                const urlMatch = (task.title || '').match(/(\/[a-z0-9\-\/]+\/)/g);
-                const taskUrl = urlMatch ? urlMatch[urlMatch.length - 1] : '';
-
-                fixDiv.innerHTML = '<div class="bubble" style="border-left:4px solid #2563eb;padding-left:12px;">' +
-                    '<div style="font-weight:600;margin-bottom:6px;">What now?</div>' +
-                    '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">This fix didn\'t produce measurable results. You can ask me to generate a corrected approach using what we learned.</div>' +
-                    '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
-                        '<button onclick="requestFixRevision(' + taskId + ', \'' + escapeHtml(taskUrl).replace(/'/g, "\\'") + '\')" style="padding:8px 16px;border:none;border-radius:6px;background:#2563eb;color:white;font-size:12px;font-weight:500;cursor:pointer;">🔄 Generate Revised Fix</button>' +
-                    '</div>' +
-                '</div>';
-                messagesEl.appendChild(fixDiv);
-            }
-
             messagesEl.scrollTop = messagesEl.scrollHeight;
         } catch (e) {
             loadingDiv.innerHTML = '<div class="bubble">Could not load verification results.</div>';
         }
     }
 
-    async function approveRuleChange(ruleId, btn) {
-        btn.disabled = true;
-        btn.textContent = 'Approving...';
-        try {
-            const res = await fetch('/api/rule-proposals');
-            const proposals = await res.json();
-            const match = proposals.find(p => p.rule_id === ruleId);
-            if (match) {
-                await fetch('/api/rule-proposals/' + match.id + '/approve', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ approved_by: USER_NAME })
-                });
-            }
-            // Always show approved — even if no proposal row, the user's intent is clear
-            btn.textContent = '✓ Rule Change Accepted';
-            btn.style.background = '#059669';
-            const rejectBtn = btn.nextElementSibling;
-            if (rejectBtn) rejectBtn.style.display = 'none';
-            showNotification('Rule change accepted — takes effect next evaluation cycle', 'green');
-        } catch(e) {
-            btn.textContent = '✓ Rule Change Accepted';
-            btn.style.background = '#059669';
-        }
-    }
-
-    async function rejectRuleChange(ruleId, btn) {
-        // Show feedback input before rejecting
-        const parent = btn.parentElement;
-        const existing = parent.querySelector('.reject-feedback-input');
-        if (existing) {
-            // User already sees the input — submit the rejection
-            const feedback = existing.value.trim();
-            if (!feedback) { existing.focus(); existing.style.borderColor = '#dc2626'; return; }
-            btn.disabled = true;
-            btn.textContent = 'Rejecting...';
-            try {
-                const res = await fetch('/api/rule-proposals');
-                const proposals = await res.json();
-                const match = proposals.find(p => p.rule_id === ruleId);
-                if (match) {
-                    await fetch('/api/rule-proposals/' + match.id + '/reject', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ approved_by: USER_NAME, feedback: feedback })
-                    });
-                }
-                btn.textContent = '✗ Rejected';
-                btn.style.color = '#dc2626';
-                const approveBtn = parent.querySelector('button:first-child');
-                if (approveBtn) approveBtn.style.display = 'none';
-                existing.style.display = 'none';
-                showNotification('Rule change rejected — feedback saved for learning loop', 'red');
-            } catch(e) {
-                btn.textContent = 'Error';
-            }
-        } else {
-            // Show the feedback input
-            const input = document.createElement('input');
-            input.type = 'text';
-            input.className = 'reject-feedback-input';
-            input.placeholder = 'Why are you rejecting? (required)';
-            input.style.cssText = 'display:block;width:100%;margin-top:8px;padding:6px 10px;border:1px solid #d1d5db;border-radius:6px;font-size:12px;';
-            parent.appendChild(input);
-            input.focus();
-            btn.textContent = '✗ Confirm Rejection';
-        }
-    }
-
-    async function requestFixRevision(taskId, url) {
-        const task = window._taskCache && window._taskCache[taskId];
-        const title = task ? task.title : 'Task #' + taskId;
-        const fullUrl = 'https://www.doubledtrailers.com' + url;
-
-        // Show loading indicator (don't show the prompt to user)
-        const loadingDiv = document.createElement('div');
-        loadingDiv.className = 'message assistant';
-        loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Generating revised fix for <strong>' + escapeHtml(url) + '</strong>…</div>';
-        loadingDiv.id = 'revision-loading';
-        messagesEl.appendChild(loadingDiv);
-        typingEl.style.display = 'block';
-        messagesEl.scrollTop = messagesEl.scrollHeight;
-        sendEl.disabled = true;
-
-        // Fetch page data for context
-        let pageContext = '';
-        if (url) {
-            try {
-                const pageRes = await fetch('/api/page-data?url=' + encodeURIComponent(url));
-                const pageData = await pageRes.json();
-                if (pageData && pageData.url) {
-                    pageContext = '\nPage data: ' + pageData.word_count + ' words, schema_types: ' + (pageData.schema_types || 'none') + ', schema_errors: ' + (pageData.schema_errors || 'none');
-                }
-            } catch(e) {}
-        }
-
-        const prompt = 'The previous fix for "' + title + '" on ' + url + ' (full URL: ' + fullUrl + ') FAILED verification.' + pageContext +
-            '\n\nVERIFIED BRAND DATA (use these exact values — do NOT guess or modify):' +
-            '\n- Organization name: Double D Trailers' +
-            '\n- URL: https://www.doubledtrailers.com' +
-            '\n- Logo: https://www.doubledtrailers.com/wp-content/uploads/2023/10/Blog-Logo.jpg' +
-            '\n- Facebook: https://www.facebook.com/DoubleDHorseTrailers' +
-            '\n- Instagram: https://www.instagram.com/doubledtrailers' +
-            '\n- YouTube: https://www.youtube.com/doubledtrailers' +
-            '\n- LinkedIn: https://www.linkedin.com/company/double-d-horse-trailers' +
-            '\n- GBP: https://maps.app.goo.gl/BBdfxux8P46vCsX2A' +
-            '\n- Founded: 1997 in Pink Hill, NC. HQ: PO Box 10490, Wilmington, NC 28411' +
-            '\n\nIMPORTANT URL RULE: Never truncate URLs. The page URL is exactly: ' + url + ' — write it in full every time. The full URL is: ' + fullUrl +
-            '\n\nSCOPE: ONLY fix the specific error that caused this task to fail. Do NOT generate strategy, new plays, or unrelated recommendations.' +
-            '\n\nGive me:' +
-            '\n1. What exactly went wrong (1-2 sentences)' +
-            '\n2. The corrected code or content — complete, ready to paste. Use the VERIFIED BRAND DATA above for all URLs and values.' +
-            '\n3. After pasting, validate here: [Rich Results Test](https://search.google.com/test/rich-results?url=' + encodeURIComponent(fullUrl) + ')' +
-            '\n4. If the Rich Results Test shows any errors, paste them back into this chat and I will fix them.' +
-            '\n\nKeep it under 200 words. Be surgical.';
-
-        messages.push({ role: 'user', content: prompt });
-
-        try {
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 90000);
-            const res = await fetch('/chat', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ messages, conversation_id: conversationId }),
-                signal: controller.signal
-            });
-            clearTimeout(timeoutId);
-            const data = await res.json();
-            const reply = data.response || data.error || 'No response.';
-            if (data.conversation_id) conversationId = data.conversation_id;
-            const loadEl = document.getElementById('revision-loading');
-            if (loadEl) loadEl.remove();
-            messages.push({ role: 'assistant', content: reply });
-            appendMessage('assistant', reply);
-            messagesEl.scrollTop = messagesEl.scrollHeight;
-        } catch(e) {
-            const loadEl = document.getElementById('revision-loading');
-            if (loadEl) loadEl.remove();
-            appendMessage('assistant', 'Could not generate revised fix. Try again.');
-        }
-        typingEl.style.display = 'none';
-        sendEl.disabled = false;
-    }
-
     async function requestBriefingForTask(taskId, title, description, priority) {
-        // Update thinking text dynamically
-        const thinkingTexts = [
-            'Pulling page data…',
-            'Analyzing ' + (title.length > 30 ? title.substring(0,27) + '...' : title) + '…',
-            'Checking GSC metrics…',
-            'Preparing your briefing…'
-        ];
-        let textIdx = 0;
-        const thinkingEl = document.getElementById('thinking-text');
-        const thinkingInterval = setInterval(() => {
-            if (thinkingEl && textIdx < thinkingTexts.length) {
-                thinkingEl.textContent = thinkingTexts[textIdx];
-                textIdx++;
-            }
-        }, 2000);
-        
         const loadingDiv = document.createElement('div');
         loadingDiv.className = 'message assistant';
-        loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Pulling page data for <strong>' + escapeHtml(title) + '</strong>…</div>';
+        loadingDiv.innerHTML = '<div class="bubble" style="color:var(--text-muted);font-style:italic;">Making your move on <strong>' + escapeHtml(title) + '</strong>…</div>';
         loadingDiv.id = 'briefing-loading';
         messagesEl.appendChild(loadingDiv);
         typingEl.style.display = 'block';
-        if (thinkingEl) thinkingEl.textContent = thinkingTexts[0];
         messagesEl.scrollTop = messagesEl.scrollHeight;
         sendEl.disabled = true;
 
-        // Extract URL from task title — look for the LAST url pattern (after any dash variant)
-        const allUrls = (title || '').match(/\/[a-z0-9\-\/]+\//g);
-        let targetUrl = allUrls ? allUrls[allUrls.length - 1] : null;
-        if (!targetUrl && description) {
-            const descUrls = (description || '').match(/\/[a-z0-9\-\/]+\//g);
-            targetUrl = descUrls ? descUrls[0] : null;
-        }
-        let pageContext = '';
-        if (targetUrl) {
-            try {
-                const pageRes = await fetch('/api/page-data?url=' + encodeURIComponent(targetUrl));
-                const pageData = await pageRes.json();
-                if (pageData && pageData.url) {
-                    pageContext = '\n\nPAGE DATA FROM CRAWL:\n';
-                    pageContext += 'URL: ' + pageData.url + '\n';
-                    pageContext += 'Word count: ' + (pageData.word_count || 0) + '\n';
-                    pageContext += 'H1: ' + (pageData.h1 || '(none)') + '\n';
-                    pageContext += 'Title: ' + (pageData.title_tag || '(none)') + '\n';
-                    pageContext += 'Schema types: ' + (pageData.schema_types || '[]') + '\n';
-                    pageContext += 'Schema errors: ' + (pageData.schema_errors || 'none') + '\n';
-                    pageContext += 'Internal link count: ' + (pageData.internal_link_count || 0) + '\n';
-                    pageContext += 'Image count: ' + (pageData.image_count || 0) + '\n';
-                    pageContext += 'H2s: ' + (pageData.h2s || '[]') + '\n';
-                    if (pageData.gsc_impressions) pageContext += 'GSC: ' + pageData.gsc_impressions + ' impressions, ' + pageData.gsc_clicks + ' clicks, position ' + pageData.gsc_position + '\n';
-                    if (pageData.body_text_snippet) {
-                        pageContext += '\nFULL PAGE BODY TEXT (use this for rewrites — do NOT ask the user to paste content):\n' + pageData.body_text_snippet + '\n';
-                    }
-                }
-            } catch(e) { /* non-fatal */ }
-        }
-
-        const brandData = '\n\nVERIFIED BRAND DATA (use these exact values for schema/content — never guess):' +
-            '\n- Organization: Double D Trailers' +
-            '\n- URL: https://www.doubledtrailers.com' +
-            '\n- Logo: https://www.doubledtrailers.com/wp-content/uploads/2023/10/Blog-Logo.jpg' +
-            '\n- Facebook: https://www.facebook.com/DoubleDHorseTrailers' +
-            '\n- Instagram: https://www.instagram.com/doubledtrailers' +
-            '\n- YouTube: https://www.youtube.com/doubledtrailers' +
-            '\n- LinkedIn: https://www.linkedin.com/company/double-d-horse-trailers' +
-            '\n- GBP: https://maps.app.goo.gl/BBdfxux8P46vCsX2A' +
-            '\n- Address: PO Box 10490, Wilmington, NC 28411' +
-            '\n- Phone: 910-444-2880' +
-            '\n- Email: info@doubledtrailers.com' +
-            '\n- Founded: 1997, Pink Hill NC' +
-            '\n- Z-Frame: high-tensile zinc-infused construction (NOT aluminum)' +
-            '\n- SafeTack: patented reverse-load swing-out rear tack' +
-            '\n- SafeBump: single-piece molded fiber composite roof with Z-Frame tubing every 16"' +
-            '\n- SafeKick: recycled plastic/rubber wall panels' +
-            '\n\nWhen generating Organization schema, COPY THIS EXACT JSON-LD (do not rewrite or modify any values — wrap in script type=application/ld+json tags):' +
-            '\n{"@context":"https://schema.org","@type":"Organization","name":"Double D Trailers","url":"https://www.doubledtrailers.com","logo":"https://www.doubledtrailers.com/wp-content/uploads/2023/10/Blog-Logo.jpg","foundingDate":"1997","address":{"@type":"PostalAddress","postOfficeBoxNumber":"PO Box 10490","addressLocality":"Wilmington","addressRegion":"NC","postalCode":"28411","addressCountry":"US"},"telephone":"+1-910-444-2880","email":"info@doubledtrailers.com","sameAs":["https://www.facebook.com/DoubleDHorseTrailers","https://www.instagram.com/doubledtrailers","https://www.youtube.com/doubledtrailers","https://www.linkedin.com/company/double-d-horse-trailers","https://maps.app.goo.gl/BBdfxux8P46vCsX2A"]}';
-
-        const urlRule = targetUrl ? '\n\nIMPORTANT: The target page URL is exactly: ' + targetUrl + ' — write it in full every time. Never truncate URLs. Full URL: https://www.doubledtrailers.com' + targetUrl : '';
-
-        // Extract rule type from task title (e.g., "[ETA-01]", "[KIA-R3]", "[FC-R7]", "[RECHECK-FAIL]")
-        const ruleMatch = (title || '').match(/\[([A-Z0-9\-]+)\]/);
-        const ruleType = ruleMatch ? ruleMatch[1] : null;
-        
-        // Build rule-specific instructions based on rule type
-        let ruleInstructions = '';
-        if (ruleType) {
-            ruleInstructions = '\n\n🎯 CRITICAL — RULE-SPECIFIC INSTRUCTIONS FOR [' + ruleType + ']:\n';
-            
-            if (ruleType.startsWith('ETA') || ruleType === 'FC-R1') {
-                ruleInstructions += 'This is a CENTRAL ENTITY INJECTION task. Your ONLY job is to:\n';
-                ruleInstructions += '1. Check if "Double D Trailers" or "horse trailer" appears in the body text\n';
-                ruleInstructions += '2. If missing, write an opening paragraph (2-3 sentences) that naturally includes the brand name and "horse trailer"\n';
-                ruleInstructions += '3. DO NOT fix schema. DO NOT rewrite the whole page. ONLY add the central entity opener.\n';
-                ruleInstructions += '4. The pass criteria is: has_central_entity = TRUE on next crawl\n';
-            } else if (ruleType.startsWith('KIA') || ruleType === 'FC-R7') {
-                ruleInstructions += 'This is an H1/TITLE ALIGNMENT task. Your ONLY job is to:\n';
-                ruleInstructions += '1. Compare the current H1 to the title tag\n';
-                ruleInstructions += '2. Write a corrected H1 that matches the title intent\n';
-                ruleInstructions += '3. DO NOT fix schema. DO NOT rewrite body content. ONLY fix the H1.\n';
-                ruleInstructions += '4. The pass criteria is: h1_matches_title = TRUE on next crawl\n';
-            } else if (ruleType.startsWith('OPQ') || ruleType === 'FC-R3' || ruleType === 'FC-R6') {
-                ruleInstructions += 'This is a WORD COUNT / CONTENT task. Your job is to:\n';
-                ruleInstructions += '1. Check current word count against the target (500 for core pages, 800 for macro)\n';
-                ruleInstructions += '2. Either TRIM bloated content or EXPAND thin content\n';
-                ruleInstructions += '3. Write the complete replacement body text\n';
-                ruleInstructions += '4. DO NOT fix schema unless asked.\n';
-            } else if (ruleType.startsWith('ILA') || ruleType === 'FC-R5' || ruleType === 'FC-R10') {
-                ruleInstructions += 'This is an INTERNAL LINKING task. Your ONLY job is to:\n';
-                ruleInstructions += '1. Identify where to add a link to a core page\n';
-                ruleInstructions += '2. Suggest the exact anchor text and target URL\n';
-                ruleInstructions += '3. DO NOT rewrite the whole page. ONLY specify the link to add.\n';
-                ruleInstructions += '4. The pass criteria is: has_core_link = TRUE on next crawl\n';
-            } else if (ruleType.startsWith('CI') || ruleType === 'FC-R9') {
-                ruleInstructions += 'This is a SCHEMA task. Your ONLY job is to:\n';
-                ruleInstructions += '1. Check which schema types are missing or broken\n';
-                ruleInstructions += '2. Output the complete JSON-LD block to add/fix\n';
-                ruleInstructions += '3. Use the VERIFIED BRAND DATA above — do not guess values\n';
-                ruleInstructions += '4. DO NOT rewrite body content. ONLY fix schema.\n';
-            } else if (ruleType === 'RECHECK-FAIL') {
-                ruleInstructions += 'This task previously FAILED verification. Review what was tried before and:\n';
-                ruleInstructions += '1. Identify why the previous fix did not work\n';
-                ruleInstructions += '2. Propose a revised approach that addresses the root cause\n';
-                ruleInstructions += '3. Be specific about what was missing from the first attempt\n';
-            }
-            
-            ruleInstructions += '\n⚠️ STAY IN LANE: Do NOT drift into unrelated fixes. The user clicked THIS specific Play for THIS specific rule. Execute ONLY what the rule requires.';
-        }
-
-        const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + (description || '') + '.' + pageContext + brandData + urlRule + ruleInstructions + '\n\nINSTRUCTIONS: You have the full page data above. Give a sharp, specific briefing. If the task requires a content rewrite, WRITE THE COMPLETE REWRITE using the page body text — do NOT ask the user to paste content. If it requires schema changes, output the complete JSON-LD block using the VERIFIED BRAND DATA above. After any schema output, include this validation link: [Validate in Rich Results Test](https://search.google.com/test/rich-results?url=' + encodeURIComponent('https://www.doubledtrailers.com' + (targetUrl || '')) + ') — tell the user to paste any errors back into this chat. Be surgical. Address me as ' + USER_NAME + '. DO NOT create any new tasks or plays — only brief and execute on this specific one.';
+        const prompt = 'I just opened the Play: "' + title + '". Priority: ' + priority + '. Description: ' + description + '. Give me a sharp, specific briefing on exactly what to do, what the current state is, and what success looks like. Address me as ' + USER_NAME + '. Be surgical — this is one task, not a full briefing. Keep it under 150 words. DO NOT create any new tasks or plays — only brief on this specific one.';
         messages.push({ role: 'user', content: prompt });
         // Don't show the raw prompt to the user — only show Logiri's response
 
@@ -3034,7 +2551,6 @@
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
-            clearInterval(thinkingInterval); // Clear the thinking text animation
             const data = await res.json();
             const reply = data.response || data.error || 'No response.';
             if (data.conversation_id) {
@@ -3047,13 +2563,11 @@
             messages.push({ role: 'assistant', content: reply });
             appendMessage('assistant', reply);
         } catch(e) {
-            clearInterval(thinkingInterval); // Clear interval on error too
             const loadEl = document.getElementById('briefing-loading');
             if (loadEl) loadEl.remove();
             appendMessage('assistant', 'Signal lost — type your question and I will get back on the board.');
         }
         typingEl.style.display = 'none';
-        if (thinkingEl) thinkingEl.textContent = 'Scanning the board…'; // Reset text
         sendEl.disabled = false;
         inputEl.focus();
     }
@@ -3106,20 +2620,11 @@
         const grid = document.getElementById('board-grid');
         if (!grid) return;
 
-        // Apply rule category filter
-        let filteredTasks = tasks;
-        if (activeRuleFilter && activeRuleFilter !== 'all') {
-            filteredTasks = tasks.filter(t => {
-                const ruleMatch = (t.title || '').match(/\[([A-Z]+)/);
-                return ruleMatch && ruleMatch[1] === activeRuleFilter;
-            });
-        }
-
         const cols = {
-            critical: filteredTasks.filter(t => t.priority === 'critical' && t.status !== 'done'),
-            high:     filteredTasks.filter(t => t.priority === 'high'     && t.status !== 'done'),
-            medium:   filteredTasks.filter(t => t.priority === 'medium'   && t.status !== 'done'),
-            done:     filteredTasks.filter(t => t.status === 'done').slice(0, 10),
+            critical: tasks.filter(t => t.priority === 'critical' && t.status !== 'done'),
+            high:     tasks.filter(t => t.priority === 'high'     && t.status !== 'done'),
+            medium:   tasks.filter(t => t.priority === 'medium'   && t.status !== 'done'),
+            done:     tasks.filter(t => t.status === 'done').slice(0, 5),
         };
 
         const colConfig = [
@@ -3171,15 +2676,14 @@
 
         // Verification badge
         let verifyBadge = '';
-        const attemptLabel = (task.attempt_number && task.attempt_number > 1) ? ' (Attempt ' + task.attempt_number + ')' : '';
         if (isDone && task.recheck_verified) {
             const result = (task.recheck_result || '').toLowerCase();
             if (result === 'pass') {
-                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#16a34a;background:#f0fdf4;padding:2px 8px;border-radius:4px;margin-top:6px;">&#10003; PASS' + attemptLabel + '</div>';
+                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#16a34a;background:#f0fdf4;padding:2px 8px;border-radius:4px;margin-top:6px;">&#10003; PASS — Fix verified</div>';
             } else if (result === 'partial') {
-                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#ca8a04;background:#fefce8;padding:2px 8px;border-radius:4px;margin-top:6px;">&#9888; PARTIAL' + attemptLabel + '</div>';
+                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#ca8a04;background:#fefce8;padding:2px 8px;border-radius:4px;margin-top:6px;">&#9888; PARTIAL — Needs iteration</div>';
             } else if (result === 'fail') {
-                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#dc2626;background:#fef2f2;padding:2px 8px;border-radius:4px;margin-top:6px;">&#10007; FAIL' + attemptLabel + ' — Click to revise</div>';
+                verifyBadge = '<div style="font-size:11px;font-weight:600;color:#dc2626;background:#fef2f2;padding:2px 8px;border-radius:4px;margin-top:6px;">&#10007; FAIL — Re-evaluate</div>';
             }
         } else if (isDone && task.recheck_date) {
             const recheckDate = new Date(task.recheck_date);
@@ -3204,12 +2708,7 @@
 
         if (!isDone) {
             card.addEventListener('click', () => {
-                showChatForTask(task.id, task.title || '', task.description || '', task.priority || '');
-            });
-        } else {
-            card.style.cursor = 'pointer';
-            card.addEventListener('click', () => {
-                showChatForTask(task.id, task.title || '', task.description || '', task.priority || '');
+                showChatForTask(task.id, task.title || '');
             });
         }
 
@@ -3218,27 +2717,7 @@
 
     function extractUrl(title) {
         const m = title.match(/(\/[a-z0-9\-\/]+\/)/);
-        if (!m) return null;
-        // Clean double slashes
-        return m[1].replace(/\/\//g, '/');
-    }
-    
-    // Copy text to clipboard helper
-    function copyToClipboard(text, btnEl) {
-        navigator.clipboard.writeText(text).then(() => {
-            if (btnEl) {
-                const original = btnEl.innerHTML;
-                btnEl.innerHTML = '✓ Copied';
-                btnEl.classList.add('copied');
-                setTimeout(() => {
-                    btnEl.innerHTML = original;
-                    btnEl.classList.remove('copied');
-                }, 2000);
-            }
-            showNotification('Copied to clipboard', 'green');
-        }).catch(() => {
-            showNotification('Failed to copy', 'red');
-        });
+        return m ? m[1] : null;
     }
 
 
@@ -3265,8 +2744,6 @@
         dashEl.classList.remove('active');
         boardEl.style.display = 'none';
         chatEl.style.display  = 'none';
-        const resultsEl = document.getElementById('results-view');
-        if (resultsEl) resultsEl.style.display = 'none';
         if (filters) filters.style.display = 'none';
         if (backBtn) backBtn.style.display = 'none';
 
@@ -3284,9 +2761,15 @@
             document.getElementById('board-title').textContent = USER_NAME + "'s Playbook";
             refreshBoard();
         } else if (view === 'results') {
-            document.getElementById('results-view').style.display = 'block';
+            dashEl.style.display = 'block';
+            dashEl.classList.add('active');
             document.getElementById('board-title').textContent = 'Verification Results';
-            loadResultsView();
+            loadDashboardData();
+            // Scroll to results section
+            setTimeout(() => {
+                const resultsTitle = document.querySelector('#dashboard-view .dash-section-title:nth-of-type(2)');
+                if (resultsTitle) resultsTitle.scrollIntoView({ behavior: 'smooth' });
+            }, 100);
         } else if (view === 'rules') {
             dashEl.style.display = 'block';
             dashEl.classList.add('active');
@@ -3301,140 +2784,6 @@
 
     // ── Dashboard data loading ──────────────────────────
     let dashboardLoaded = false;
-
-    async function loadResultsView() {
-        const container = document.getElementById('results-content');
-        container.innerHTML = '<div class="dash-empty">Loading…</div>';
-
-        try {
-            const res = await fetch('/api/tasks?status=done');
-            const doneTasks = await res.json();
-            const verified = doneTasks.filter(t => t.recheck_verified);
-            const passes = verified.filter(t => (t.recheck_result||'').toLowerCase() === 'pass');
-            const fails = verified.filter(t => (t.recheck_result||'').toLowerCase() === 'fail');
-            const partials = verified.filter(t => (t.recheck_result||'').toLowerCase() === 'partial');
-            const pending = doneTasks.filter(t => t.recheck_date && !t.recheck_verified);
-
-            let html = '';
-
-            // Calculate progress percentages
-            const totalVerified = verified.length;
-            const passPercent = totalVerified > 0 ? Math.round((passes.length / totalVerified) * 100) : 0;
-            const failPercent = totalVerified > 0 ? Math.round((fails.length / totalVerified) * 100) : 0;
-            const partialPercent = totalVerified > 0 ? Math.round((partials.length / totalVerified) * 100) : 0;
-
-            // Stats row with progress
-            html += '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px;">';
-            html += '<div class="stat-card green"><div class="stat-label">Passed</div><div class="stat-value">' + passes.length + '</div><div class="stat-sub">' + passPercent + '% success rate</div></div>';
-            html += '<div class="stat-card red"><div class="stat-label">Failed</div><div class="stat-value">' + fails.length + '</div><div class="stat-sub">Need revision</div></div>';
-            html += '<div class="stat-card yellow"><div class="stat-label">Partial</div><div class="stat-value">' + partials.length + '</div><div class="stat-sub">Iterate again</div></div>';
-            html += '<div class="stat-card blue"><div class="stat-label">Awaiting Recheck</div><div class="stat-value">' + pending.length + '</div><div class="stat-sub">In queue</div></div>';
-            html += '</div>';
-            
-            // Progress bar
-            if (totalVerified > 0) {
-                html += '<div style="margin-bottom:32px;">';
-                html += '<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);margin-bottom:6px;"><span>Verification Progress</span><span>' + passes.length + '/' + totalVerified + ' passed</span></div>';
-                html += '<div style="display:flex;height:8px;border-radius:4px;overflow:hidden;background:var(--bg-tertiary);">';
-                if (passes.length > 0) html += '<div style="width:' + passPercent + '%;background:#16a34a;"></div>';
-                if (partials.length > 0) html += '<div style="width:' + partialPercent + '%;background:#d97706;"></div>';
-                if (fails.length > 0) html += '<div style="width:' + failPercent + '%;background:#dc2626;"></div>';
-                html += '</div>';
-                html += '</div>';
-            }
-
-            // Fails first (need attention)
-            if (fails.length > 0) {
-                html += '<div class="dash-section-title" style="color:#dc2626;">Failed — Needs Revision <span class="dash-badge">' + fails.length + '</span></div>';
-                html += '<div class="results-grid">';
-                fails.forEach(t => {
-                    html += buildResultCard(t, 'fail');
-                });
-                html += '</div>';
-            }
-
-            // Passes
-            if (passes.length > 0) {
-                html += '<div class="dash-section-title" style="color:#16a34a;margin-top:24px;">Passed — Verified Wins <span class="dash-badge">' + passes.length + '</span></div>';
-                html += '<div class="results-grid">';
-                passes.forEach(t => {
-                    html += buildResultCard(t, 'pass');
-                });
-                html += '</div>';
-            }
-
-            // Partials
-            if (partials.length > 0) {
-                html += '<div class="dash-section-title" style="color:#ca8a04;margin-top:24px;">Partial — Needs Iteration <span class="dash-badge">' + partials.length + '</span></div>';
-                html += '<div class="results-grid">';
-                partials.forEach(t => {
-                    html += buildResultCard(t, 'partial');
-                });
-                html += '</div>';
-            }
-
-            // Pending
-            if (pending.length > 0) {
-                html += '<div class="dash-section-title" style="margin-top:24px;">Awaiting Recheck <span class="dash-badge">' + pending.length + '</span></div>';
-                html += '<div class="results-grid">';
-                pending.forEach(t => {
-                    const recheckDate = t.recheck_date ? new Date(t.recheck_date).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '';
-                    const daysLeft = t.recheck_date ? Math.ceil((new Date(t.recheck_date) - new Date()) / 86400000) : 0;
-                    html += '<div class="result-card" style="cursor:pointer;" onclick="showChatForTask(' + t.id + ', \'' + (t.title||'').replace(/'/g, "\\'") + '\', \'\', \'\')">' +
-                        '<div class="result-icon" style="background:#eff4ff;color:#2563eb;">⏳</div>' +
-                        '<div class="result-content">' +
-                            '<div class="result-title">' + escapeHtml(t.title || '') + '</div>' +
-                            '<div class="result-detail">Completed — recheck ' + (daysLeft > 0 ? 'in ' + daysLeft + ' days' : 'pending') + '</div>' +
-                            '<div class="result-metric">Recheck: ' + recheckDate + '</div>' +
-                        '</div>' +
-                    '</div>';
-                });
-                html += '</div>';
-            }
-
-            if (verified.length === 0 && pending.length === 0) {
-                html = '<div class="dash-empty">No completed tasks yet. Finish plays and they\'ll appear here after verification.</div>';
-            }
-
-            container.innerHTML = html;
-        } catch(e) {
-            container.innerHTML = '<div class="dash-empty">Could not load results.</div>';
-        }
-    }
-
-    function buildResultCard(task, resultType) {
-        const icon = resultType === 'pass' ? '✓' : resultType === 'partial' ? '⚠' : '✗';
-        const checkedDate = task.recheck_date ? new Date(task.recheck_date).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '';
-        const retryBtn = resultType === 'fail' 
-            ? '<button class="retry-btn" onclick="event.stopPropagation(); retryFailedTask(' + task.id + ', \'' + (task.title||'').replace(/'/g, "\\'") + '\')">🔄 Retry</button>' 
-            : '';
-        return '<div class="result-card" style="cursor:pointer;" onclick="showChatForTask(' + task.id + ', \'' + (task.title||'').replace(/'/g, "\\'") + '\', \'\', \'\')">' +
-            '<div class="result-icon ' + resultType + '">' + icon + '</div>' +
-            '<div class="result-content">' +
-                '<div class="result-title">' + escapeHtml(task.title || '') + '</div>' +
-                '<div class="result-detail">' + (resultType === 'pass' ? 'Fix verified — GSC metrics confirmed.' : resultType === 'partial' ? 'Partial improvement. May need another pass.' : 'No measurable improvement. Click to see feedback.') + '</div>' +
-                '<div style="display:flex;align-items:center;gap:8px;margin-top:4px;">' +
-                    '<div class="result-metric">' + resultType.toUpperCase() + ' · Checked ' + checkedDate + '</div>' +
-                    retryBtn +
-                '</div>' +
-            '</div>' +
-        '</div>';
-    }
-    
-    async function retryFailedTask(taskId, title) {
-        // Reset task status to pending for another attempt
-        try {
-            await fetch('/api/tasks/' + taskId + '/retry', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            });
-            showNotification('Task queued for retry — ' + title.substring(0, 30) + '...', 'green');
-            loadResultsView();
-            refreshBoard();
-        } catch(e) {
-            showNotification('Could not retry task', 'red');
-        }
-    }
 
     async function loadDashboardData() {
         try {
@@ -3515,7 +2864,7 @@
                     const result = (task.recheck_result || '').toLowerCase();
                     const icon = result === 'pass' ? '✓' : result === 'partial' ? '⚠' : '✗';
                     const iconClass = result === 'pass' ? 'pass' : result === 'partial' ? 'partial' : 'fail';
-                    return '<div class="result-card" style="cursor:pointer;" onclick="showChatForTask(' + task.id + ', \'' + (task.title||'').replace(/'/g, "\\'") + '\', \'\', \'' + (task.priority||'') + '\')">' +
+                    return '<div class="result-card">' +
                         '<div class="result-icon ' + iconClass + '">' + icon + '</div>' +
                         '<div class="result-content">' +
                             '<div class="result-title">' + escapeHtml(task.title || '') + '</div>' +
@@ -3530,21 +2879,33 @@
             try {
                 const proposalsRes = await fetch('/api/rule-proposals');
                 if (proposalsRes.ok) {
-                    const proposals = await proposalsRes.json();
+                    let proposals = await proposalsRes.json();
                     const proposalsList = document.getElementById('dash-proposals-list');
                     const proposalsTitle = document.getElementById('dash-proposals-title');
+
+                    // Deduplicate by rule_id — keep the most recent (highest id) per rule
+                    if (Array.isArray(proposals) && proposals.length > 0) {
+                        const byRule = {};
+                        proposals.forEach(p => {
+                            const key = p.rule_id || p.id;
+                            if (!byRule[key] || (p.id > byRule[key].id)) byRule[key] = p;
+                        });
+                        proposals = Object.values(byRule).sort((a, b) => (b.id || 0) - (a.id || 0));
+                    }
+
                     if (Array.isArray(proposals) && proposals.length > 0) {
                         proposalsTitle.style.display = 'flex';
                         document.getElementById('dash-proposals-badge').textContent = proposals.length + ' pending';
                         document.getElementById('dash-proposals').textContent = proposals.length;
                         document.getElementById('dash-proposals-sub').textContent = 'Awaiting your review';
                         proposalsList.innerHTML = proposals.map(p => {
+                            const text = p.summary || p.proposed_change || p.rationale || p.description || '';
                             return '<div class="proposal-card" id="proposal-' + (p.id || '') + '">' +
                                 '<div class="proposal-header">' +
                                     '<div class="proposal-rule">' + escapeHtml(p.rule_id || '') + (p.rule_name ? ' — ' + escapeHtml(p.rule_name) : '') + '</div>' +
                                     '<div class="proposal-type">' + escapeHtml(p.change_type || 'modify') + '</div>' +
                                 '</div>' +
-                                '<div class="proposal-text">' + escapeHtml(p.proposed_change || p.description || '') + '</div>' +
+                                '<div class="proposal-text">' + escapeHtml(text) + '</div>' +
                                 '<div class="proposal-actions">' +
                                     '<button class="approve" onclick="approveProposal(' + (p.id || 0) + ', this)">✓ Approve</button>' +
                                     '<button class="reject" onclick="rejectProposal(' + (p.id || 0) + ', this)">✗ Reject</button>' +
@@ -3616,21 +2977,11 @@
 
 <script>
     // ── Board filter helper (uses topbar buttons) ──
-    let activeRuleFilter = 'all';
-    
     function setBoardFilter(filter) {
         activeTaskFilter = filter;
         ['mine','team','wins','all'].forEach(f => {
             const btn = document.getElementById('filter-' + f);
             if (btn) btn.classList.toggle('active', f === filter);
-        });
-        refreshBoard();
-    }
-    
-    function setRuleFilter(rulePrefix) {
-        activeRuleFilter = rulePrefix;
-        document.querySelectorAll('.rule-filter-pill').forEach(pill => {
-            pill.classList.toggle('active', pill.dataset.filter === rulePrefix);
         });
         refreshBoard();
     }
