@@ -1,4 +1,4 @@
-    <?php
+<?php
 
 namespace App\Command;
 
@@ -26,7 +26,10 @@ class FetchDataForSeoCommand extends Command
             ->addOption('skip-keywords', null, InputOption::VALUE_NONE, 'Skip ranked keywords fetch')
             ->addOption('skip-competitors', null, InputOption::VALUE_NONE, 'Skip competitor analysis')
             ->addOption('skip-volumes', null, InputOption::VALUE_NONE, 'Skip keyword search volume fetch')
-            ->addOption('limit', null, InputOption::VALUE_OPTIONAL, 'Max keywords to fetch', 500);
+            ->addOption('skip-serp', null, InputOption::VALUE_NONE, 'Skip live SERP position checks')
+            ->addOption('skip-backlinks', null, InputOption::VALUE_NONE, 'Skip backlink summary')
+            ->addOption('limit', null, InputOption::VALUE_OPTIONAL, 'Max keywords to fetch', 500)
+            ->addOption('serp-limit', null, InputOption::VALUE_OPTIONAL, 'Max SERP queries to check live', 20);
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -45,10 +48,13 @@ class FetchDataForSeoCommand extends Command
         $output->writeln('');
         $output->writeln('+==========================================+');
         $output->writeln('|    LOGIRI — DataForSEO Data Fetcher      |');
+        $output->writeln('|    Keywords · SERP · Backlinks · Gaps     |');
         $output->writeln('+==========================================+');
         $output->writeln('');
 
-        $limit = (int) ($input->getOption('limit') ?? 500);
+        $limit     = (int) ($input->getOption('limit') ?? 500);
+        $serpLimit = (int) ($input->getOption('serp-limit') ?? 20);
+        $totalCost = 0;
 
         // ── 1. Ranked Keywords: what is DDT ranking for? ──
         if (!$input->getOption('skip-keywords')) {
@@ -57,6 +63,7 @@ class FetchDataForSeoCommand extends Command
             if ($keywordsData) {
                 $saved = $this->saveKeywordData($keywordsData, 'ranked');
                 $output->writeln("  Saved {$saved} ranked keywords.");
+                $totalCost += 0.01 + ($saved * 0.0001);
             } else {
                 $output->writeln('  [WARN] No ranked keywords returned.');
             }
@@ -69,6 +76,7 @@ class FetchDataForSeoCommand extends Command
             if ($volumeData) {
                 $saved = $this->saveVolumeData($volumeData);
                 $output->writeln("  Enriched {$saved} keywords with search volume data.");
+                $totalCost += 0.075;
             } else {
                 $output->writeln('  [WARN] No volume data returned.');
             }
@@ -77,27 +85,47 @@ class FetchDataForSeoCommand extends Command
         // ── 3. Competitor Keywords: what do competitors rank for that DDT doesn't? ──
         if (!$input->getOption('skip-competitors')) {
             $output->writeln('Fetching competitor keyword gaps...');
-            $competitors = ['featherlite.com', 'sundowner.com', 'brantzmfg.com'];
+            $competitors = ['featherlite.com', 'sundowner.com'];
             foreach ($competitors as $comp) {
                 $output->writeln("  Analyzing {$comp}...");
                 $gapData = $this->fetchCompetitorGap($login, $password, $comp, $limit);
                 if ($gapData) {
                     $saved = $this->saveCompetitorData($gapData, $comp);
                     $output->writeln("    Found {$saved} keyword gaps vs {$comp}.");
+                    $totalCost += 0.01 + ($saved * 0.0001);
                 }
             }
         }
 
-        // ── 4. Domain Overview: organic traffic estimate, authority ──
+        // ── 4. Live SERP Checks: verify real-time positions ──
+        if (!$input->getOption('skip-serp')) {
+            $output->writeln("Checking live SERP positions (up to {$serpLimit} queries)...");
+            $serpResults = $this->checkLiveSerpPositions($login, $password, $serpLimit, $output);
+            $totalCost += $serpResults * 0.002;
+        }
+
+        // ── 5. Backlink Summary ──
+        if (!$input->getOption('skip-backlinks')) {
+            $output->writeln('Fetching backlink summary...');
+            $blData = $this->fetchBacklinkSummary($login, $password);
+            if ($blData) {
+                $this->saveBacklinkData($blData);
+                $output->writeln("  Backlink profile saved.");
+                $totalCost += 0.02;
+            }
+        }
+
+        // ── 6. Domain Overview ──
         $output->writeln('Fetching domain overview...');
         $overview = $this->fetchDomainOverview($login, $password);
         if ($overview) {
             $this->saveDomainOverview($overview);
             $output->writeln("  Domain metrics saved.");
+            $totalCost += 0.01;
         }
 
         $output->writeln('');
-        $output->writeln('DataForSEO fetch complete.');
+        $output->writeln(sprintf('DataForSEO fetch complete. Estimated cost: $%.4f', $totalCost));
         return Command::SUCCESS;
     }
 
@@ -178,6 +206,181 @@ class FetchDataForSeoCommand extends Command
         ]];
 
         return $this->callApi($login, $password, 'dataforseo_labs/google/domain_intersection/live', $payload);
+    }
+
+    // ─────────────────────────────────────────────
+    //  LIVE SERP POSITION CHECKS (replaces ValueSERP)
+    // ─────────────────────────────────────────────
+
+    private function checkLiveSerpPositions(string $login, string $password, int $limit, OutputInterface $output): int
+    {
+        // Get top queries from recently verified tasks + high-impression GSC queries
+        $queries = [];
+
+        // Priority 1: queries associated with recently verified tasks
+        try {
+            $taskQueries = $this->db->fetchAllAssociative(
+                "SELECT DISTINCT g.query, g.page, g.impressions, g.position
+                 FROM gsc_snapshots g
+                 JOIN tasks t ON g.page LIKE CONCAT('%', SUBSTRING(t.title FROM '/[a-z0-9\-/]+/'), '%')
+                 WHERE t.status = 'done' AND t.recheck_verified = TRUE
+                 AND g.date_range = '28d' AND g.query != '__PAGE_AGGREGATE__'
+                 ORDER BY g.impressions DESC LIMIT " . intval($limit / 2)
+            );
+            foreach ($taskQueries as $tq) {
+                $queries[] = ['query' => $tq['query'], 'gsc_page' => $tq['page'], 'gsc_position' => $tq['position']];
+            }
+        } catch (\Exception $e) {}
+
+        // Priority 2: fill remaining with top impression queries
+        $remaining = $limit - count($queries);
+        if ($remaining > 0) {
+            try {
+                $existingQueries = array_column($queries, 'query');
+                $topQueries = $this->db->fetchAllAssociative(
+                    "SELECT query, page, impressions, position FROM gsc_snapshots
+                     WHERE date_range = '28d' AND query != '__PAGE_AGGREGATE__'
+                     AND impressions > 50
+                     ORDER BY impressions DESC LIMIT " . intval($remaining)
+                );
+                foreach ($topQueries as $tq) {
+                    if (!in_array($tq['query'], $existingQueries)) {
+                        $queries[] = ['query' => $tq['query'], 'gsc_page' => $tq['page'], 'gsc_position' => $tq['position']];
+                    }
+                }
+            } catch (\Exception $e) {}
+        }
+
+        $checked = 0;
+        foreach ($queries as $q) {
+            $query = $q['query'];
+
+            // Use DataForSEO SERP API (live/advanced) — $0.002 per request
+            $payload = [[
+                'keyword'       => $query,
+                'location_name' => 'United States',
+                'language_name' => 'English',
+                'device'        => 'desktop',
+                'os'            => 'windows',
+                'depth'         => 100,
+            ]];
+
+            $result = $this->callApi($login, $password, 'serp/google/organic/live/advanced', $payload);
+            if (!$result) continue;
+
+            $items = $result[0]['items'] ?? [];
+            $ddtPosition = null;
+            $ddtUrl = null;
+            $top3 = [];
+
+            foreach ($items as $item) {
+                if ($item['type'] !== 'organic') continue;
+                $link = $item['url'] ?? '';
+                $pos = $item['rank_absolute'] ?? null;
+
+                if (count($top3) < 3) {
+                    $top3[] = ['position' => $pos, 'domain' => $item['domain'] ?? '', 'title' => substr($item['title'] ?? '', 0, 60)];
+                }
+
+                if (str_contains(strtolower($link), self::DOMAIN)) {
+                    $ddtPosition = $pos;
+                    $ddtUrl = $link;
+                }
+            }
+
+            // Check for AI overview
+            $aiMention = false;
+            foreach ($items as $item) {
+                if ($item['type'] === 'ai_overview') {
+                    $text = json_encode($item);
+                    $aiMention = str_contains(strtolower($text), 'double d') || str_contains(strtolower($text), self::DOMAIN);
+                    break;
+                }
+            }
+
+            // People Also Ask
+            $paa = [];
+            foreach ($items as $item) {
+                if ($item['type'] === 'people_also_ask') {
+                    foreach ($item['items'] ?? [] as $paaItem) {
+                        $paa[] = $paaItem['title'] ?? '';
+                    }
+                    break;
+                }
+            }
+
+            // Store
+            try {
+                $this->db->insert('live_serp_checks', [
+                    'query'               => $query,
+                    'ddt_position'        => $ddtPosition,
+                    'ddt_url'             => $ddtUrl,
+                    'gsc_position'        => round((float) ($q['gsc_position'] ?? 0), 1),
+                    'position_delta'      => $ddtPosition && $q['gsc_position'] ? round($ddtPosition - (float) $q['gsc_position'], 1) : null,
+                    'total_results'       => count($items),
+                    'ai_overview_mention' => $aiMention ? 'TRUE' : 'FALSE',
+                    'top_3_json'          => json_encode($top3),
+                    'paa_json'            => json_encode(array_slice($paa, 0, 5)),
+                    'checked_at'          => date('Y-m-d H:i:s'),
+                ]);
+            } catch (\Exception $e) {}
+
+            // Display
+            $gscPos = round((float) ($q['gsc_position'] ?? 0), 1);
+            $liveStr = $ddtPosition ? "#{$ddtPosition}" : 'NOT FOUND';
+            $deltaStr = '';
+            if ($ddtPosition && $gscPos > 0) {
+                $delta = round($ddtPosition - $gscPos, 1);
+                $deltaStr = $delta > 0 ? " (↓{$delta} vs GSC)" : ($delta < 0 ? " (↑" . abs($delta) . " vs GSC)" : " (= GSC)");
+            }
+            $output->writeln("  [{$liveStr}{$deltaStr}] \"{$query}\"" . ($aiMention ? ' ✦AI' : ''));
+
+            $checked++;
+            usleep(300000); // Rate limit
+        }
+
+        $output->writeln("  Checked {$checked} live SERP positions.");
+        return $checked;
+    }
+
+    // ─────────────────────────────────────────────
+    //  BACKLINK SUMMARY
+    // ─────────────────────────────────────────────
+
+    private function fetchBacklinkSummary(string $login, string $password): ?array
+    {
+        $payload = [[
+            'target' => self::DOMAIN,
+        ]];
+
+        return $this->callApi($login, $password, 'backlinks/summary/live', $payload);
+    }
+
+    private function saveBacklinkData(array $result): void
+    {
+        $data = $result[0] ?? $result;
+        if (!$data) return;
+
+        try {
+            $this->db->executeStatement(
+                "INSERT INTO backlink_snapshots (domain, total_backlinks, referring_domains, dofollow, nofollow, domain_rank, fetched_at)
+                 VALUES (:domain, :total, :ref_domains, :dofollow, :nofollow, :rank, NOW())
+                 ON CONFLICT (domain, DATE(fetched_at)) DO UPDATE SET
+                    total_backlinks = EXCLUDED.total_backlinks,
+                    referring_domains = EXCLUDED.referring_domains,
+                    dofollow = EXCLUDED.dofollow,
+                    nofollow = EXCLUDED.nofollow,
+                    domain_rank = EXCLUDED.domain_rank",
+                [
+                    'domain'      => self::DOMAIN,
+                    'total'       => $data['backlinks'] ?? 0,
+                    'ref_domains' => $data['referring_domains'] ?? 0,
+                    'dofollow'    => $data['referring_links_types']['dofollow'] ?? 0,
+                    'nofollow'    => $data['referring_links_types']['nofollow'] ?? 0,
+                    'rank'        => $data['rank'] ?? 0,
+                ]
+            );
+        } catch (\Exception $e) {}
     }
 
     // ─────────────────────────────────────────────
@@ -411,6 +614,40 @@ class FetchDataForSeoCommand extends Command
                 )
             ");
 
+            $this->db->executeStatement("
+                CREATE TABLE IF NOT EXISTS live_serp_checks (
+                    id                   SERIAL PRIMARY KEY,
+                    query                TEXT NOT NULL,
+                    ddt_position         INT DEFAULT NULL,
+                    ddt_url              TEXT DEFAULT NULL,
+                    gsc_position         NUMERIC(5,1) DEFAULT NULL,
+                    position_delta       NUMERIC(5,1) DEFAULT NULL,
+                    total_results        INT DEFAULT 0,
+                    ai_overview_mention  BOOLEAN DEFAULT FALSE,
+                    top_3_json           JSONB DEFAULT '[]',
+                    paa_json             JSONB DEFAULT '[]',
+                    checked_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            ");
+
+            $this->db->executeStatement("
+                CREATE TABLE IF NOT EXISTS backlink_snapshots (
+                    id                SERIAL PRIMARY KEY,
+                    domain            VARCHAR(100) NOT NULL,
+                    total_backlinks   INT DEFAULT 0,
+                    referring_domains INT DEFAULT 0,
+                    dofollow          INT DEFAULT 0,
+                    nofollow          INT DEFAULT 0,
+                    domain_rank       INT DEFAULT 0,
+                    fetched_at        TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(domain, DATE(fetched_at))
+                )
+            ");
+
+            // Add live_rank columns to tasks table
+            $this->db->executeStatement("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS live_rank INT DEFAULT NULL");
+            $this->db->executeStatement("ALTER TABLE tasks ADD COLUMN IF NOT EXISTS live_rank_checked_at TIMESTAMP DEFAULT NULL");
+
             // Ensure semrush_snapshots exists for backwards compat
             $this->db->executeStatement("
                 CREATE TABLE IF NOT EXISTS semrush_snapshots (
@@ -425,5 +662,3 @@ class FetchDataForSeoCommand extends Command
         }
     }
 }
-
-    
