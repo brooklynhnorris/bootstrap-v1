@@ -424,16 +424,31 @@ class VerifyOutcomesCommand extends Command
             $aVal = $after[$metric]  ?? 0;
             $delta = $aVal - $bVal;
 
-            // Position: lower is better, so invert for display
-            $deltaPct = $bVal != 0
-                ? round(($delta / abs($bVal)) * 100, 1)
-                : ($aVal > 0 ? 100 : 0);
+            // Handle "from zero" — page wasn't ranking/indexed before
+            if ($bVal == 0) {
+                if ($aVal > 0) {
+                    // For position: going from 0 (not ranking) to any position is emergence, not regression
+                    // For impressions/clicks/ctr: going from 0 to positive is a clear win
+                    if ($metric === 'position') {
+                        // Position: any appearance is positive. Use a synthetic % that reflects "new ranking"
+                        // We'll mark it as 100% improvement (emerged in search)
+                        $deltaPct = 100;
+                    } else {
+                        $deltaPct = 100;
+                    }
+                } else {
+                    $deltaPct = 0; // 0 → 0, no change
+                }
+            } else {
+                $deltaPct = round(($delta / abs($bVal)) * 100, 1);
+            }
 
             $changes[$metric] = [
                 'before'    => $bVal,
                 'after'     => $aVal,
                 'delta'     => $delta,
                 'delta_pct' => $deltaPct,
+                'from_zero' => ($bVal == 0 && $aVal > 0),
             ];
         }
 
@@ -460,6 +475,33 @@ class VerifyOutcomesCommand extends Command
 
         $deltaPct = $changes[$metric]['delta_pct'] ?? 0;
         $delta    = $changes[$metric]['delta']     ?? 0;
+        $fromZero = $changes[$metric]['from_zero'] ?? false;
+
+        // SPECIAL CASE: "From zero" — page wasn't in the index before, now it is.
+        // Any emergence in search (impressions > 0, or position gained) is a PASS.
+        if ($fromZero) {
+            // For position: emerged in search results — always a win
+            if ($metric === 'position') {
+                $status     = 'PASS';
+                $reason     = "Fix succeeded: page emerged in search results (position 0 → {$changes['position']['after']}).";
+                $nextAction = "Close task. Schedule 30-day stability check.";
+                return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => 100];
+            }
+            // For impressions/clicks/ctr: went from invisible to visible
+            $status     = 'PASS';
+            $reason     = "Fix succeeded: {$metric} went from 0 to {$changes[$metric]['after']} (page was previously not ranking).";
+            $nextAction = "Close task. Schedule 30-day stability check.";
+            return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => 100];
+        }
+
+        // Also check: if impressions emerged from zero even if the tracked metric is something else
+        $impressionsFromZero = $changes['impressions']['from_zero'] ?? false;
+        if ($impressionsFromZero && ($changes['impressions']['after'] ?? 0) > 50) {
+            $status     = 'PASS';
+            $reason     = "Fix succeeded: page emerged in search (impressions 0 → {$changes['impressions']['after']}) even though tracked {$metric} didn't meet threshold.";
+            $nextAction = "Close task. Schedule 30-day stability check.";
+            return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => 'impressions', 'improvement_pct' => 100];
+        }
 
         // Position is special — negative delta = improvement (moved up)
         $improvement = ($metric === 'position') ? ($delta * -1) : $delta;
@@ -489,27 +531,57 @@ class VerifyOutcomesCommand extends Command
     private function storeOutcome(array $review, array $changes, array $verdict, int $daysAfterFix): void
     {
         try {
-            $this->db->insert('rule_outcomes', [
-                'rule_id'           => $review['rule_id'],
-                'url'               => $review['url'],
-                'review_id'         => $review['review_id'] ?? null,
-                'fix_implemented_at'=> $review['fix_implemented_at'],
-                'days_after_fix'    => $daysAfterFix,
-                'metric_tracked'    => $verdict['metric'],
-                'impressions_before'=> $changes['impressions']['before'] ?? 0,
-                'impressions_after' => $changes['impressions']['after']  ?? 0,
-                'clicks_before'     => $changes['clicks']['before']      ?? 0,
-                'clicks_after'      => $changes['clicks']['after']       ?? 0,
-                'position_before'   => $changes['position']['before']    ?? 0,
-                'position_after'    => $changes['position']['after']     ?? 0,
-                'ctr_before'        => $changes['ctr']['before']         ?? 0,
-                'ctr_after'         => $changes['ctr']['after']          ?? 0,
-                'improvement_pct'   => $verdict['improvement_pct'],
-                'outcome_status'    => $verdict['status'],
-                'outcome_reason'    => $verdict['reason'],
-                'next_action'       => $verdict['next_action'],
-                'verified_at'       => date('Y-m-d H:i:s'),
-            ]);
+            // Prevent duplicate outcomes for the same task/review + URL
+            $existingOutcome = $this->db->fetchAssociative(
+                "SELECT id FROM rule_outcomes WHERE review_id = :review_id AND url = :url AND metric_tracked = :metric LIMIT 1",
+                [
+                    'review_id' => $review['review_id'] ?? 0,
+                    'url'       => $review['url'],
+                    'metric'    => $verdict['metric'],
+                ]
+            );
+
+            if ($existingOutcome) {
+                // Update existing instead of inserting duplicate
+                $this->db->update('rule_outcomes', [
+                    'days_after_fix'    => $daysAfterFix,
+                    'impressions_before'=> $changes['impressions']['before'] ?? 0,
+                    'impressions_after' => $changes['impressions']['after']  ?? 0,
+                    'clicks_before'     => $changes['clicks']['before']      ?? 0,
+                    'clicks_after'      => $changes['clicks']['after']       ?? 0,
+                    'position_before'   => $changes['position']['before']    ?? 0,
+                    'position_after'    => $changes['position']['after']     ?? 0,
+                    'ctr_before'        => $changes['ctr']['before']         ?? 0,
+                    'ctr_after'         => $changes['ctr']['after']          ?? 0,
+                    'improvement_pct'   => $verdict['improvement_pct'],
+                    'outcome_status'    => $verdict['status'],
+                    'outcome_reason'    => $verdict['reason'],
+                    'next_action'       => $verdict['next_action'],
+                    'verified_at'       => date('Y-m-d H:i:s'),
+                ], ['id' => $existingOutcome['id']]);
+            } else {
+                $this->db->insert('rule_outcomes', [
+                    'rule_id'           => $review['rule_id'],
+                    'url'               => $review['url'],
+                    'review_id'         => $review['review_id'] ?? null,
+                    'fix_implemented_at'=> $review['fix_implemented_at'],
+                    'days_after_fix'    => $daysAfterFix,
+                    'metric_tracked'    => $verdict['metric'],
+                    'impressions_before'=> $changes['impressions']['before'] ?? 0,
+                    'impressions_after' => $changes['impressions']['after']  ?? 0,
+                    'clicks_before'     => $changes['clicks']['before']      ?? 0,
+                    'clicks_after'      => $changes['clicks']['after']       ?? 0,
+                    'position_before'   => $changes['position']['before']    ?? 0,
+                    'position_after'    => $changes['position']['after']     ?? 0,
+                    'ctr_before'        => $changes['ctr']['before']         ?? 0,
+                    'ctr_after'         => $changes['ctr']['after']          ?? 0,
+                    'improvement_pct'   => $verdict['improvement_pct'],
+                    'outcome_status'    => $verdict['status'],
+                    'outcome_reason'    => $verdict['reason'],
+                    'next_action'       => $verdict['next_action'],
+                    'verified_at'       => date('Y-m-d H:i:s'),
+                ]);
+            }
 
             // Update the task on the Playbook Board
             $sourceType = $review['source_type'] ?? '';
