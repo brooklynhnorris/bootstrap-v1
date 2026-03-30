@@ -33,6 +33,8 @@ class HomeController extends AbstractController
             $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS recheck_criteria TEXT DEFAULT NULL');
             $this->db->executeStatement('ALTER TABLE tasks ADD COLUMN IF NOT EXISTS attempt_number INT DEFAULT 1');
             $this->db->executeStatement("ALTER TABLE conversations ADD COLUMN IF NOT EXISTS persona_name VARCHAR(50) DEFAULT NULL");
+            // Ensure rule_change_proposals has applied_at column for auto-apply tracking
+            $this->db->executeStatement("ALTER TABLE rule_change_proposals ADD COLUMN IF NOT EXISTS applied_at TIMESTAMP DEFAULT NULL");
         } catch (\Exception $e) {
             // Tables already exist or DB not ready — fail silently
         }
@@ -995,23 +997,119 @@ class HomeController extends AbstractController
     {
         try {
             $body = json_decode($request->getContent(), true);
-            $approvedBy = $body['approved_by'] ?? 'Unknown';
+            $session = $this->requestStack->getSession();
+            $persona = $session->get('active_persona', null);
+            $approvedBy = $persona ? $persona['name'] : ($body['approved_by'] ?? 'Unknown');
+
+            // Fetch the full proposal
+            $proposal = $this->db->fetchAssociative('SELECT * FROM rule_change_proposals WHERE id = ?', [$id]);
+            if (!$proposal) {
+                return new JsonResponse(['error' => 'Proposal not found'], 404);
+            }
+
+            $ruleId      = $proposal['rule_id'];
+            $changeType  = $proposal['change_type'] ?? 'modify_action';
+            $newRuleText = $proposal['new_rule_text'] ?? '';
+
+            // ── AUTO-APPLY: Write the new rule to system-prompt.txt ──
+            $applied = false;
+            $applyError = null;
+
+            if (!empty($newRuleText)) {
+                $promptPath = dirname(__DIR__, 1) . '/../system-prompt.txt';
+                if (file_exists($promptPath)) {
+                    try {
+                        $content = file_get_contents($promptPath);
+                        $originalContent = $content; // backup
+
+                        // Regex to find the existing rule block:
+                        // Starts with \n{RULE_ID} | {name}\n
+                        // Ends before the next rule ID line, SECTION marker, or end of file
+                        $escapedId = preg_quote($ruleId, '/');
+                        $pattern = '/(\n)' . $escapedId . '\s*\|[^\n]*\n.*?(?=\n[A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-R?\d+\s*\||\nSECTION\s+\d+|\nRESULTS VERIFICATION|\n={10,}|\z)/s';
+
+                        if (preg_match($pattern, $content)) {
+                            if ($changeType === 'split_rule') {
+                                // For split_rule: replace original with new rule text
+                                // (new_rule_text may contain multiple rule definitions)
+                                $content = preg_replace($pattern, "\n" . trim($newRuleText) . "\n", $content, 1);
+                            } else {
+                                // For modify_action, refine_threshold, modify_diagnosis:
+                                // Replace the entire rule block with the new text
+                                $content = preg_replace($pattern, "\n" . trim($newRuleText) . "\n", $content, 1);
+                            }
+
+                            // Verify the replacement didn't corrupt the file
+                            // (new content should still be parseable — check the rule ID exists)
+                            if (str_contains($content, $ruleId)) {
+                                file_put_contents($promptPath, $content);
+                                $applied = true;
+                            } else {
+                                // Replacement failed — rule ID missing from new content, restore
+                                $applyError = 'Rule ID not found in replacement text — file not modified';
+                            }
+                        } else {
+                            // Rule not found in file — might be a new rule or different format
+                            // For split_rule with a new rule, append at the end of the relevant section
+                            if ($changeType === 'split_rule') {
+                                // Append before the last section marker or end of file
+                                $insertPoint = strrpos($content, "\nRESULTS VERIFICATION");
+                                if ($insertPoint === false) $insertPoint = strrpos($content, "\n===");
+                                if ($insertPoint === false) $insertPoint = strlen($content);
+
+                                $content = substr($content, 0, $insertPoint) . "\n\n" . trim($newRuleText) . "\n" . substr($content, $insertPoint);
+                                file_put_contents($promptPath, $content);
+                                $applied = true;
+                            } else {
+                                $applyError = "Rule {$ruleId} not found in system-prompt.txt — manual update needed";
+                            }
+                        }
+                    } catch (\Exception $e) {
+                        $applyError = 'File write failed: ' . substr($e->getMessage(), 0, 100);
+                    }
+                } else {
+                    $applyError = 'system-prompt.txt not found at expected path';
+                }
+            } else {
+                $applyError = 'No new_rule_text in proposal — nothing to apply';
+            }
+
+            // Update proposal status
             $this->db->update('rule_change_proposals', [
-                'status'      => 'approved',
+                'status'      => $applied ? 'applied' : 'approved',
                 'approved_by' => $approvedBy,
                 'approved_at' => date('Y-m-d H:i:s'),
+                'applied_at'  => $applied ? date('Y-m-d H:i:s') : null,
             ], ['id' => $id]);
 
             // Also mark related rule_feedback entries as approved
-            $proposal = $this->db->fetchAssociative('SELECT rule_id FROM rule_change_proposals WHERE id = ?', [$id]);
-            if ($proposal) {
-                $this->db->executeStatement(
-                    "UPDATE rule_feedback SET change_approved = TRUE, approved_by = :by, approved_at = NOW() WHERE rule_id = :rule AND change_approved IS NULL",
-                    ['by' => $approvedBy, 'rule' => $proposal['rule_id']]
-                );
-            }
+            $this->db->executeStatement(
+                "UPDATE rule_feedback SET change_approved = TRUE, approved_by = :by, approved_at = NOW() WHERE rule_id = :rule AND change_approved IS NULL",
+                ['by' => $approvedBy, 'rule' => $ruleId]
+            );
 
-            return new JsonResponse(['status' => 'approved']);
+            // Log activity
+            $this->logActivity(
+                $approvedBy,
+                $applied ? 'applied_rule_change' : 'approved_rule_change',
+                'rule',
+                $id,
+                $ruleId,
+                $applied
+                    ? "Auto-applied {$changeType} to system-prompt.txt. Rule {$ruleId} updated."
+                    : "Approved but not auto-applied: " . ($applyError ?? 'unknown reason')
+            );
+
+            $message = $applied
+                ? "Rule {$ruleId} updated and applied to system-prompt.txt. Changes will take effect on next cron run."
+                : "Proposal approved but could not auto-apply: {$applyError}";
+
+            return new JsonResponse([
+                'status'  => $applied ? 'applied' : 'approved',
+                'applied' => $applied,
+                'message' => $message,
+                'error'   => $applyError,
+            ]);
         } catch (\Exception $e) {
             return new JsonResponse(['error' => $e->getMessage()], 500);
         }
@@ -1779,3 +1877,8 @@ PROMPT;
         return $intro;
     }
 }
+    
+
+    
+
+    

@@ -3180,13 +3180,37 @@
         try {
             const res = await fetch('/api/rule-proposals/' + id + '/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
             const data = await res.json();
+
+            // Find the card — could be in dashboard proposals or rules view
             const card = document.getElementById('proposal-' + id);
-            if (card) {
-                card.style.opacity = '0.5';
-                card.querySelector('.proposal-actions').innerHTML = '<span style="color:var(--accent-green);font-weight:600;font-size:12px;">✓ Approved</span>';
+            // Also find any rules-card that contains this proposal's approve button
+            const parentCard = btn ? btn.closest('.rules-card, .proposal-card') : card;
+
+            if (data.applied) {
+                // Rule was auto-applied to system-prompt.txt
+                if (parentCard) {
+                    parentCard.style.borderColor = 'var(--accent-green)';
+                    parentCard.style.background = '#f0fdf4';
+                    const actionsEl = parentCard.querySelector('.proposal-actions');
+                    if (actionsEl) actionsEl.innerHTML = '<span style="color:var(--accent-green);font-weight:600;font-size:12px;">✓ Applied to system-prompt.txt</span>';
+                    // Also update any approve/reject buttons
+                    parentCard.querySelectorAll('button').forEach(b => {
+                        if (b.textContent.includes('Approve') || b.textContent.includes('Reject')) {
+                            b.parentElement.innerHTML = '<span style="color:var(--accent-green);font-weight:600;font-size:12px;">✓ Applied — active on next cron run</span>';
+                        }
+                    });
+                }
+                showNotification('✓ Rule applied to system-prompt.txt — changes active on next cron run', 'green');
+            } else {
+                // Approved but not auto-applied
+                if (parentCard) {
+                    parentCard.style.opacity = '0.7';
+                    const actionsEl = parentCard.querySelector('.proposal-actions');
+                    if (actionsEl) actionsEl.innerHTML = '<span style="color:var(--accent-yellow);font-weight:600;font-size:12px;">⚠ Approved but needs manual apply</span>';
+                }
+                showNotification(data.message || 'Approved but could not auto-apply: ' + (data.error || ''), 'red');
             }
-            showNotification(data.message || 'Proposal approved', 'green');
-        } catch(e) { showNotification('Failed to approve', 'red'); }
+        } catch(e) { showNotification('Failed to approve: ' + e.message, 'red'); }
     }
 
     async function rejectProposal(id, btn) {
