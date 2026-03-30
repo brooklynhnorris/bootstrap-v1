@@ -3623,14 +3623,47 @@
 
             let proposalHtml = '';
             if (r.proposal) {
-                const text = r.proposal.summary || r.proposal.proposed_change || r.proposal.rationale || '';
-                proposalHtml = '<div style="margin-top:10px;padding:10px;background:#fefce8;border:1px solid #fde68a;border-radius:6px;">' +
-                    '<div style="font-size:11px;font-weight:600;color:var(--accent-yellow);margin-bottom:4px;">' + escapeHtml(r.proposal.change_type || 'modify') + ' proposed</div>' +
-                    '<div style="font-size:12px;color:var(--text-secondary);line-height:1.5;">' + escapeHtml((text).substring(0, 200)) + (text.length > 200 ? '…' : '') + '</div>' +
-                    '<div style="margin-top:8px;display:flex;gap:8px;">' +
-                        '<button class="proposal-actions" style="display:inline;"><button class="approve" style="padding:4px 12px;border-radius:4px;font-size:11px;font-weight:600;background:var(--accent-green);color:white;border:none;cursor:pointer;" onclick="event.stopPropagation();approveProposal(' + r.proposal.id + ',this)">✓ Approve</button></div>' +
-                    '</div>' +
-                '</div>';
+                const p = r.proposal;
+                const summary = p.summary || p.proposed_change || '';
+                const rationale = p.rationale || '';
+                const newRuleText = p.new_rule_text || '';
+                const changeType = p.change_type || 'modify';
+                const sourceCount = p.source_count || '';
+                const cardId = 'rule-proposal-' + r.rule_id.replace(/[^a-z0-9]/gi, '-');
+
+                proposalHtml = '<div style="margin-top:12px;padding:14px;background:#fefce8;border:1px solid #fde68a;border-radius:8px;">' +
+                    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+                        '<span style="font-size:11px;font-weight:600;color:var(--accent-yellow);text-transform:uppercase;letter-spacing:0.5px;">' + escapeHtml(changeType) + ' proposed' +
+                            (sourceCount ? ' · ' + sourceCount + ' outcomes analyzed' : '') +
+                        '</span>' +
+                        '<div style="display:flex;gap:6px;">' +
+                            '<button style="padding:5px 12px;border-radius:5px;font-size:11px;font-weight:600;background:var(--accent-green);color:white;border:none;cursor:pointer;" onclick="event.stopPropagation();approveProposal(' + (p.id || 0) + ',this)">✓ Approve</button>' +
+                            '<button style="padding:5px 12px;border-radius:5px;font-size:11px;font-weight:500;background:transparent;color:var(--text-muted);border:1px solid var(--border-subtle);cursor:pointer;" onclick="event.stopPropagation();rejectProposal(' + (p.id || 0) + ',this)">✗ Reject</button>' +
+                        '</div>' +
+                    '</div>';
+
+                // Summary — always show full
+                if (summary) {
+                    proposalHtml += '<div style="font-size:13px;color:var(--text-primary);line-height:1.6;margin-bottom:10px;font-weight:500;">' + escapeHtml(summary) + '</div>';
+                }
+
+                // Rationale — show if exists
+                if (rationale) {
+                    proposalHtml += '<div style="margin-bottom:10px;">' +
+                        '<div style="font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Evidence & Rationale</div>' +
+                        '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;">' + escapeHtml(rationale) + '</div>' +
+                    '</div>';
+                }
+
+                // New Rule Text — expandable
+                if (newRuleText) {
+                    proposalHtml += '<div>' +
+                        '<button onclick="event.stopPropagation();toggleRuleText(\'' + cardId + '\')" style="font-size:11px;font-weight:600;color:var(--accent-blue);background:none;border:none;cursor:pointer;padding:0;margin-bottom:6px;">▶ View proposed rule definition (' + newRuleText.length + ' chars)</button>' +
+                        '<pre id="' + cardId + '" style="display:none;font-size:11px;font-family:var(--font-mono);background:var(--bg-tertiary);border:1px solid var(--border-subtle);border-radius:6px;padding:12px;overflow-x:auto;white-space:pre-wrap;line-height:1.5;color:var(--text-secondary);max-height:400px;overflow-y:auto;">' + escapeHtml(newRuleText) + '</pre>' +
+                    '</div>';
+                }
+
+                proposalHtml += '</div>';
             }
 
             return '<div class="rules-card">' +
@@ -3648,6 +3681,19 @@
                 proposalHtml +
             '</div>';
         }).join('');
+    }
+
+    function toggleRuleText(id) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const btn = el.previousElementSibling || el.parentElement.querySelector('button');
+        if (el.style.display === 'none') {
+            el.style.display = 'block';
+            if (btn) btn.textContent = btn.textContent.replace('▶', '▼');
+        } else {
+            el.style.display = 'none';
+            if (btn) btn.textContent = btn.textContent.replace('▼', '▶');
+        }
     }
 
     // ── Unified startup ──────────────────────────────────
