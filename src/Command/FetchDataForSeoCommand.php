@@ -158,7 +158,7 @@ class FetchDataForSeoCommand extends Command
         // Get top queries from GSC that we want volumes for
         try {
             $queries = $this->db->fetchFirstColumn(
-                "SELECT DISTINCT query FROM gsc_snapshots WHERE date_range = '28d' AND query != '__PAGE_AGGREGATE__' ORDER BY impressions DESC LIMIT 200"
+                "SELECT query FROM (SELECT query, MAX(impressions) as max_imp FROM gsc_snapshots WHERE date_range = '28d' AND query != '__PAGE_AGGREGATE__' GROUP BY query ORDER BY max_imp DESC LIMIT 200) sub"
             );
         } catch (\Exception $e) {
             return null;
@@ -679,3 +679,4 @@ class FetchDataForSeoCommand extends Command
 }
 
     
+
