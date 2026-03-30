@@ -3381,7 +3381,16 @@
                 data.feedback.forEach(f => {
                     if (f.what_worked) html += '<div style="font-size:12px;margin-bottom:6px;"><strong style="color:var(--accent-green);">What worked:</strong> ' + escapeHtml(f.what_worked) + '</div>';
                     if (f.what_didnt_work && f.what_didnt_work !== 'N/A') html += '<div style="font-size:12px;margin-bottom:6px;"><strong style="color:var(--accent-red);">What didn\'t:</strong> ' + escapeHtml(f.what_didnt_work) + '</div>';
-                    if (f.proposed_change) html += '<div style="font-size:12px;margin-top:8px;padding:10px;background:#fefce8;border:1px solid #fde68a;border-radius:6px;"><strong>Proposed rule change:</strong> ' + escapeHtml(f.proposed_change) + '</div>';
+                    if (f.proposed_change && f.proposed_change.length > 10 && f.change_type !== 'none') {
+                        const ruleId = f.rule_id || (t ? t.rule_id : '');
+                        html += '<div style="font-size:12px;margin-top:8px;padding:12px;background:#fefce8;border:1px solid #fde68a;border-radius:6px;">' +
+                            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
+                                '<strong>Proposed rule change (' + escapeHtml(f.change_type || '') + ')</strong>' +
+                                '<button class="rdp-action-btn revise" onclick="event.stopPropagation();goToRuleProposal(\'' + escapeHtml(ruleId) + '\')" style="padding:4px 10px;font-size:11px;">Review in Rules →</button>' +
+                            '</div>' +
+                            escapeHtml(f.proposed_change) +
+                        '</div>';
+                    }
                 });
             }
 
@@ -3464,6 +3473,24 @@
         }, 500);
     }
 
+    function goToRuleProposal(ruleId) {
+        closeResultsDetail();
+        switchView('rules');
+        // Wait for rules to load then scroll to the right rule
+        setTimeout(() => {
+            const cards = document.querySelectorAll('.rules-card, .proposal-card');
+            for (const card of cards) {
+                if (card.textContent.includes(ruleId)) {
+                    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    card.style.transition = 'box-shadow 0.3s';
+                    card.style.boxShadow = '0 0 0 2px var(--accent-yellow)';
+                    setTimeout(() => { card.style.boxShadow = ''; }, 2500);
+                    break;
+                }
+            }
+        }, 500);
+    }
+
     // ── RULES VIEW ───────────────────────────────────
     let allRulesData = [];
     let currentRulesFilter = 'all';
@@ -3471,7 +3498,7 @@
     async function loadRulesView() {
         const container = document.getElementById('rules-cards-container');
         try {
-            // Fetch proposals to know which rules have pending changes
+            // Fetch formal proposals from rule_proposals table
             const propRes = await fetch('/api/rule-proposals');
             const proposals = propRes.ok ? await propRes.json() : [];
             const pendingByRule = {};
@@ -3487,6 +3514,42 @@
             const tasksRes = await fetch('/api/tasks');
             const tasks = await tasksRes.json();
             if (!Array.isArray(tasks)) return;
+
+            // Also scan feedback from verified tasks for proposed changes
+            // that aren't in rule_proposals yet
+            const verified = tasks.filter(t => t.recheck_verified);
+            const feedbackProposalsByRule = {};
+            for (const t of verified.slice(0, 30)) {
+                try {
+                    const fbRes = await fetch('/api/tasks/' + t.id + '/feedback');
+                    const fb = await fbRes.json();
+                    (fb.feedback || []).forEach(f => {
+                        if (f.proposed_change && f.proposed_change.length > 15 && f.change_type && f.change_type !== 'none' && f.change_type !== 'review_rule') {
+                            const rid = f.rule_id || t.rule_id;
+                            if (!rid) return;
+                            // Only add if not already in rule_proposals
+                            if (!pendingByRule[rid]) {
+                                if (!feedbackProposalsByRule[rid] || (f.proposed_change.length > (feedbackProposalsByRule[rid].proposed_change || '').length)) {
+                                    feedbackProposalsByRule[rid] = {
+                                        id: 'fb-' + f.id,
+                                        rule_id: rid,
+                                        change_type: f.change_type,
+                                        summary: f.proposed_change,
+                                        source: 'feedback',
+                                        task_id: t.id,
+                                        outcome: t.recheck_result
+                                    };
+                                }
+                            }
+                        }
+                    });
+                } catch(e) {}
+            }
+
+            // Merge feedback proposals into pendingByRule
+            Object.entries(feedbackProposalsByRule).forEach(([rid, p]) => {
+                if (!pendingByRule[rid]) pendingByRule[rid] = p;
+            });
 
             // Build rule summary from tasks
             const ruleMap = {};
