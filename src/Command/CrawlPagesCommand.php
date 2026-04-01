@@ -113,6 +113,12 @@ class CrawlPagesCommand extends Command
         $total   = count($urls);
 
         foreach ($urls as $path) {
+            // Skip media assets — they're not pages and shouldn't be in page signals
+            if (str_contains($path, '/wp-content/uploads/') || str_contains($path, '/wp-content/themes/') ||
+                preg_match('/\.(jpg|jpeg|png|gif|webp|svg|pdf|mp4|mp3|zip|css|js)$/i', $path)) {
+                continue;
+            }
+
             $fullUrl = $this->buildFullUrl($path);
             $output->writeln("[{$crawled}/{$total}] Crawling: {$fullUrl}");
 

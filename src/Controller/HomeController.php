@@ -498,6 +498,16 @@ class HomeController extends AbstractController
             'created_at'      => date('Y-m-d H:i:s'),
         ]);
 
+        // ── Extract learnings from conversation (async-style, non-blocking) ──
+        // Only extract after 4+ messages (enough context to learn from)
+        if (count($messages) >= 3 && $claudeKey) {
+            try {
+                $this->extractLearnings($messages, $text, $claudeKey, $userName);
+            } catch (\Exception $e) {
+                // Non-fatal — learning extraction failure doesn't block response
+            }
+        }
+
         return new JsonResponse([
             'response'        => $text,
             'tasks_created'   => $tasksCreated,
@@ -2020,8 +2030,144 @@ PROMPT;
             }
         }
 
+        // ── Chat learnings (persistent memory from past conversations) ──
+        try {
+            $learnings = $this->db->fetchAllAssociative(
+                "SELECT learning, category, learned_from FROM chat_learnings WHERE is_active = TRUE ORDER BY confidence DESC, created_at DESC LIMIT 30"
+            );
+            if (!empty($learnings)) {
+                $intro .= "\n\nYOUR MEMORY (learned from past conversations with this user — follow these):\n";
+                $currentCat = '';
+                foreach ($learnings as $l) {
+                    $cat = $l['category'] ?? 'general';
+                    if ($cat !== $currentCat) {
+                        $currentCat = $cat;
+                        $intro .= "\n[{$cat}]\n";
+                    }
+                    $intro .= "- " . $l['learning'] . "\n";
+                }
+                $intro .= "\nThese are things you've learned about how this user works. Apply them automatically without mentioning that you're doing so.\n";
+            }
+        } catch (\Exception $e) {
+            // Table may not exist yet
+        }
+
         $intro .= "\n\n" . $staticRules;
 
         return $intro;
+    }
+
+    // ─────────────────────────────────────────────
+    //  CHAT LEARNING EXTRACTION
+    // ─────────────────────────────────────────────
+
+    private function extractLearnings(array $messages, string $lastResponse, string $apiKey, string $userName): void
+    {
+        // Build a compact conversation summary for extraction
+        $convoSummary = '';
+        foreach (array_slice($messages, -6) as $msg) {
+            $role = $msg['role'] === 'user' ? $userName : 'Logiri';
+            $content = substr($msg['content'], 0, 500);
+            $convoSummary .= "{$role}: {$content}\n\n";
+        }
+        $convoSummary .= "Logiri: " . substr($lastResponse, 0, 500);
+
+        $extractPrompt = <<<PROMPT
+You are analyzing a conversation between an SEO tool (Logiri) and its user to extract learnable insights that should persist across future conversations.
+
+CONVERSATION:
+{$convoSummary}
+
+Extract ONLY genuinely useful learnings. These fall into categories:
+- preferences: How the user likes information presented (format, detail level, tone)
+- corrections: Things the user corrected about the tool's output or assumptions
+- workflow: How the user prefers to work (task size, bundling, approval patterns)
+- domain_knowledge: Business-specific facts the user shared that aren't in the data
+- rules_feedback: Opinions on specific SEO rules or approaches
+
+RULES:
+- Only extract learnings that would change future behavior. "User said thanks" is NOT a learning.
+- Each learning must be a short, actionable statement (under 30 words).
+- Max 3 learnings per conversation. Often there are 0 — that's fine.
+- Do NOT extract anything the system already knows (brand terms, URL structure, etc.)
+- Do NOT extract one-time task instructions as permanent preferences.
+- If the user expresses frustration with output format or quality, THAT is a high-value learning.
+
+Respond ONLY with a JSON array. No other text. Empty array [] if no learnings.
+Example: [{"learning":"User wants exact paragraph placement, not 'find the mention'","category":"preferences","confidence":8}]
+PROMPT;
+
+        $payload = json_encode([
+            'model'      => 'claude-sonnet-4-5',
+            'max_tokens' => 500,
+            'messages'   => [['role' => 'user', 'content' => $extractPrompt]],
+        ]);
+
+        $ch = curl_init('https://api.anthropic.com/v1/messages');
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => $payload,
+            CURLOPT_HTTPHEADER     => [
+                'Content-Type: application/json',
+                'x-api-key: ' . $apiKey,
+                'anthropic-version: 2023-06-01',
+            ],
+            CURLOPT_TIMEOUT        => 30,
+            CURLOPT_CONNECTTIMEOUT => 5,
+        ]);
+        $response = curl_exec($ch);
+        curl_close($ch);
+
+        if (!$response) return;
+
+        $data = json_decode($response, true);
+        $text = $data['content'][0]['text'] ?? '';
+        if (!$text) return;
+
+        // Parse the JSON array
+        $text = preg_replace('/```json\s*/', '', $text);
+        $text = preg_replace('/```\s*/', '', $text);
+        $text = trim($text);
+
+        $learnings = json_decode($text, true);
+        if (!is_array($learnings) || empty($learnings)) return;
+
+        // Ensure table exists
+        try {
+            $this->db->executeStatement("
+                CREATE TABLE IF NOT EXISTS chat_learnings (
+                    id SERIAL PRIMARY KEY,
+                    learning TEXT NOT NULL,
+                    category VARCHAR(50) DEFAULT 'general',
+                    confidence INT DEFAULT 5,
+                    learned_from VARCHAR(255) DEFAULT NULL,
+                    is_active BOOLEAN DEFAULT TRUE,
+                    created_at TIMESTAMP DEFAULT NOW()
+                )
+            ");
+        } catch (\Exception $e) {
+            return;
+        }
+
+        foreach (array_slice($learnings, 0, 3) as $l) {
+            if (empty($l['learning']) || strlen($l['learning']) < 10) continue;
+
+            // Check for near-duplicates before inserting
+            $existing = $this->db->fetchOne(
+                "SELECT COUNT(*) FROM chat_learnings WHERE learning ILIKE ? AND is_active = TRUE",
+                ['%' . substr($l['learning'], 0, 50) . '%']
+            );
+            if ($existing > 0) continue;
+
+            $this->db->insert('chat_learnings', [
+                'learning'     => substr($l['learning'], 0, 500),
+                'category'     => $l['category'] ?? 'general',
+                'confidence'   => min(10, max(1, intval($l['confidence'] ?? 5))),
+                'learned_from' => substr($userName . ' conversation', 0, 255),
+                'is_active'    => true,
+                'created_at'   => date('Y-m-d H:i:s'),
+            ]);
+        }
     }
 }

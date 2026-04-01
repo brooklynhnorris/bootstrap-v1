@@ -66,6 +66,16 @@ php /var/www/html/bin/console app:ensure-schema 2>/dev/null || php -r "
 
 \$pdo->exec('CREATE TABLE IF NOT EXISTS conversations (id SERIAL PRIMARY KEY, user_id INT DEFAULT NULL, title VARCHAR(255) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, is_archived BOOLEAN DEFAULT FALSE)');
 
+\$pdo->exec('CREATE TABLE IF NOT EXISTS chat_learnings (
+    id SERIAL PRIMARY KEY,
+    learning TEXT NOT NULL,
+    category VARCHAR(50) DEFAULT \\'general\\',
+    confidence INT DEFAULT 5,
+    learned_from VARCHAR(255) DEFAULT NULL,
+    is_active BOOLEAN DEFAULT TRUE,
+    created_at TIMESTAMP DEFAULT NOW()
+)');
+
 \$pdo->exec('CREATE TABLE IF NOT EXISTS seo_rules (
     id SERIAL PRIMARY KEY,
     rule_id VARCHAR(50) NOT NULL UNIQUE,
