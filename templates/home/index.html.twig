@@ -1410,7 +1410,7 @@
             </div>
 
             <!-- Next Plays -->
-            <div class="dash-section-title">Your Next Plays <span class="dash-badge">Top 3 by impact</span></div>
+            <div class="dash-section-title">Your Next Plays <span class="dash-badge">Top 3 by priority + traffic</span></div>
             <div id="dash-focus-cards">
                 <div class="dash-empty">Loading plays…</div>
             </div>
@@ -3059,10 +3059,15 @@
             // Also update the topbar counters
             updateStatCounters(tasks);
 
-            // ── Focus cards (top 3 by priority) ──
-            const priorityOrder = { critical: 0, high: 1, medium: 2, low: 3 };
+            // ── Focus cards (top 3 by priority + page impressions) ──
+            const priorityOrder = { critical: 0, urgent: 0, high: 1, medium: 2, low: 3 };
             const topPlays = activeTasks
-                .sort((a, b) => (priorityOrder[a.priority] || 3) - (priorityOrder[b.priority] || 3))
+                .sort((a, b) => {
+                    const priDiff = (priorityOrder[a.priority] ?? 3) - (priorityOrder[b.priority] ?? 3);
+                    if (priDiff !== 0) return priDiff;
+                    // Within same priority, sort by GSC impressions (highest traffic pages first)
+                    return (b.gsc_impressions || 0) - (a.gsc_impressions || 0);
+                })
                 .slice(0, 3);
 
             const focusContainer = document.getElementById('dash-focus-cards');
@@ -3074,6 +3079,7 @@
                     const hours = task.estimated_hours || '?';
                     const prio = task.priority || 'medium';
                     const ruleId = task.rule_id || '';
+                    const impressions = task.gsc_impressions || 0;
                     return '<div class="focus-card" onclick="showChatForTask(' + task.id + ', \'' + escapeHtml((task.title||'').replace(/'/g, "\\'")) + '\')">' +
                         '<div class="focus-num">' + (i + 1) + '</div>' +
                         '<div class="focus-content">' +
@@ -3082,6 +3088,7 @@
                             '<div class="focus-meta">' +
                                 '<span class="focus-tag ' + prio + '">' + prio.charAt(0).toUpperCase() + prio.slice(1) + '</span>' +
                                 '<span class="focus-tag hours">' + hours + 'h</span>' +
+                                (impressions > 0 ? '<span class="focus-tag hours">' + impressions.toLocaleString() + ' imp/28d</span>' : '') +
                                 (ruleId ? '<span class="focus-rule-id">' + escapeHtml(ruleId) + '</span>' : '') +
                             '</div>' +
                         '</div>' +

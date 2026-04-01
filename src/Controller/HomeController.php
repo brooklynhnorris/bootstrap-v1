@@ -691,14 +691,41 @@ class HomeController extends AbstractController
         try {
         $status   = $request->query->get('status');
         $assignee = $request->query->get('assignee');
-        $sql      = "SELECT * FROM tasks WHERE 1=1";
-        $params   = [];
-        if ($status) { $sql .= " AND status = ?"; $params[] = $status; }
-        if ($assignee) { $sql .= " AND assigned_to = ?"; $params[] = $assignee; }
-        $sql .= " ORDER BY CASE priority WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC";
+        // Join with GSC data to weight by actual page impressions
+        $sql = "SELECT t.*, COALESCE(g.impressions, 0) AS gsc_impressions
+                FROM tasks t
+                LEFT JOIN (
+                    SELECT page, MAX(impressions) AS impressions
+                    FROM gsc_snapshots
+                    WHERE date_range = '28d'
+                    GROUP BY page
+                ) g ON g.page LIKE CONCAT('%', SPLIT_PART(t.title, '— ', 2), '%')
+                WHERE 1=1";
+        $params = [];
+        if ($status) { $sql .= " AND t.status = ?"; $params[] = $status; }
+        if ($assignee) { $sql .= " AND t.assigned_to = ?"; $params[] = $assignee; }
+        $sql .= " ORDER BY CASE t.priority
+                    WHEN 'critical' THEN 0
+                    WHEN 'urgent' THEN 0
+                    WHEN 'high' THEN 1
+                    WHEN 'medium' THEN 2
+                    WHEN 'low' THEN 3
+                    ELSE 4 END,
+                  COALESCE(g.impressions, 0) DESC,
+                  t.created_at DESC";
         return new JsonResponse($this->db->fetchAllAssociative($sql, $params));
         } catch (\Exception $e) {
-            return new JsonResponse(['error' => $e->getMessage()], 500);
+            // Fallback without GSC join if query fails
+            try {
+                $sql2 = "SELECT *, 0 AS gsc_impressions FROM tasks WHERE 1=1";
+                $params2 = [];
+                if ($status) { $sql2 .= " AND status = ?"; $params2[] = $status; }
+                if ($assignee) { $sql2 .= " AND assigned_to = ?"; $params2[] = $assignee; }
+                $sql2 .= " ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, created_at DESC";
+                return new JsonResponse($this->db->fetchAllAssociative($sql2, $params2));
+            } catch (\Exception $e2) {
+                return new JsonResponse(['error' => $e2->getMessage()], 500);
+            }
         }
     }
 
@@ -980,12 +1007,20 @@ class HomeController extends AbstractController
     }
 
     #[Route('/api/rule-proposals', name: 'api_rule_proposals', methods: ['GET'])]
-    public function listRuleProposals(): JsonResponse
+    public function listRuleProposals(Request $request): JsonResponse
     {
         try {
-            $proposals = $this->db->fetchAllAssociative(
-                "SELECT * FROM rule_change_proposals WHERE status = 'pending' ORDER BY created_at DESC LIMIT 20"
-            );
+            $includeResolved = $request->query->get('include_resolved', false);
+            if ($includeResolved) {
+                // Return pending + recently resolved (for Rules tab "Recently Updated" filter)
+                $proposals = $this->db->fetchAllAssociative(
+                    "SELECT * FROM rule_change_proposals WHERE status = 'pending' OR (status IN ('applied', 'approved', 'rejected') AND approved_at >= NOW() - INTERVAL '7 days') ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, created_at DESC LIMIT 50"
+                );
+            } else {
+                $proposals = $this->db->fetchAllAssociative(
+                    "SELECT * FROM rule_change_proposals WHERE status = 'pending' ORDER BY created_at DESC LIMIT 20"
+                );
+            }
             return new JsonResponse($proposals);
         } catch (\Exception $e) {
             return new JsonResponse([]);
