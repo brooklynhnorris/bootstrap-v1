@@ -3541,8 +3541,14 @@
         const container = document.getElementById('rules-cards-container');
         try {
             // Fetch proposals — include resolved ones for "Recently Updated" tab
-            const propRes = await fetch('/api/rule-proposals?include_resolved=1');
+            const [propRes, tasksRes] = await Promise.all([
+                fetch('/api/rule-proposals?include_resolved=1'),
+                fetch('/api/tasks')
+            ]);
             const proposals = propRes.ok ? await propRes.json() : [];
+            const tasks = await tasksRes.json();
+            if (!Array.isArray(tasks)) return;
+
             const pendingByRule = {};
             const recentlyUpdatedRules = new Set();
             if (Array.isArray(proposals)) {
@@ -3556,47 +3562,6 @@
                     }
                 });
             }
-
-            // Fetch tasks to get evaluation data per rule
-            const tasksRes = await fetch('/api/tasks');
-            const tasks = await tasksRes.json();
-            if (!Array.isArray(tasks)) return;
-
-            // Also scan feedback from verified tasks for proposed changes
-            // that aren't in rule_proposals yet
-            const verified = tasks.filter(t => t.recheck_verified);
-            const feedbackProposalsByRule = {};
-            for (const t of verified.slice(0, 30)) {
-                try {
-                    const fbRes = await fetch('/api/tasks/' + t.id + '/feedback');
-                    const fb = await fbRes.json();
-                    (fb.feedback || []).forEach(f => {
-                        if (f.proposed_change && f.proposed_change.length > 15 && f.change_type && f.change_type !== 'none' && f.change_type !== 'review_rule') {
-                            const rid = f.rule_id || t.rule_id;
-                            if (!rid) return;
-                            // Only add if not already in rule_proposals
-                            if (!pendingByRule[rid]) {
-                                if (!feedbackProposalsByRule[rid] || (f.proposed_change.length > (feedbackProposalsByRule[rid].proposed_change || '').length)) {
-                                    feedbackProposalsByRule[rid] = {
-                                        id: 'fb-' + f.id,
-                                        rule_id: rid,
-                                        change_type: f.change_type,
-                                        summary: f.proposed_change,
-                                        source: 'feedback',
-                                        task_id: t.id,
-                                        outcome: t.recheck_result
-                                    };
-                                }
-                            }
-                        }
-                    });
-                } catch(e) {}
-            }
-
-            // Merge feedback proposals into pendingByRule
-            Object.entries(feedbackProposalsByRule).forEach(([rid, p]) => {
-                if (!pendingByRule[rid]) pendingByRule[rid] = p;
-            });
 
             // Build rule summary from tasks
             const ruleMap = {};
