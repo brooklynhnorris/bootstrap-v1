@@ -86,6 +86,25 @@ class EvaluateRuleCommand extends Command
                 continue;
             }
 
+            // Enrich firing pages with body text snippet for exact placement instructions
+            foreach ($firingPages as &$page) {
+                $url = $page['url'] ?? '';
+                if ($url && !isset($page['body_text_snippet'])) {
+                    try {
+                        $snippet = $this->db->fetchOne(
+                            "SELECT body_text_snippet FROM page_crawl_snapshots WHERE url = ? LIMIT 1",
+                            [$url]
+                        );
+                        if ($snippet) {
+                            $page['body_text_snippet'] = $snippet;
+                        }
+                    } catch (\Exception $e) {
+                        // Non-fatal
+                    }
+                }
+            }
+            unset($page);
+
             $output->writeln(">> {$rule['id']}: {$rule['name']}");
             $output->writeln("   Pages firing: " . count($firingPages));
 
@@ -413,14 +432,25 @@ PROMPT;
         $pageDetails = '';
         foreach (array_slice($firingPages, 0, 5) as $page) {
             $pageDetails .= "\n\nPAGE: " . ($page['url'] ?? 'n/a');
+            $bodySnippet = '';
             foreach ($page as $key => $val) {
                 if ($key === 'url' || in_array($key, ['internal_links', 'crawled_at'])) continue;
+                // Save body_text_snippet separately — don't inline it with metadata
+                if ($key === 'body_text_snippet') {
+                    $bodySnippet = (string) $val;
+                    continue;
+                }
                 $boolFields = ['has_central_entity', 'has_core_link', 'h1_matches_title', 'is_noindex', 'is_utility'];
                 if (is_null($val)) { $display = 'NULL'; }
                 elseif (in_array($key, $boolFields)) { $display = ($val && $val !== 'f' && $val !== '0') ? 'TRUE' : 'FALSE'; }
                 elseif (is_bool($val)) { $display = $val ? 'TRUE' : 'FALSE'; }
                 else { $display = (string) $val; }
                 $pageDetails .= "\n  {$key}: {$display}";
+            }
+            if ($bodySnippet) {
+                // Truncate to ~2000 chars for token efficiency but enough for placement context
+                $truncated = strlen($bodySnippet) > 2000 ? substr($bodySnippet, 0, 2000) . '...[truncated]' : $bodySnippet;
+                $pageDetails .= "\n  PAGE_BODY_TEXT (use for exact placement):\n  " . str_replace("\n", "\n  ", $truncated);
             }
         }
 
@@ -484,25 +514,31 @@ DATA FOR AFFECTED PAGES ({$total} total):
 {$pageDetails}
 
 INSTRUCTIONS:
-Write one PLAY_BRIEF block per page. Each brief must include:
+Write one PLAY_BRIEF block per page, per action. If a page needs two different fixes (e.g., add a definition AND add an internal link), those are TWO SEPARATE PLAY_BRIEF blocks — never combine unrelated actions into one brief.
+
+Each brief must include:
 1. CURRENT STATE — the exact data fields from the crawl that triggered this rule. Use the actual values above. Format as bullet points.
-2. YOUR MOVE — numbered steps the person should take. Be surgical. If the fix involves code (schema, meta tags, HTML), include the actual code snippet. If it involves copy changes, write the actual new copy or give a specific before/after example. Reference the exact URL, exact field values, exact text.
-3. DONE WHEN — the specific crawl field check that confirms the fix worked, plus any manual verification step (e.g. "Run Google Rich Results Test — 0 errors, Product detected").
+2. YOUR MOVE — ONE specific action only. Not two. Not a compound task. ONE thing to do.
+   - If the fix involves adding or editing text: use the PAGE_BODY_TEXT provided above to identify the EXACT sentence or paragraph where the change goes. Say "Insert after the sentence that begins '[first 10 words of the sentence]'" or "Replace the paragraph that starts '[first 10 words]' with [new text]". Never say "find the mention" — YOU find it in the body text and tell them exactly where.
+   - If the fix involves code (schema, meta tags, HTML): include the actual code snippet ready to paste.
+   - If the fix involves a content rewrite: provide the actual before/after text.
+3. DONE WHEN — the specific crawl field check that confirms the fix worked, plus any manual verification step.
 4. RECHECK — number of days until recheck.
 
 CRITICAL RULES FOR OUTPUT:
+- ONE ACTION PER BRIEF. Adding a Z-Frame definition is one brief. Adding an internal link is a separate brief. Adding schema is a separate brief. NEVER combine these.
+- USE THE PAGE BODY TEXT to give exact placement. You have the page content — reference it. "Insert before the sentence that begins 'Our trailers feature...'" not "find the first mention and insert before it."
 - Do NOT write a report or analysis. Write task tickets.
-- Do NOT split by team role. One unified brief per page.
+- Do NOT split by team role. One unified brief per page per action.
 - Include actual code snippets where relevant (JSON-LD, meta tags, HTML).
-- Include actual copy rewrites where relevant (before/after).
+- Include actual copy rewrites where relevant (before/after with exact existing text quoted).
 - Reference the EXACT data values from the crawl data above.
 - When suggesting Core page link targets, use ONLY URLs from the REAL CORE PAGES list above. Do not invent URLs.
-- Keep each brief under 300 words.
-- If a page is a false positive or edge case, say so in a CAVEAT line and suggest skipping or reclassifying instead of fixing.
-- Product pages: body text must NOT exceed 500 words. MSE elements (images, attributes, CTAs, reviews, FAQs) carry the page.
-- Outer pages: minimum 1000 words. Below that = thin content, recommend merge into relevant HSV page.
-- Max 3 internal links per page. Zero external links (replace with citation mentions).
-- First sentence under any heading must directly answer the heading's implied question.
+- Keep each brief under 200 words.
+- If a page is a false positive or edge case, say so in a CAVEAT line and suggest skipping instead of fixing.
+- Product pages: body text must NOT exceed 500 words. MSE elements carry the page.
+- Outer pages: minimum 1000 words. Below that = thin content.
+- Max 3 internal links per page. Zero external links.
 
 FORMAT (repeat for each page):
 
@@ -1587,3 +1623,7 @@ GLOSSARY;
         }
     }
 }
+
+    
+
+    
