@@ -68,7 +68,7 @@ php /var/www/html/bin/console app:ensure-schema 2>/dev/null || php -r "
 
 \$pdo->exec('CREATE TABLE IF NOT EXISTS seo_rules (
     id SERIAL PRIMARY KEY,
-    rule_id VARCHAR(30) NOT NULL UNIQUE,
+    rule_id VARCHAR(50) NOT NULL UNIQUE,
     name TEXT NOT NULL DEFAULT \\'\\',
     category VARCHAR(100) DEFAULT NULL,
     tier VARCHAR(50) DEFAULT \\'A\\',
@@ -78,13 +78,13 @@ php /var/www/html/bin/console app:ensure-schema 2>/dev/null || php -r "
     threshold TEXT DEFAULT \\'\\',
     diagnosis TEXT DEFAULT \\'\\',
     action_output TEXT DEFAULT \\'\\',
-    priority VARCHAR(20) DEFAULT \\'Medium\\',
-    assigned VARCHAR(100) DEFAULT \\'Brook\\',
+    priority VARCHAR(50) DEFAULT \\'Medium\\',
+    assigned VARCHAR(255) DEFAULT \\'Brook\\',
     ai_relevance TEXT DEFAULT \\'\\',
     full_text TEXT DEFAULT \\'\\',
     is_active BOOLEAN DEFAULT TRUE,
     updated_at TIMESTAMP DEFAULT NOW(),
-    updated_by VARCHAR(100) DEFAULT \\'system\\',
+    updated_by VARCHAR(255) DEFAULT \\'system\\',
     created_at TIMESTAMP DEFAULT NOW()
 )');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY, conversation_id INT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role VARCHAR(20) NOT NULL, content TEXT NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
@@ -108,6 +108,15 @@ if (!in_array('recheck_result', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks AD
 if (!in_array('logged_hours', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN logged_hours FLOAT DEFAULT 0'); }
 if (!in_array('recheck_days', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_days INT DEFAULT NULL'); }
 if (!in_array('recheck_criteria', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_criteria TEXT DEFAULT NULL'); }
+
+// Widen seo_rules columns if they exist with old narrow types
+\$seoTables = \$pdo->query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")->fetchAll(PDO::FETCH_COLUMN);
+if (in_array('seo_rules', \$seoTables)) {
+    \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN rule_id TYPE VARCHAR(50)');
+    \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN priority TYPE VARCHAR(50)');
+    \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN assigned TYPE VARCHAR(255)');
+    \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN updated_by TYPE VARCHAR(255)');
+}
 
 echo 'Tables ready.' . PHP_EOL;
 "

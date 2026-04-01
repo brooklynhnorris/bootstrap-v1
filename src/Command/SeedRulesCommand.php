@@ -30,7 +30,7 @@ class SeedRulesCommand extends Command
         $this->db->executeStatement("
             CREATE TABLE IF NOT EXISTS seo_rules (
                 id SERIAL PRIMARY KEY,
-                rule_id VARCHAR(30) NOT NULL UNIQUE,
+                rule_id VARCHAR(50) NOT NULL UNIQUE,
                 name TEXT NOT NULL DEFAULT '',
                 category VARCHAR(100) DEFAULT NULL,
                 tier VARCHAR(50) DEFAULT 'A',
@@ -40,13 +40,13 @@ class SeedRulesCommand extends Command
                 threshold TEXT DEFAULT '',
                 diagnosis TEXT DEFAULT '',
                 action_output TEXT DEFAULT '',
-                priority VARCHAR(20) DEFAULT 'Medium',
-                assigned VARCHAR(100) DEFAULT 'Brook',
+                priority VARCHAR(50) DEFAULT 'Medium',
+                assigned VARCHAR(255) DEFAULT 'Brook',
                 ai_relevance TEXT DEFAULT '',
                 full_text TEXT DEFAULT '',
                 is_active BOOLEAN DEFAULT TRUE,
                 updated_at TIMESTAMP DEFAULT NOW(),
-                updated_by VARCHAR(100) DEFAULT 'system',
+                updated_by VARCHAR(255) DEFAULT 'system',
                 created_at TIMESTAMP DEFAULT NOW()
             )
         ");
@@ -200,5 +200,3 @@ class SeedRulesCommand extends Command
         return Command::SUCCESS;
     }
 }
-
-    

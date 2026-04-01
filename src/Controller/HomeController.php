@@ -1018,7 +1018,7 @@ class HomeController extends AbstractController
             if (!empty($newRuleText)) {
                 try {
                     // Parse fields from the new rule text
-                    $updates = ['full_text' => $newRuleText, 'updated_at' => date('Y-m-d H:i:s'), 'updated_by' => $approvedBy];
+                    $updates = ['full_text' => $newRuleText, 'updated_at' => date('Y-m-d H:i:s'), 'updated_by' => substr($approvedBy, 0, 100)];
 
                     if (preg_match('/Trigger Source:\s*([^\n]+)/', $newRuleText, $m)) $updates['trigger_source'] = trim($m[1]);
                     if (preg_match('/Trigger Condition:\s*(.*?)(?=\nThreshold:|$)/s', $newRuleText, $m)) {
@@ -1030,8 +1030,17 @@ class HomeController extends AbstractController
                     if (preg_match('/Threshold:\s*(.*?)(?=\nDiagnosis:|$)/s', $newRuleText, $m)) $updates['threshold'] = trim($m[1]);
                     if (preg_match('/Diagnosis:\s*(.*?)(?=\nAction Output:|$)/s', $newRuleText, $m)) $updates['diagnosis'] = trim($m[1]);
                     if (preg_match('/Action Output:\s*(.*?)(?=\nPriority:|$)/s', $newRuleText, $m)) $updates['action_output'] = trim($m[1]);
-                    if (preg_match('/Priority:\s*([^\n]+)/', $newRuleText, $m)) $updates['priority'] = trim($m[1]);
-                    if (preg_match('/Assigned:\s*([^\n]+)/', $newRuleText, $m)) $updates['assigned'] = trim($m[1]);
+                    if (preg_match('/Priority:\s*([^\n]+)/', $newRuleText, $m)) {
+                        // Normalize priority to one of: Critical, High, Medium, Low
+                        $rawPri = strtolower(trim($m[1]));
+                        $updates['priority'] = match(true) {
+                            str_contains($rawPri, 'critical'), str_contains($rawPri, 'urgent') => 'Critical',
+                            str_contains($rawPri, 'high') => 'High',
+                            str_contains($rawPri, 'low') => 'Low',
+                            default => 'Medium',
+                        };
+                    }
+                    if (preg_match('/Assigned:\s*([^\n]+)/', $newRuleText, $m)) $updates['assigned'] = substr(trim($m[1]), 0, 100);
 
                     // Check if rule exists in DB
                     $existing = $this->db->fetchAssociative('SELECT id FROM seo_rules WHERE rule_id = ?', [$ruleId]);
