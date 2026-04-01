@@ -998,22 +998,97 @@ class CrawlPagesCommand extends Command
         // ── HowTo schema detection (SCH-007, CI-02) ──
         $hasHowtoSchema = in_array('HowTo', $schemaTypes);
         
-        // ── Video embed detection (SCH-006, MAO-04) ──
+        // ── Video embed detection with MAO-R4 three-gate system ──
         $hasVideoEmbed = false;
+        $hasMainContentVideo = false;
+        $videoMetadataValid = false;
+        $videoTopicAligned = false;
         $videoUrls = [];
-        $videoSelectors = [
+        $videoThumbnailUrl = null;
+        $videoDurationSeconds = null;
+        $videoUploadDate = null;
+        $videoTitle = null;
+
+        // GATE 1: Check for video embeds specifically in main content area
+        $mainContentSelectors = [
+            '//main//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
+            '//article//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
+            '//*[contains(@class,"entry-content") or contains(@class,"post-content") or contains(@class,"page-content") or contains(@class,"content-area") or contains(@id,"content")]//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
+            '//main//video/@src',
+            '//article//video/@src',
+        ];
+        // Also check anywhere on page (for has_video_embed general flag)
+        $anyVideoSelectors = [
             '//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
             '//video/@src',
             '//*[@data-video-id]/@data-video-id',
         ];
-        foreach ($videoSelectors as $sel) {
-            $vidNodes = $xpath->query($sel);
+
+        // Check main content first
+        foreach ($mainContentSelectors as $sel) {
+            $vidNodes = @$xpath->query($sel);
             if ($vidNodes && $vidNodes->length > 0) {
+                $hasMainContentVideo = true;
                 $hasVideoEmbed = true;
                 foreach ($vidNodes as $v) {
                     $videoUrls[] = $v->nodeValue;
                 }
             }
+        }
+        // Fallback: check anywhere
+        if (!$hasVideoEmbed) {
+            foreach ($anyVideoSelectors as $sel) {
+                $vidNodes = @$xpath->query($sel);
+                if ($vidNodes && $vidNodes->length > 0) {
+                    $hasVideoEmbed = true;
+                    foreach ($vidNodes as $v) {
+                        $videoUrls[] = $v->nodeValue;
+                    }
+                }
+            }
+        }
+
+        // GATE 2: YouTube oEmbed API pre-flight (only for main content videos)
+        if ($hasMainContentVideo && !empty($videoUrls)) {
+            foreach ($videoUrls as $vUrl) {
+                // Extract YouTube video URL
+                $ytId = null;
+                if (preg_match('/youtube\.com\/embed\/([a-zA-Z0-9_-]+)/', $vUrl, $ym)) {
+                    $ytId = $ym[1];
+                } elseif (preg_match('/youtu\.be\/([a-zA-Z0-9_-]+)/', $vUrl, $ym)) {
+                    $ytId = $ym[1];
+                }
+                if (!$ytId) continue;
+
+                $oembedUrl = "https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={$ytId}&format=json";
+                $ctx = stream_context_create(['http' => ['timeout' => 5, 'ignore_errors' => true]]);
+                $oembedJson = @file_get_contents($oembedUrl, false, $ctx);
+                if ($oembedJson) {
+                    $oembed = json_decode($oembedJson, true);
+                    if (!empty($oembed['title']) && !empty($oembed['thumbnail_url'])) {
+                        $videoMetadataValid = true;
+                        $videoTitle = $oembed['title'] ?? null;
+                        $videoThumbnailUrl = $oembed['thumbnail_url'] ?? null;
+                        // oEmbed doesn't provide duration/uploadDate — those need YouTube Data API
+                        // For now, mark metadata as valid if we have title + thumbnail
+                        break; // Use first valid video
+                    }
+                }
+            }
+        }
+
+        // GATE 3: Topic alignment check (video title vs page H1)
+        if ($videoTitle && $h1) {
+            $videoWords = array_unique(array_filter(
+                preg_split('/\s+/', strtolower(preg_replace('/[^a-z0-9\s]/i', '', $videoTitle))),
+                fn($w) => strlen($w) > 3 // skip short words
+            ));
+            $h1Words = array_unique(array_filter(
+                preg_split('/\s+/', strtolower(preg_replace('/[^a-z0-9\s]/i', '', $h1))),
+                fn($w) => strlen($w) > 3
+            ));
+            $overlap = count(array_intersect($videoWords, $h1Words));
+            $videoTopicAligned = $overlap >= 2;
         }
         
         // ── Author byline detection (DDT-EEAT-05) ──
@@ -1154,6 +1229,13 @@ class CrawlPagesCommand extends Command
             'has_howto_schema'     => $hasHowtoSchema ? 1 : 0,
             'has_video_embed'      => $hasVideoEmbed ? 1 : 0,
             'video_urls'           => !empty($videoUrls) ? json_encode($videoUrls) : null,
+            'has_main_content_video' => $hasMainContentVideo ? 1 : 0,
+            'video_metadata_valid' => $videoMetadataValid ? 1 : 0,
+            'video_topic_aligned'  => $videoTopicAligned ? 1 : 0,
+            'video_thumbnail_url'  => $videoThumbnailUrl ? substr($videoThumbnailUrl, 0, 500) : null,
+            'video_duration_seconds' => $videoDurationSeconds,
+            'video_upload_date'    => $videoUploadDate,
+            'video_title'          => $videoTitle ? substr($videoTitle, 0, 500) : null,
             'has_author_byline'    => $hasAuthorByline ? 1 : 0,
             'author_name'          => $authorName ? substr($authorName, 0, 200) : null,
             'has_zframe_mention'   => $hasZframeMention ? 1 : 0,
@@ -1555,6 +1637,13 @@ class CrawlPagesCommand extends Command
                 'has_howto_schema'    => 'BOOLEAN DEFAULT FALSE',      // SCH-007, CI-02
                 'has_video_embed'     => 'BOOLEAN DEFAULT FALSE',      // SCH-006, MAO-04
                 'video_urls'          => 'TEXT DEFAULT NULL',          // SCH-006: YouTube/Vimeo embeds
+                'has_main_content_video' => 'BOOLEAN DEFAULT FALSE',  // MAO-R4 Gate 1: video in main content area
+                'video_metadata_valid' => 'BOOLEAN DEFAULT FALSE',    // MAO-R4 Gate 2: oEmbed returned title+thumbnail
+                'video_topic_aligned' => 'BOOLEAN DEFAULT FALSE',     // MAO-R4 Gate 3: video title overlaps page H1
+                'video_thumbnail_url' => 'TEXT DEFAULT NULL',         // MAO-R4: for schema generation
+                'video_duration_seconds' => 'INT DEFAULT NULL',       // MAO-R4: for schema generation (needs YT Data API)
+                'video_upload_date'   => 'TEXT DEFAULT NULL',         // MAO-R4: ISO 8601 (needs YT Data API)
+                'video_title'         => 'TEXT DEFAULT NULL',         // MAO-R4: from oEmbed, for topic alignment
                 'has_author_byline'   => 'BOOLEAN DEFAULT FALSE',      // DDT-EEAT-05
                 'author_name'         => 'TEXT DEFAULT NULL',          // DDT-EEAT-05
                 'has_zframe_mention'  => 'BOOLEAN DEFAULT FALSE',      // AIS-003, OPQ-R7
