@@ -110,8 +110,8 @@ if (!in_array('recheck_days', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD 
 if (!in_array('recheck_criteria', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_criteria TEXT DEFAULT NULL'); }
 
 // Widen seo_rules columns if they exist with old narrow types
-\$seoTables = \$pdo->query("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")->fetchAll(PDO::FETCH_COLUMN);
-if (in_array('seo_rules', \$seoTables)) {
+\$seoCheck = \$pdo->query('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = \'public\' AND table_name = \'seo_rules\'')->fetchColumn();
+if (\$seoCheck > 0) {
     \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN rule_id TYPE VARCHAR(50)');
     \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN priority TYPE VARCHAR(50)');
     \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN assigned TYPE VARCHAR(255)');
