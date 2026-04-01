@@ -1377,6 +1377,56 @@ class HomeController extends AbstractController
         return new JsonResponse(['ok' => true]);
     }
 
+    #[Route('/api/tasks/{id}', name: 'api_task_delete', methods: ['DELETE'])]
+    public function deleteTask(int $id): JsonResponse
+    {
+        try {
+            $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
+            if (!$task) return new JsonResponse(['error' => 'Task not found'], 404);
+
+            $this->db->delete('tasks', ['id' => $id]);
+
+            $session = $this->requestStack->getSession();
+            $actor = $session->get('persona_name', 'Unknown');
+            $this->logActivity($actor, 'deleted_task', 'task', $id, $task['title'] ?? '');
+
+            return new JsonResponse(['ok' => true, 'deleted' => $id]);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    #[Route('/api/rules/{ruleId}/toggle', name: 'api_rules_toggle', methods: ['POST'])]
+    public function toggleRule(string $ruleId, Request $request): JsonResponse
+    {
+        try {
+            $body = json_decode($request->getContent(), true);
+            $active = $body['active'] ?? true;
+            $ruleId = strtoupper($ruleId);
+
+            // Update seo_rules table
+            $existing = $this->db->fetchAssociative('SELECT id FROM seo_rules WHERE rule_id = ?', [$ruleId]);
+            if (!$existing) {
+                return new JsonResponse(['error' => "Rule {$ruleId} not found"], 404);
+            }
+
+            $this->db->update('seo_rules', [
+                'is_active'  => $active,
+                'updated_at' => date('Y-m-d H:i:s'),
+                'updated_by' => 'user',
+            ], ['rule_id' => $ruleId]);
+
+            $session = $this->requestStack->getSession();
+            $actor = $session->get('persona_name', 'Unknown');
+            $this->logActivity($actor, $active ? 'activated_rule' : 'deactivated_rule', 'rule', null, $ruleId);
+
+            $status = $active ? 'activated' : 'deactivated';
+            return new JsonResponse(['ok' => true, 'message' => "Rule {$ruleId} {$status}. Takes effect on next cron run."]);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
     // ─────────────────────────────────────────────
     //  HELPERS
     // ─────────────────────────────────────────────

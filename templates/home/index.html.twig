@@ -1409,6 +1409,14 @@
                 </div>
             </div>
 
+            <!-- Ask Logiri -->
+            <div id="logiri-command-bar" style="margin-bottom:20px;">
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="text" id="logiri-input" placeholder="Ask Logiri anything… &quot;clear pending MAO-R2 tasks&quot; · &quot;what should I work on?&quot; · &quot;reprioritize schema tasks&quot;" style="flex:1;padding:12px 16px;border:1px solid var(--border-subtle);border-radius:10px;font-size:14px;background:var(--bg-secondary);color:var(--text-primary);outline:none;font-family:var(--font-main);">
+                    <button id="logiri-send" onclick="handleLogiriCommand()" style="padding:12px 20px;border:none;border-radius:10px;background:var(--accent-blue);color:white;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">Ask Logiri</button>
+                </div>
+            </div>
+
             <!-- Next Plays -->
             <div class="dash-section-title">Your Next Plays <span class="dash-badge">Top 3 by priority + traffic</span></div>
             <div id="dash-focus-cards">
@@ -2644,6 +2652,133 @@
     if (sendEl) sendEl.addEventListener('click', () => { const t = inputEl.value.trim(); if (t) sendMessage(t); });
     if (inputEl) inputEl.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const t = inputEl.value.trim(); if (t) sendMessage(t); } });
     if (inputEl) inputEl.addEventListener('input', () => { inputEl.style.height = '46px'; inputEl.style.height = Math.min(inputEl.scrollHeight, 120) + 'px'; });
+
+    // ── Logiri command bar (dashboard) ──
+    const logiriInput = document.getElementById('logiri-input');
+    if (logiriInput) {
+        logiriInput.addEventListener('keydown', e => {
+            if (e.key === 'Enter') { e.preventDefault(); handleLogiriCommand(); }
+        });
+    }
+
+    async function handleLogiriCommand() {
+        const input = document.getElementById('logiri-input');
+        const text = input ? input.value.trim() : '';
+        if (!text) return;
+        input.value = '';
+
+        const lower = text.toLowerCase();
+
+        // ── Direct action commands (no LLM needed) ──
+
+        // Clear/delete tasks for a specific rule
+        const clearMatch = lower.match(/(?:clear|delete|remove)\s+(?:all\s+)?(?:pending\s+)?(?:tasks?\s+(?:for|from)\s+)?([a-z]+-?[a-z]*-?\d+[a-z]?)/i);
+        if (clearMatch) {
+            const ruleId = clearMatch[1].toUpperCase();
+            try {
+                const res = await fetch('/api/tasks');
+                const tasks = await res.json();
+                const toDelete = tasks.filter(t => t.rule_id === ruleId && t.status !== 'done');
+                if (toDelete.length === 0) {
+                    showNotification('No pending tasks found for ' + ruleId, 'green');
+                    return;
+                }
+                for (const t of toDelete) {
+                    await fetch('/api/tasks/' + t.id, { method: 'DELETE' });
+                }
+                showNotification('Cleared ' + toDelete.length + ' pending tasks for ' + ruleId, 'green');
+                await refreshTasksPanel();
+                await loadDashboardData();
+            } catch(e) {
+                showNotification('Error clearing tasks: ' + e.message, 'red');
+            }
+            return;
+        }
+
+        // Bulk clear all pending tasks
+        if (lower.match(/clear\s+all\s+pending/)) {
+            if (!confirm('Delete ALL pending tasks? This cannot be undone.')) return;
+            try {
+                const res = await fetch('/api/tasks');
+                const tasks = await res.json();
+                const pending = tasks.filter(t => t.status === 'pending');
+                for (const t of pending) {
+                    await fetch('/api/tasks/' + t.id, { method: 'DELETE' });
+                }
+                showNotification('Cleared ' + pending.length + ' pending tasks', 'green');
+                await refreshTasksPanel();
+                await loadDashboardData();
+            } catch(e) {
+                showNotification('Error: ' + e.message, 'red');
+            }
+            return;
+        }
+
+        // Disable/deactivate a rule
+        const disableMatch = lower.match(/(?:disable|deactivate|pause|turn off)\s+(?:rule\s+)?([a-z]+-?[a-z]*-?\d+[a-z]?)/i);
+        if (disableMatch) {
+            const ruleId = disableMatch[1].toUpperCase();
+            try {
+                const res = await fetch('/api/rules/' + encodeURIComponent(ruleId) + '/toggle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ active: false })
+                });
+                const data = await res.json();
+                showNotification(data.message || ('Rule ' + ruleId + ' deactivated'), 'green');
+            } catch(e) {
+                showNotification('Error: ' + e.message, 'red');
+            }
+            return;
+        }
+
+        // Enable/activate a rule
+        const enableMatch = lower.match(/(?:enable|activate|resume|turn on)\s+(?:rule\s+)?([a-z]+-?[a-z]*-?\d+[a-z]?)/i);
+        if (enableMatch) {
+            const ruleId = enableMatch[1].toUpperCase();
+            try {
+                const res = await fetch('/api/rules/' + encodeURIComponent(ruleId) + '/toggle', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ active: true })
+                });
+                const data = await res.json();
+                showNotification(data.message || ('Rule ' + ruleId + ' activated'), 'green');
+            } catch(e) {
+                showNotification('Error: ' + e.message, 'red');
+            }
+            return;
+        }
+
+        // ── Everything else → open chat with the message ──
+        // Open chat in free-form mode (no task context)
+        showChatFreeForm(text);
+    }
+
+    function showChatFreeForm(initialMessage) {
+        currentTaskId = null;
+        currentView = 'chat';
+        document.getElementById('dashboard-view').style.display = 'none';
+        document.getElementById('dashboard-view').classList.remove('active');
+        document.getElementById('board-view').style.display = 'none';
+        document.getElementById('chat-view').style.display = 'flex';
+        document.getElementById('board-back-btn').style.display = 'flex';
+        document.getElementById('board-title').textContent = 'Logiri';
+        ['dashboard','board','results','rules'].forEach(v => {
+            const pill = document.getElementById('nav-' + v);
+            if (pill) pill.classList.remove('active');
+        });
+        if (document.getElementById('board-filters')) document.getElementById('board-filters').style.display = 'none';
+        const doneBtn = document.getElementById('mark-done-btn');
+        if (doneBtn) doneBtn.style.display = 'none';
+        // Reset chat
+        messages = [];
+        conversationId = null;
+        messagesEl.innerHTML = '';
+        // Send the initial message
+        if (initialMessage) sendMessage(initialMessage);
+    }
+
     setInterval(refreshTasksPanel, 60000);
 
 
