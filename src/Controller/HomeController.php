@@ -691,41 +691,61 @@ class HomeController extends AbstractController
         try {
         $status   = $request->query->get('status');
         $assignee = $request->query->get('assignee');
-        // Join with GSC data to weight by actual page impressions
-        $sql = "SELECT t.*, COALESCE(g.impressions, 0) AS gsc_impressions
-                FROM tasks t
-                LEFT JOIN (
-                    SELECT page, MAX(impressions) AS impressions
-                    FROM gsc_snapshots
-                    WHERE date_range = '28d'
-                    GROUP BY page
-                ) g ON g.page LIKE CONCAT('%', SPLIT_PART(t.title, '— ', 2), '%')
-                WHERE 1=1";
-        $params = [];
-        if ($status) { $sql .= " AND t.status = ?"; $params[] = $status; }
-        if ($assignee) { $sql .= " AND t.assigned_to = ?"; $params[] = $assignee; }
-        $sql .= " ORDER BY CASE t.priority
+        $sql      = "SELECT * FROM tasks WHERE 1=1";
+        $params   = [];
+        if ($status) { $sql .= " AND status = ?"; $params[] = $status; }
+        if ($assignee) { $sql .= " AND assigned_to = ?"; $params[] = $assignee; }
+        $sql .= " ORDER BY CASE priority
                     WHEN 'critical' THEN 0
                     WHEN 'urgent' THEN 0
                     WHEN 'high' THEN 1
                     WHEN 'medium' THEN 2
                     WHEN 'low' THEN 3
                     ELSE 4 END,
-                  COALESCE(g.impressions, 0) DESC,
-                  t.created_at DESC";
-        return new JsonResponse($this->db->fetchAllAssociative($sql, $params));
-        } catch (\Exception $e) {
-            // Fallback without GSC join if query fails
-            try {
-                $sql2 = "SELECT *, 0 AS gsc_impressions FROM tasks WHERE 1=1";
-                $params2 = [];
-                if ($status) { $sql2 .= " AND status = ?"; $params2[] = $status; }
-                if ($assignee) { $sql2 .= " AND assigned_to = ?"; $params2[] = $assignee; }
-                $sql2 .= " ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'urgent' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 WHEN 'low' THEN 3 ELSE 4 END, created_at DESC";
-                return new JsonResponse($this->db->fetchAllAssociative($sql2, $params2));
-            } catch (\Exception $e2) {
-                return new JsonResponse(['error' => $e2->getMessage()], 500);
+                  created_at DESC";
+        $tasks = $this->db->fetchAllAssociative($sql, $params);
+
+        // Lightweight GSC impressions lookup — batch query, not per-task join
+        try {
+            $gscPages = $this->db->fetchAllAssociative(
+                "SELECT page, MAX(impressions) AS impressions FROM gsc_snapshots WHERE date_range = '28d' AND query = '__PAGE_AGGREGATE__' GROUP BY page ORDER BY impressions DESC LIMIT 100"
+            );
+            $gscMap = [];
+            foreach ($gscPages as $g) {
+                $gscMap[$g['page']] = (int) $g['impressions'];
             }
+            // Match task URLs to GSC pages
+            foreach ($tasks as &$task) {
+                $task['gsc_impressions'] = 0;
+                if (preg_match('#(/[a-z0-9\-/]+/)#', $task['title'] ?? '', $m)) {
+                    $urlPath = $m[1];
+                    foreach ($gscMap as $page => $imp) {
+                        if (str_contains($page, $urlPath)) {
+                            $task['gsc_impressions'] = $imp;
+                            break;
+                        }
+                    }
+                }
+            }
+            unset($task);
+
+            // Re-sort: within same priority, highest impressions first
+            usort($tasks, function($a, $b) {
+                $priOrder = ['critical' => 0, 'urgent' => 0, 'high' => 1, 'medium' => 2, 'low' => 3];
+                $priA = $priOrder[$a['priority'] ?? ''] ?? 4;
+                $priB = $priOrder[$b['priority'] ?? ''] ?? 4;
+                if ($priA !== $priB) return $priA - $priB;
+                return ($b['gsc_impressions'] ?? 0) - ($a['gsc_impressions'] ?? 0);
+            });
+        } catch (\Exception $e) {
+            // GSC lookup failed — tasks still return without impressions
+            foreach ($tasks as &$task) { $task['gsc_impressions'] = 0; }
+            unset($task);
+        }
+
+        return new JsonResponse($tasks);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
         }
     }
 
