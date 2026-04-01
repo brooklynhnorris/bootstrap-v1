@@ -1356,6 +1356,7 @@
             <button class="header-nav-pill" id="nav-board" onclick="switchView('board')">Board</button>
             <button class="header-nav-pill" id="nav-results" onclick="switchView('results')">Results</button>
             <button class="header-nav-pill" id="nav-rules" onclick="switchView('rules')">Rules</button>
+            <button class="header-nav-pill" id="nav-memory" onclick="switchView('memory')">Memory</button>
         </div>
         <div class="topbar-stats">
             <div class="topbar-stat" onclick="switchView('board')" style="cursor:pointer;" title="View pending plays">
@@ -1494,6 +1495,42 @@
         </div>
         <div id="board-grid">
             <!-- Cards rendered by JS -->
+        </div>
+    </div>
+
+    <!-- MEMORY VIEW -->
+    <div id="memory-view" style="display:none;">
+        <div class="dash-container">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+                <div>
+                    <h2 style="margin:0;font-size:20px;font-weight:700;color:var(--text-primary);">Logiri's Memory</h2>
+                    <p style="margin:4px 0 0;font-size:13px;color:var(--text-muted);">Learnings extracted from your conversations. Edit or remove anything incorrect.</p>
+                </div>
+                <button onclick="showAddLearningModal()" style="padding:8px 16px;border:none;border-radius:8px;background:var(--accent-blue);color:white;font-size:13px;font-weight:600;cursor:pointer;">+ Add Learning</button>
+            </div>
+            <div id="memory-cards-container">
+                <div class="dash-empty">Loading memory…</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Add Learning Modal -->
+    <div id="add-learning-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:none;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-primary);border-radius:12px;padding:24px;width:480px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+            <h3 style="margin:0 0 16px;font-size:16px;">Add a Learning</h3>
+            <textarea id="new-learning-text" placeholder="What should Logiri remember? e.g. 'Never suggest external links — we use citation mentions only'" style="width:100%;padding:10px;border:1px solid var(--border-subtle);border-radius:8px;font-size:13px;min-height:60px;resize:vertical;box-sizing:border-box;font-family:var(--font-main);"></textarea>
+            <div style="display:flex;gap:8px;margin-top:12px;">
+                <select id="new-learning-category" style="padding:8px;border:1px solid var(--border-subtle);border-radius:6px;font-size:13px;">
+                    <option value="preferences">Preferences</option>
+                    <option value="corrections">Corrections</option>
+                    <option value="workflow">Workflow</option>
+                    <option value="domain_knowledge">Domain Knowledge</option>
+                    <option value="rules_feedback">Rules Feedback</option>
+                    <option value="general">General</option>
+                </select>
+                <button onclick="submitNewLearning()" style="padding:8px 16px;border:none;border-radius:6px;background:var(--accent-green);color:white;font-size:13px;font-weight:600;cursor:pointer;">Save</button>
+                <button onclick="document.getElementById('add-learning-modal').style.display='none'" style="padding:8px 16px;border:none;border-radius:6px;background:var(--bg-tertiary);color:var(--text-muted);font-size:13px;cursor:pointer;">Cancel</button>
+            </div>
         </div>
     </div>
 
@@ -2761,10 +2798,11 @@
         document.getElementById('dashboard-view').style.display = 'none';
         document.getElementById('dashboard-view').classList.remove('active');
         document.getElementById('board-view').style.display = 'none';
+        document.getElementById('memory-view').style.display = 'none';
         document.getElementById('chat-view').style.display = 'flex';
         document.getElementById('board-back-btn').style.display = 'flex';
         document.getElementById('board-title').textContent = 'Logiri';
-        ['dashboard','board','results','rules'].forEach(v => {
+        ['dashboard','board','results','rules','memory'].forEach(v => {
             const pill = document.getElementById('nav-' + v);
             if (pill) pill.classList.remove('active');
         });
@@ -2797,11 +2835,11 @@
         document.getElementById('dashboard-view').style.display = 'none';
         document.getElementById('dashboard-view').classList.remove('active');
         document.getElementById('board-view').style.display = 'none';
+        document.getElementById('memory-view').style.display = 'none';
         document.getElementById('chat-view').style.display = 'flex';
         document.getElementById('board-back-btn').style.display = 'flex';
         document.getElementById('board-title').textContent = taskTitle || 'Play';
-        // Deactivate all nav pills when in chat
-        ['dashboard','board','results','rules'].forEach(v => {
+        ['dashboard','board','results','rules','memory'].forEach(v => {
             const pill = document.getElementById('nav-' + v);
             if (pill) pill.classList.remove('active');
         });
@@ -3095,21 +3133,23 @@
     function switchView(view) {
         currentView = view;
         // Update nav pills
-        ['dashboard','board','results','rules'].forEach(v => {
+        ['dashboard','board','results','rules','memory'].forEach(v => {
             const pill = document.getElementById('nav-' + v);
             if (pill) pill.classList.toggle('active', v === view);
         });
         // Toggle views
-        const dashEl  = document.getElementById('dashboard-view');
-        const boardEl = document.getElementById('board-view');
-        const chatEl  = document.getElementById('chat-view');
-        const filters = document.getElementById('board-filters');
-        const backBtn = document.getElementById('board-back-btn');
+        const dashEl   = document.getElementById('dashboard-view');
+        const boardEl  = document.getElementById('board-view');
+        const chatEl   = document.getElementById('chat-view');
+        const memoryEl = document.getElementById('memory-view');
+        const filters  = document.getElementById('board-filters');
+        const backBtn  = document.getElementById('board-back-btn');
 
-        dashEl.style.display  = 'none';
+        dashEl.style.display   = 'none';
         dashEl.classList.remove('active');
-        boardEl.style.display = 'none';
-        chatEl.style.display  = 'none';
+        boardEl.style.display  = 'none';
+        chatEl.style.display   = 'none';
+        memoryEl.style.display = 'none';
         if (filters) filters.style.display = 'none';
         if (backBtn) backBtn.style.display = 'none';
 
@@ -3125,7 +3165,6 @@
             dashEl.style.display = 'block';
             dashEl.classList.add('active');
             document.getElementById('board-title').textContent = USER_NAME + "'s Dashboard";
-            // Show dashboard sections, hide results/rules
             document.querySelectorAll('.dash-grid, .dash-section-title, #dash-focus-cards, .dash-view-all, .results-grid').forEach(el => el.style.display = '');
             if (resultsContent) resultsContent.style.display = 'none';
             if (rulesContent) rulesContent.style.display = 'none';
@@ -3139,7 +3178,6 @@
             dashEl.style.display = 'block';
             dashEl.classList.add('active');
             document.getElementById('board-title').textContent = 'Completed Plays & Results';
-            // Hide dashboard-only sections, show results
             document.querySelectorAll('.dash-grid, #dash-focus-cards, .dash-view-all, #dash-results-grid, #dash-proposals-title, #dash-proposals-list').forEach(el => el.style.display = 'none');
             document.querySelectorAll('.dash-section-title').forEach(el => el.style.display = 'none');
             if (resultsContent) resultsContent.style.display = 'block';
@@ -3149,12 +3187,15 @@
             dashEl.style.display = 'block';
             dashEl.classList.add('active');
             document.getElementById('board-title').textContent = 'Rules & Proposals';
-            // Hide dashboard-only sections, show rules
             document.querySelectorAll('.dash-grid, #dash-focus-cards, .dash-view-all, #dash-results-grid').forEach(el => el.style.display = 'none');
             document.querySelectorAll('.dash-section-title').forEach(el => el.style.display = 'none');
             if (resultsContent) resultsContent.style.display = 'none';
             if (rulesContent) rulesContent.style.display = 'block';
             loadRulesView();
+        } else if (view === 'memory') {
+            memoryEl.style.display = 'block';
+            document.getElementById('board-title').textContent = "Logiri's Memory";
+            loadMemoryView();
         }
     }
 
@@ -3679,6 +3720,132 @@
     let allRulesData = [];
     let currentRulesFilter = 'all';
 
+    // ── Memory View ──────────────────────────────────────
+    async function loadMemoryView() {
+        const container = document.getElementById('memory-cards-container');
+        try {
+            const res = await fetch('/api/learnings');
+            const learnings = await res.json();
+            if (!Array.isArray(learnings) || learnings.length === 0) {
+                container.innerHTML = '<div class="dash-empty">No learnings yet. Chat with Logiri and it will learn from the conversation.</div>';
+                return;
+            }
+
+            // Group by category
+            const groups = {};
+            learnings.forEach(l => {
+                const cat = l.category || 'general';
+                if (!groups[cat]) groups[cat] = [];
+                groups[cat].push(l);
+            });
+
+            const catLabels = {
+                preferences: 'Your Preferences',
+                corrections: 'Corrections You Made',
+                workflow: 'Workflow Patterns',
+                domain_knowledge: 'Domain Knowledge',
+                rules_feedback: 'Rules Feedback',
+                general: 'General'
+            };
+
+            let html = '';
+            for (const [cat, items] of Object.entries(groups)) {
+                const label = catLabels[cat] || cat;
+                html += '<div style="margin-bottom:24px;">';
+                html += '<h3 style="font-size:14px;font-weight:700;color:var(--text-muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:12px;">' + escapeHtml(label) + '</h3>';
+                items.forEach(l => {
+                    const active = l.is_active === true || l.is_active === 't' || l.is_active === 1 || l.is_active === '1';
+                    const opacity = active ? '1' : '0.4';
+                    const confidenceDots = '●'.repeat(Math.min(10, l.confidence || 5)) + '○'.repeat(10 - Math.min(10, l.confidence || 5));
+                    html += '<div style="display:flex;align-items:flex-start;gap:12px;padding:12px 16px;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:10px;margin-bottom:8px;opacity:' + opacity + ';" id="learning-' + l.id + '">';
+                    html += '<div style="flex:1;">';
+                    html += '<div style="font-size:13px;color:var(--text-primary);line-height:1.5;" id="learning-text-' + l.id + '">' + escapeHtml(l.learning) + '</div>';
+                    html += '<div style="font-size:11px;color:var(--text-muted);margin-top:4px;">';
+                    html += '<span style="font-family:var(--font-mono);font-size:10px;letter-spacing:1px;color:var(--accent-blue);" title="Confidence: ' + (l.confidence || 5) + '/10">' + confidenceDots + '</span>';
+                    html += ' · ' + (l.learned_from || 'auto') + ' · ' + (l.created_at ? new Date(l.created_at).toLocaleDateString('en-US', {month:'short', day:'numeric'}) : '');
+                    html += '</div></div>';
+                    html += '<div style="display:flex;gap:4px;flex-shrink:0;">';
+                    html += '<button onclick="editLearning(' + l.id + ')" style="padding:4px 8px;border:1px solid var(--border-subtle);border-radius:5px;background:transparent;color:var(--text-muted);font-size:11px;cursor:pointer;" title="Edit">✎</button>';
+                    html += '<button onclick="toggleLearning(' + l.id + ',' + (active ? 'false' : 'true') + ')" style="padding:4px 8px;border:1px solid var(--border-subtle);border-radius:5px;background:transparent;color:var(--text-muted);font-size:11px;cursor:pointer;" title="' + (active ? 'Disable' : 'Enable') + '">' + (active ? '⏸' : '▶') + '</button>';
+                    html += '<button onclick="deleteLearning(' + l.id + ')" style="padding:4px 8px;border:1px solid var(--border-subtle);border-radius:5px;background:transparent;color:var(--accent-red);font-size:11px;cursor:pointer;" title="Delete">✕</button>';
+                    html += '</div></div>';
+                });
+                html += '</div>';
+            }
+            container.innerHTML = html;
+        } catch(e) {
+            container.innerHTML = '<div class="dash-empty">Could not load learnings: ' + e.message + '</div>';
+        }
+    }
+
+    async function editLearning(id) {
+        const el = document.getElementById('learning-text-' + id);
+        if (!el) return;
+        const current = el.textContent;
+        const updated = prompt('Edit this learning:', current);
+        if (updated === null || updated.trim() === '' || updated === current) return;
+        try {
+            await fetch('/api/learnings/' + id, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ learning: updated.trim() })
+            });
+            showNotification('Learning updated', 'green');
+            loadMemoryView();
+        } catch(e) {
+            showNotification('Error: ' + e.message, 'red');
+        }
+    }
+
+    async function toggleLearning(id, active) {
+        try {
+            await fetch('/api/learnings/' + id, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ is_active: active })
+            });
+            showNotification(active ? 'Learning re-enabled' : 'Learning disabled', 'green');
+            loadMemoryView();
+        } catch(e) {
+            showNotification('Error: ' + e.message, 'red');
+        }
+    }
+
+    async function deleteLearning(id) {
+        if (!confirm('Delete this learning permanently?')) return;
+        try {
+            await fetch('/api/learnings/' + id, { method: 'DELETE' });
+            showNotification('Learning deleted', 'green');
+            loadMemoryView();
+        } catch(e) {
+            showNotification('Error: ' + e.message, 'red');
+        }
+    }
+
+    function showAddLearningModal() {
+        document.getElementById('add-learning-modal').style.display = 'flex';
+        document.getElementById('new-learning-text').value = '';
+        document.getElementById('new-learning-text').focus();
+    }
+
+    async function submitNewLearning() {
+        const text = document.getElementById('new-learning-text').value.trim();
+        const category = document.getElementById('new-learning-category').value;
+        if (!text) return;
+        try {
+            await fetch('/api/learnings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ learning: text, category: category, confidence: 8 })
+            });
+            document.getElementById('add-learning-modal').style.display = 'none';
+            showNotification('Learning added', 'green');
+            loadMemoryView();
+        } catch(e) {
+            showNotification('Error: ' + e.message, 'red');
+        }
+    }
+
     async function loadRulesView() {
         const container = document.getElementById('rules-cards-container');
         try {
@@ -3885,7 +4052,7 @@
         document.getElementById('board-view').style.display = 'none';
         document.getElementById('chat-view').style.display = 'flex';
         document.getElementById('board-back-btn').style.display = 'flex';
-        ['dashboard','board','results','rules'].forEach(v => {
+        ['dashboard','board','results','rules','memory'].forEach(v => {
             const pill = document.getElementById('nav-' + v);
             if (pill) pill.classList.remove('active');
         });

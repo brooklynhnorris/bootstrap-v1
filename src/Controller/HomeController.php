@@ -1458,6 +1458,71 @@ class HomeController extends AbstractController
     }
 
     // ─────────────────────────────────────────────
+    //  CHAT LEARNINGS API
+    // ─────────────────────────────────────────────
+
+    #[Route('/api/learnings', name: 'api_learnings_list', methods: ['GET'])]
+    public function listLearnings(): JsonResponse
+    {
+        try {
+            $learnings = $this->db->fetchAllAssociative(
+                "SELECT * FROM chat_learnings ORDER BY is_active DESC, confidence DESC, created_at DESC"
+            );
+            return new JsonResponse($learnings);
+        } catch (\Exception $e) {
+            return new JsonResponse([]);
+        }
+    }
+
+    #[Route('/api/learnings', name: 'api_learnings_create', methods: ['POST'])]
+    public function createLearning(Request $request): JsonResponse
+    {
+        try {
+            $body = json_decode($request->getContent(), true);
+            $this->db->insert('chat_learnings', [
+                'learning'     => substr($body['learning'] ?? '', 0, 500),
+                'category'     => $body['category'] ?? 'general',
+                'confidence'   => min(10, max(1, intval($body['confidence'] ?? 7))),
+                'learned_from' => 'manual',
+                'is_active'    => true,
+                'created_at'   => date('Y-m-d H:i:s'),
+            ]);
+            return new JsonResponse(['ok' => true, 'id' => $this->db->lastInsertId()]);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    #[Route('/api/learnings/{id}', name: 'api_learnings_update', methods: ['POST'])]
+    public function updateLearning(int $id, Request $request): JsonResponse
+    {
+        try {
+            $body = json_decode($request->getContent(), true);
+            $updates = [];
+            if (isset($body['learning']))   $updates['learning']   = substr($body['learning'], 0, 500);
+            if (isset($body['category']))   $updates['category']   = $body['category'];
+            if (isset($body['confidence'])) $updates['confidence'] = min(10, max(1, intval($body['confidence'])));
+            if (isset($body['is_active']))  $updates['is_active']  = (bool) $body['is_active'];
+            if (empty($updates)) return new JsonResponse(['error' => 'Nothing to update'], 400);
+            $this->db->update('chat_learnings', $updates, ['id' => $id]);
+            return new JsonResponse(['ok' => true]);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    #[Route('/api/learnings/{id}', name: 'api_learnings_delete', methods: ['DELETE'])]
+    public function deleteLearning(int $id): JsonResponse
+    {
+        try {
+            $this->db->delete('chat_learnings', ['id' => $id]);
+            return new JsonResponse(['ok' => true]);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    // ─────────────────────────────────────────────
     //  HELPERS
     // ─────────────────────────────────────────────
 
@@ -2171,3 +2236,10 @@ PROMPT;
         }
     }
 }
+    
+
+    
+
+    
+
+    
