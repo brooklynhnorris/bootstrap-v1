@@ -1039,22 +1039,41 @@ class HomeController extends AbstractController
                     if ($existing) {
                         $this->db->update('seo_rules', $updates, ['rule_id' => $ruleId]);
                         $applied = true;
-                    } elseif ($changeType === 'split_rule') {
-                        // New rule from a split — extract the rule ID from new text
-                        if (preg_match('/^([A-Z][A-Z0-9]+(?:-[A-Z0-9]+)*-[A-Z]?\d+[a-z]?)\s*\|/', trim($newRuleText), $nm)) {
-                            $newId = trim($nm[1]);
-                            $newName = '';
-                            if (preg_match('/\|\s*([^\n]+)/', $newRuleText, $nm2)) $newName = trim($nm2[1]);
-                            $updates['rule_id'] = $newId;
-                            $updates['name'] = $newName;
-                            $updates['is_active'] = true;
+                    } else {
+                        // Rule not in DB yet — insert it (handles unseeded table or new rules)
+                        $newName = '';
+                        if (preg_match('/^[A-Z].*?\|\s*([^\n]+)/', trim($newRuleText), $nm)) {
+                            $newName = trim($nm[1]);
+                        }
+                        $updates['rule_id']   = $ruleId;
+                        $updates['name']      = $newName ?: $ruleId;
+                        $updates['is_active'] = true;
+                        $updates['category']  = match(true) {
+                            str_starts_with($ruleId, 'OPQ')       => 'On-Page Content Quality',
+                            str_starts_with($ruleId, 'TECH')      => 'Technical SEO',
+                            str_starts_with($ruleId, 'SCH'),
+                            str_starts_with($ruleId, 'DDT-SD')    => 'Schema & Structured Data',
+                            str_starts_with($ruleId, 'ILA')       => 'Internal Link Architecture',
+                            str_starts_with($ruleId, 'KIA')       => 'Keyword & Intent Alignment',
+                            str_starts_with($ruleId, 'DDT-EEAT')  => 'E-E-A-T & Trust Signals',
+                            str_starts_with($ruleId, 'ETA')       => 'Entity & Topical Authority',
+                            str_starts_with($ruleId, 'USE')       => 'User Signals & Engagement',
+                            str_starts_with($ruleId, 'CI')        => 'Competitive Intelligence',
+                            str_starts_with($ruleId, 'CFL'),
+                            str_starts_with($ruleId, 'CF-')       => 'Content Freshness & Lifecycle',
+                            str_starts_with($ruleId, 'DDT-LOCAL') => 'Local & Dealer SEO',
+                            str_starts_with($ruleId, 'MAO')       => 'Media & Asset Optimization',
+                            str_starts_with($ruleId, 'AIS')       => 'AI Search & Citation Eligibility',
+                            str_starts_with($ruleId, 'CWV')       => 'Core Web Vitals & Performance',
+                            str_starts_with($ruleId, 'CTA')       => 'Conversion Path & CTA',
+                            default                               => 'Other',
+                        };
+                        try {
                             $this->db->insert('seo_rules', $updates);
                             $applied = true;
-                        } else {
-                            $applyError = 'Could not extract rule ID from new rule text';
+                        } catch (\Exception $insertErr) {
+                            $applyError = 'Insert failed: ' . substr($insertErr->getMessage(), 0, 100);
                         }
-                    } else {
-                        $applyError = "Rule {$ruleId} not found in seo_rules table";
                     }
                 } catch (\Exception $e) {
                     $applyError = 'DB update failed: ' . substr($e->getMessage(), 0, 100);

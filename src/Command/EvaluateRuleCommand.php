@@ -883,6 +883,7 @@ PROMPT;
         }
 
         // FALLBACK: Parse from system-prompt.txt (for first deploy before seed runs)
+        // If we get rules from the file, auto-seed them into the DB so future runs use the table
         $promptPath = dirname(__DIR__, 2) . '/system-prompt.txt';
         if (!file_exists($promptPath)) return [];
 
@@ -914,7 +915,7 @@ PROMPT;
             if (preg_match('/Priority:\s*([^\n]+)/',                         $ruleText, $m)) $priority  = trim($m[1]);
             if (preg_match('/Assigned:\s*([^\n]+)/',                         $ruleText, $m)) $assigned  = trim($m[1]);
 
-            $rules[] = [
+            $rule = [
                 'id'                => trim($match[1]),
                 'name'              => trim($match[2]),
                 'full_text'         => $ruleText,
@@ -926,6 +927,30 @@ PROMPT;
                 'priority'          => $priority,
                 'assigned'          => $assigned,
             ];
+            $rules[] = $rule;
+
+            // Auto-seed into DB so future runs use the table
+            try {
+                $this->db->executeStatement(
+                    "INSERT INTO seo_rules (rule_id, name, trigger_source, trigger_condition, trigger_sql, threshold, diagnosis, priority, assigned, full_text, updated_by)
+                     VALUES (:rid, :name, :ts, :tc, :tsql, :thr, :diag, :pri, :asgn, :ft, 'auto-seed')
+                     ON CONFLICT (rule_id) DO NOTHING",
+                    [
+                        'rid'  => $rule['id'],
+                        'name' => $rule['name'],
+                        'ts'   => $triggerSource,
+                        'tc'   => $triggerCondition,
+                        'tsql' => $triggerSql,
+                        'thr'  => $threshold,
+                        'diag' => $diagnosis,
+                        'pri'  => $priority,
+                        'asgn' => $assigned,
+                        'ft'   => $ruleText,
+                    ]
+                );
+            } catch (\Exception $e) {
+                // Non-fatal — seeding failure doesn't block evaluation
+            }
         }
 
         return $rules;
@@ -1562,7 +1587,3 @@ GLOSSARY;
         }
     }
 }
-
-    
-
-    

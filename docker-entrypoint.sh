@@ -3,16 +3,20 @@ set -e
 
 echo "Running startup tasks..."
 
-# Strip BOM from index.php using Python (more reliable than sed hex escapes)
+# Strip BOM from PHP files using Python (Windows editors add UTF-8 BOM that breaks PHP namespace declarations)
 python3 -c "
-import sys
-f = '/var/www/html/public/index.php'
-data = open(f,'rb').read()
-if data[:3] == b'\xef\xbb\xbf':
-    open(f,'wb').write(data[3:])
-    print('BOM stripped from index.php')
+import sys, os, glob
+count = 0
+for f in glob.glob('/var/www/html/src/**/*.php', recursive=True) + ['/var/www/html/public/index.php']:
+    data = open(f,'rb').read()
+    if data[:3] == b'\xef\xbb\xbf':
+        open(f,'wb').write(data[3:])
+        count += 1
+        print(f'BOM stripped from {f}')
+if count == 0:
+    print('No BOM found in any PHP files')
 else:
-    print('No BOM found in index.php')
+    print(f'Stripped BOM from {count} files')
 " 2>/dev/null || true
 find /var/www/html/src -name "*.php" -exec sed -i 's/\r//' {} \;
 
