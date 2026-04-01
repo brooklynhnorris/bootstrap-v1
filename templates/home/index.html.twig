@@ -3183,33 +3183,21 @@
             const res = await fetch('/api/rule-proposals/' + id + '/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
             const data = await res.json();
 
-            // Find the parent card — could be dashboard proposals or rules view
             const parentCard = btn ? btn.closest('.rules-card, .proposal-card, [id^="proposal-"]') : document.getElementById('proposal-' + id);
-
-            if (data.applied) {
-                if (parentCard) {
-                    parentCard.style.borderColor = 'var(--accent-green)';
-                    parentCard.style.background = '#f0fdf4';
-                    // Replace all approve/reject buttons with success message
-                    const actionsEl = parentCard.querySelector('.proposal-actions');
-                    if (actionsEl) actionsEl.innerHTML = '<span style="color:var(--accent-green);font-weight:600;font-size:12px;">✓ Applied — active on next cron run</span>';
-                    // Also handle buttons outside .proposal-actions (rules view)
-                    if (btn && btn.parentElement) {
-                        btn.parentElement.innerHTML = '<span style="color:var(--accent-green);font-weight:600;font-size:12px;">✓ Applied — active on next cron run</span>';
-                    }
-                }
-                showNotification('✓ Rule updated in database — changes active on next cron run', 'green');
-            } else {
-                if (parentCard) {
-                    parentCard.style.opacity = '0.7';
-                    const actionsEl = parentCard.querySelector('.proposal-actions');
-                    if (actionsEl) actionsEl.innerHTML = '<span style="color:var(--accent-yellow);font-weight:600;font-size:12px;">⚠ Approved but needs manual apply</span>';
-                    if (btn && btn.parentElement) {
-                        btn.parentElement.innerHTML = '<span style="color:var(--accent-yellow);font-weight:600;font-size:12px;">⚠ Approved but needs manual apply</span>';
-                    }
-                }
-                showNotification(data.message || 'Approved but could not auto-apply: ' + (data.error || ''), 'red');
+            if (parentCard) {
+                parentCard.style.transition = 'opacity 0.4s, transform 0.4s';
+                parentCard.style.opacity = '0';
+                parentCard.style.transform = 'translateY(-10px)';
+                setTimeout(() => parentCard.remove(), 400);
             }
+
+            showNotification(data.applied
+                ? '✓ Rule updated in database — active on next cron run'
+                : (data.message || 'Approved but could not auto-apply: ' + (data.error || '')),
+                data.applied ? 'green' : 'red');
+
+            // Refresh rules view so card moves from "Change Pending" to "Recently Updated"
+            setTimeout(() => loadRulesView(), 500);
         } catch(e) { showNotification('Failed to approve: ' + e.message, 'red'); }
     }
 
@@ -3217,12 +3205,17 @@
         try {
             const res = await fetch('/api/rule-proposals/' + id + '/reject', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
             const data = await res.json();
-            const card = document.getElementById('proposal-' + id);
-            if (card) {
-                card.style.opacity = '0.5';
-                card.querySelector('.proposal-actions').innerHTML = '<span style="color:var(--accent-red);font-weight:600;font-size:12px;">✗ Rejected</span>';
+
+            const parentCard = btn ? btn.closest('.rules-card, .proposal-card, [id^="proposal-"]') : document.getElementById('proposal-' + id);
+            if (parentCard) {
+                parentCard.style.transition = 'opacity 0.4s, transform 0.4s';
+                parentCard.style.opacity = '0';
+                parentCard.style.transform = 'translateY(-10px)';
+                setTimeout(() => parentCard.remove(), 400);
             }
+
             showNotification(data.message || 'Proposal rejected', 'green');
+            setTimeout(() => loadRulesView(), 500);
         } catch(e) { showNotification('Failed to reject', 'red'); }
     }
 
@@ -3547,14 +3540,19 @@
     async function loadRulesView() {
         const container = document.getElementById('rules-cards-container');
         try {
-            // Fetch formal proposals from rule_proposals table
-            const propRes = await fetch('/api/rule-proposals');
+            // Fetch proposals — include resolved ones for "Recently Updated" tab
+            const propRes = await fetch('/api/rule-proposals?include_resolved=1');
             const proposals = propRes.ok ? await propRes.json() : [];
             const pendingByRule = {};
+            const recentlyUpdatedRules = new Set();
             if (Array.isArray(proposals)) {
                 proposals.forEach(p => {
-                    if (!pendingByRule[p.rule_id] || p.id > pendingByRule[p.rule_id].id) {
-                        pendingByRule[p.rule_id] = p;
+                    if (p.status === 'pending') {
+                        if (!pendingByRule[p.rule_id] || p.id > pendingByRule[p.rule_id].id) {
+                            pendingByRule[p.rule_id] = p;
+                        }
+                    } else if (p.status === 'applied' || p.status === 'approved' || p.status === 'rejected') {
+                        recentlyUpdatedRules.add(p.rule_id);
                     }
                 });
             }
@@ -3628,12 +3626,15 @@
                 const proposal = pendingByRule[r.rule_id];
                 r.has_pending = !!proposal;
                 r.proposal = proposal || null;
-                r.status = proposal ? 'pending-change' : 'active';
+                r.recently_updated = recentlyUpdatedRules.has(r.rule_id);
+                r.status = proposal ? 'pending-change' : r.recently_updated ? 'recently-updated' : 'active';
                 return r;
             }).sort((a, b) => {
-                // Pending changes first, then by total tasks desc
+                // Pending changes first, then recently updated, then by total tasks desc
                 if (a.has_pending && !b.has_pending) return -1;
                 if (!a.has_pending && b.has_pending) return 1;
+                if (a.recently_updated && !b.recently_updated) return -1;
+                if (!a.recently_updated && b.recently_updated) return 1;
                 return b.total - a.total;
             });
 
@@ -3654,7 +3655,7 @@
         });
         let filtered = allRulesData;
         if (filter === 'pending') filtered = allRulesData.filter(r => r.has_pending);
-        else if (filter === 'updated') filtered = allRulesData.filter(r => r.pass > 0 || r.fail > 0);
+        else if (filter === 'updated') filtered = allRulesData.filter(r => r.recently_updated || r.pass > 0 || r.fail > 0);
         renderRulesCards(filtered);
     }
 
