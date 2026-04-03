@@ -1554,7 +1554,7 @@ class HomeController extends AbstractController
     {
         try {
             $rules = $this->db->fetchAllAssociative(
-                "SELECT * FROM custom_rules WHERE status = 'active' ORDER BY created_at DESC"
+                "SELECT * FROM seo_rules WHERE is_active = TRUE ORDER BY rule_id ASC"
             );
             return new JsonResponse($rules);
         } catch (\Exception $e) {
@@ -2477,6 +2477,8 @@ PROMPT;
         }
     }
 }
+    
+
     
 
     
