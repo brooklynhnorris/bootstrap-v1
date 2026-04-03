@@ -116,7 +116,7 @@ class HomeController extends AbstractController
             $showPersonaPicker = true;
         }
         $tasks = $this->db->fetchAllAssociative(
-            "SELECT * FROM tasks WHERE status != 'done' AND assigned_to = ? ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC LIMIT 20",
+            "SELECT * FROM tasks WHERE status NOT IN ('done','closed') AND assigned_to = ? ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC LIMIT 20",
             [$userName]
         );
         $rechecks = $this->db->fetchAllAssociative(
@@ -126,7 +126,8 @@ class HomeController extends AbstractController
             "SELECT
                 COUNT(*) FILTER (WHERE status = 'pending') as urgent,
                 COUNT(*) FILTER (WHERE status = 'in_progress') as active,
-                COUNT(*) FILTER (WHERE status = 'done') as done
+                COUNT(*) FILTER (WHERE status = 'done') as done,
+                COUNT(*) FILTER (WHERE status = 'closed') as closed
             FROM tasks WHERE assigned_to = ?",
             [$userName]
         );
@@ -254,7 +255,7 @@ class HomeController extends AbstractController
         ) : [];
 
         $activeTasks = $this->db->fetchAllAssociative(
-            "SELECT id, title, assigned_to, assigned_role, status, priority, estimated_hours, logged_hours, created_at FROM tasks WHERE status != 'done' ORDER BY created_at DESC LIMIT 10"
+            "SELECT id, title, assigned_to, assigned_role, status, priority, estimated_hours, logged_hours, created_at FROM tasks WHERE status NOT IN ('done','closed') ORDER BY created_at DESC LIMIT 10"
         );
         $pendingRechecks = $this->db->fetchAllAssociative(
             "SELECT id, title, assigned_to, recheck_date, recheck_type FROM tasks WHERE status = 'done' AND recheck_date IS NOT NULL AND recheck_verified = false AND recheck_date <= CURRENT_DATE + INTERVAL '3 days' ORDER BY recheck_date ASC LIMIT 5"
@@ -410,13 +411,13 @@ class HomeController extends AbstractController
         $tasksCreated = [];
         if (preg_match('/<!-- TASKS_JSON -->\s*(.*?)\s*<!-- \/TASKS_JSON -->/s', $text, $matches)) {
             $aiTasks = json_decode(trim($matches[1]), true);
-            $activeCount = (int)$this->db->fetchOne("SELECT COUNT(*) FROM tasks WHERE status != 'done'");
+            $activeCount = (int)$this->db->fetchOne("SELECT COUNT(*) FROM tasks WHERE status NOT IN ('done','closed')");
             if (is_array($aiTasks) && $activeCount < 30) {
                 foreach ($aiTasks as $aiTask) {
                     $title = $aiTask['title'] ?? '';
                     if (!$title) continue;
                     $existing = $this->db->fetchAssociative(
-                        "SELECT id FROM tasks WHERE title = ? AND status != 'done' LIMIT 1", [$title]
+                        "SELECT id FROM tasks WHERE title = ? AND status NOT IN ('done','closed') LIMIT 1", [$title]
                     );
                     if ($existing) continue;
                     // Also skip if same URL appears in an active task with same rule prefix
@@ -424,7 +425,7 @@ class HomeController extends AbstractController
                         $urlFrag = $urlParts[1];
                         $rulePrefix = substr($title, 0, 10);
                         $nearDup = $this->db->fetchAssociative(
-                            "SELECT id FROM tasks WHERE title LIKE ? AND title LIKE ? AND status != 'done' LIMIT 1",
+                            "SELECT id FROM tasks WHERE title LIKE ? AND title LIKE ? AND status NOT IN ('done','closed') LIMIT 1",
                             ['%' . $urlFrag . '%', $rulePrefix . '%']
                         );
                         if ($nearDup) continue;
@@ -875,6 +876,66 @@ class HomeController extends AbstractController
                 'recheck_date'     => $recheckDate,
                 'recheck_days'     => $recheckDays,
                 'recheck_criteria' => $recheckCriteria,
+            ]);
+        } catch (\Exception $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    #[Route('/api/tasks/{id}/dismiss', name: 'api_tasks_dismiss', methods: ['POST'])]
+    public function dismissTask(int $id, Request $request): JsonResponse
+    {
+        try {
+            $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
+            if (!$task) return new JsonResponse(['error' => 'Task not found'], 404);
+
+            $body = json_decode($request->getContent(), true) ?: [];
+            $reason = $body['reason'] ?? 'Marked as invalid';
+            $dismissType = $body['type'] ?? 'invalid'; // invalid, not_applicable, false_positive, duplicate
+
+            // Mark as closed — NOT done. This prevents recheck cycle.
+            $this->db->update('tasks', [
+                'status'            => 'closed',
+                'completed_at'      => date('Y-m-d H:i:s'),
+                'recheck_date'      => null,
+                'recheck_days'      => null,
+                'recheck_verified'  => true,
+                'recheck_result'    => $dismissType,
+                'recheck_criteria'  => $reason,
+            ], ['id' => $id]);
+
+            // Store feedback so the learning loop knows why this was dismissed
+            try {
+                $ruleId = $task['rule_id'] ?? '';
+                if ($ruleId) {
+                    $this->db->insert('rule_feedback', [
+                        'rule_id'          => $ruleId,
+                        'task_id'          => $id,
+                        'url'              => '',
+                        'feedback_type'    => 'dismissed',
+                        'what_worked'      => null,
+                        'what_didnt'       => "Task dismissed as {$dismissType}: {$reason}",
+                        'proposed_change'  => $dismissType === 'false_positive' ? "Rule {$ruleId} generated a false positive. Consider tightening the trigger condition." : null,
+                        'change_type'      => $dismissType === 'false_positive' ? 'refine_threshold' : 'none',
+                        'created_at'       => date('Y-m-d H:i:s'),
+                    ]);
+                }
+            } catch (\Exception $e) {
+                // Non-fatal — feedback storage failure doesn't block dismiss
+            }
+
+            // Log activity
+            try {
+                $session = $this->requestStack->getSession();
+                $actor   = $session->get('persona_name', 'Unknown');
+                $this->logActivity($actor, 'dismissed_task', 'task', $id, $task['title'] ?? '', "{$dismissType}: {$reason}");
+            } catch (\Exception $e) {}
+
+            return new JsonResponse([
+                'ok'     => true,
+                'status' => 'closed',
+                'type'   => $dismissType,
+                'reason' => $reason,
             ]);
         } catch (\Exception $e) {
             return new JsonResponse(['error' => $e->getMessage()], 500);
@@ -2273,7 +2334,5 @@ PROMPT;
         }
     }
 }
-
-    
 
     

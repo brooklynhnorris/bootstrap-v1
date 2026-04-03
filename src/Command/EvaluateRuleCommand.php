@@ -168,7 +168,7 @@ class EvaluateRuleCommand extends Command
 
                     // Check for duplicate — don't create if same rule+url task already exists and is not done
                     $existing = $this->db->fetchAssociative(
-                        "SELECT id FROM tasks WHERE rule_id = :rule AND title LIKE :url AND status != 'done'",
+                        "SELECT id FROM tasks WHERE rule_id = :rule AND title LIKE :url AND status NOT IN ('done','closed')",
                         ['rule' => $rule['id'], 'url' => '%' . $url . '%']
                     );
                     if ($existing) continue;

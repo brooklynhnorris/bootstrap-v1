@@ -1516,6 +1516,33 @@
 
     <!-- Add Learning Modal -->
     <div id="add-learning-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:none;align-items:center;justify-content:center;">
+
+    <!-- Dismiss Task Modal -->
+    <div id="dismiss-task-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
+        <div style="background:var(--bg-primary);border-radius:12px;padding:24px;width:440px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
+            <h3 style="margin:0 0 16px;font-size:16px;">Close Task</h3>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">This task will be closed and won't enter the recheck cycle. The feedback will be stored so the rule can learn from it.</p>
+            <input type="hidden" id="dismiss-task-id">
+            <div style="margin-bottom:12px;">
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Why are you closing this?</label>
+                <select id="dismiss-type" style="width:100%;padding:8px;border:1px solid var(--border-subtle);border-radius:6px;font-size:13px;box-sizing:border-box;">
+                    <option value="invalid">Invalid — rule shouldn't have fired on this page</option>
+                    <option value="not_applicable">Not Applicable — fix doesn't make sense for this page</option>
+                    <option value="false_positive">False Positive — page data was incorrect</option>
+                    <option value="duplicate">Duplicate — covered by another task</option>
+                    <option value="wont_fix">Won't Fix — intentional decision to skip</option>
+                </select>
+            </div>
+            <div style="margin-bottom:12px;">
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Details (helps the rule learn)</label>
+                <textarea id="dismiss-reason" placeholder="e.g. 'This page has no video embed — rule fired on a YouTube mention in the footer'" style="width:100%;padding:8px;border:1px solid var(--border-subtle);border-radius:6px;font-size:13px;min-height:50px;resize:vertical;box-sizing:border-box;font-family:var(--font-main);"></textarea>
+            </div>
+            <div style="display:flex;gap:8px;">
+                <button onclick="confirmDismiss()" style="padding:8px 16px;border:none;border-radius:6px;background:var(--accent-red);color:white;font-size:13px;font-weight:600;cursor:pointer;">Close Task</button>
+                <button onclick="document.getElementById('dismiss-task-modal').style.display='none'" style="padding:8px 16px;border:none;border-radius:6px;background:var(--bg-tertiary);color:var(--text-muted);font-size:13px;cursor:pointer;">Cancel</button>
+            </div>
+        </div>
+    </div>
         <div style="background:var(--bg-primary);border-radius:12px;padding:24px;width:480px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
             <h3 style="margin:0 0 16px;font-size:16px;">Add a Learning</h3>
             <textarea id="new-learning-text" placeholder="What should Logiri remember? e.g. 'Never suggest external links — we use citation mentions only'" style="width:100%;padding:10px;border:1px solid var(--border-subtle);border-radius:8px;font-size:13px;min-height:60px;resize:vertical;box-sizing:border-box;font-family:var(--font-main);"></textarea>
@@ -1562,6 +1589,7 @@
     <div id="panel-actions">
         <button class="panel-btn start" onclick="startTask(currentTaskId)">▶ Start</button>
         <button class="panel-btn done"  onclick="completeTask(currentTaskId)">✓ Done</button>
+        <button class="panel-btn" onclick="showDismissModal(currentTaskId)" style="background:#fef2f2;color:var(--accent-red);border-color:#fecaca;">✕ Close</button>
     </div>
     <input type="hidden" id="recheck-modal-taskid">
 </div>
@@ -2013,7 +2041,21 @@
                 signal: controller.signal
             });
             clearTimeout(timeoutId);
+
+            // Handle session expiry
+            if (res.status === 401) {
+                showSessionExpired();
+                return;
+            }
+
             const data  = await res.json();
+
+            // Double-check for session_expired in JSON body
+            if (data.error === 'session_expired') {
+                showSessionExpired();
+                return;
+            }
+
             const reply = data.response || data.error || 'No response.';
             if (data.conversation_id) {
                 const isNew = !conversationId;
@@ -2061,7 +2103,8 @@
                 const _taskIdForBtn = currentTaskId || document.getElementById('mark-done-btn')?.getAttribute('data-task-id');
                 if (_taskIdForBtn) {
                     actions.innerHTML =
-                        '<button class="chat-btn done-btn" onclick="completeTask(' + _taskIdForBtn + ')">&#10003; Mark as Done</button>';
+                        '<button class="chat-btn done-btn" onclick="completeTask(' + _taskIdForBtn + ')">&#10003; Mark as Done</button>' +
+                        '<button class="chat-btn" onclick="showDismissModal(' + _taskIdForBtn + ')" style="background:#fef2f2;color:var(--accent-red);border:1px solid #fecaca;margin-left:6px;padding:5px 12px;border-radius:6px;font-size:12px;cursor:pointer;">&#10005; Close as Invalid</button>';
                 }
                 bubble.appendChild(actions);
             }
@@ -2222,6 +2265,53 @@
         await fetch('/api/tasks/clear-done', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
         refreshTasksPanel();
         showNotification('Completed Plays cleared', 'green');
+    }
+
+    function showDismissModal(taskId) {
+        if (!taskId) return;
+        document.getElementById('dismiss-task-id').value = taskId;
+        document.getElementById('dismiss-type').value = 'invalid';
+        document.getElementById('dismiss-reason').value = '';
+        document.getElementById('dismiss-task-modal').style.display = 'flex';
+    }
+
+    async function confirmDismiss() {
+        const taskId = parseInt(document.getElementById('dismiss-task-id').value);
+        const type   = document.getElementById('dismiss-type').value;
+        const reason = document.getElementById('dismiss-reason').value.trim();
+        document.getElementById('dismiss-task-modal').style.display = 'none';
+
+        try {
+            const res = await fetch('/api/tasks/' + taskId + '/dismiss', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ type, reason: reason || type })
+            });
+            const data = await res.json();
+
+            // Animate task out
+            const taskEl = document.getElementById('task-' + taskId);
+            if (taskEl) {
+                taskEl.style.transition = 'opacity 0.3s, transform 0.3s';
+                taskEl.style.opacity = '0';
+                taskEl.style.transform = 'translateX(20px)';
+                setTimeout(() => taskEl.remove(), 320);
+            }
+
+            // Close detail panel if open
+            const detailPanel = document.getElementById('task-detail-panel');
+            if (detailPanel) detailPanel.style.display = 'none';
+
+            if (currentTaskId === taskId) currentTaskId = null;
+
+            // Return to dashboard
+            switchView('dashboard');
+            await refreshTasksPanel();
+
+            showNotification('Task closed as ' + type + (reason ? ': ' + reason.substring(0, 50) : ''), 'green');
+        } catch(e) {
+            showNotification('Failed to close task: ' + e.message, 'red');
+        }
     }
 
     function completeTask(id) {
@@ -2680,6 +2770,31 @@
         setTimeout(() => { notif.style.opacity = '0'; notif.style.transition = 'opacity 0.5s'; setTimeout(() => notif.remove(), 500); }, 4000);
     }
 
+    function showSessionExpired() {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;display:flex;align-items:center;justify-content:center;';
+        overlay.innerHTML = '<div style="background:var(--bg-primary);border-radius:12px;padding:32px;text-align:center;max-width:360px;box-shadow:0 8px 32px rgba(0,0,0,0.3);">' +
+            '<div style="font-size:24px;margin-bottom:12px;">🔒</div>' +
+            '<div style="font-size:16px;font-weight:700;margin-bottom:8px;">Session Expired</div>' +
+            '<div style="font-size:13px;color:var(--text-muted);margin-bottom:20px;">Your login session has expired. Click below to log back in.</div>' +
+            '<button onclick="window.location.href=\'/login\'" style="padding:10px 24px;border:none;border-radius:8px;background:var(--accent-blue);color:white;font-size:14px;font-weight:600;cursor:pointer;">Log In</button>' +
+        '</div>';
+        document.body.appendChild(overlay);
+    }
+
+    // Global fetch wrapper — intercept 401s from any API call
+    const _originalFetch = window.fetch;
+    window.fetch = async function(...args) {
+        const res = await _originalFetch.apply(this, args);
+        if (res.status === 401) {
+            const url = typeof args[0] === 'string' ? args[0] : args[0]?.url || '';
+            if (url.includes('/api/') || url.includes('/chat')) {
+                showSessionExpired();
+            }
+        }
+        return res;
+    };
+
     function escapeHtml(str) {
         if (!str) return '';
         return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -2715,7 +2830,7 @@
             try {
                 const res = await fetch('/api/tasks');
                 const tasks = await res.json();
-                const toDelete = tasks.filter(t => t.rule_id === ruleId && t.status !== 'done');
+                const toDelete = tasks.filter(t => t.rule_id === ruleId && t.status !== 'done' && t.status !== 'closed');
                 if (toDelete.length === 0) {
                     showNotification('No pending tasks found for ' + ruleId, 'green');
                     return;
@@ -3025,9 +3140,9 @@
         if (!grid) return;
 
         const cols = {
-            critical: tasks.filter(t => t.priority === 'critical' && t.status !== 'done'),
-            high:     tasks.filter(t => t.priority === 'high'     && t.status !== 'done'),
-            medium:   tasks.filter(t => t.priority === 'medium'   && t.status !== 'done'),
+            critical: tasks.filter(t => t.priority === 'critical' && t.status !== 'done' && t.status !== 'closed'),
+            high:     tasks.filter(t => t.priority === 'high'     && t.status !== 'done' && t.status !== 'closed'),
+            medium:   tasks.filter(t => t.priority === 'medium'   && t.status !== 'done' && t.status !== 'closed'),
             done:     tasks.filter(t => t.status === 'done').slice(0, 5),
         };
 
@@ -3216,7 +3331,7 @@
             tasks.forEach(t => { if (t.id) window._taskCache[t.id] = t; });
 
             // ── Stat cards ──
-            const activeTasks = tasks.filter(t => t.status !== 'done');
+            const activeTasks = tasks.filter(t => t.status !== 'done' && t.status !== 'closed');
             const doneTasks   = tasks.filter(t => t.status === 'done');
             const passes      = doneTasks.filter(t => t.recheck_verified && (t.recheck_result || '').toLowerCase() === 'pass');
             const fails       = doneTasks.filter(t => t.recheck_verified && (t.recheck_result || '').toLowerCase() === 'fail');
@@ -4063,9 +4178,9 @@
     function updateSignalBar(tasks) {
         const bar = document.getElementById('signal-bar');
         if (!bar) return;
-        const critical = tasks.filter(t => t.priority === 'critical' && t.status !== 'done').length;
-        const total    = tasks.filter(t => t.status !== 'done').length;
-        const hours    = tasks.filter(t => t.status !== 'done').reduce((s,t) => s + (parseFloat(t.estimated_hours)||0), 0);
+        const critical = tasks.filter(t => t.priority === 'critical' && t.status !== 'done' && t.status !== 'closed').length;
+        const total    = tasks.filter(t => t.status !== 'done' && t.status !== 'closed').length;
+        const hours    = tasks.filter(t => t.status !== 'done' && t.status !== 'closed').reduce((s,t) => s + (parseFloat(t.estimated_hours)||0), 0);
         bar.innerHTML = '<span class="signal-icon">♟</span>' +
             '<span>' +
             (critical > 0 ? '<strong style="color:var(--accent-red)">' + critical + ' Critical</strong> · ' : '') +
