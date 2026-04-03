@@ -2024,7 +2024,10 @@
     }
 
     // Main Chat
+    let chatLocked = false;
     async function sendMessage(text) {
+        if (chatLocked) return; // Prevent duplicate sends
+        chatLocked = true;
         messages.push({ role: 'user', content: text });
         appendMessage('user', text);
         inputEl.value          = '';
@@ -2078,6 +2081,7 @@
         }
         typingEl.style.display = 'none';
         sendEl.disabled        = false;
+        chatLocked             = false;
         inputEl.focus();
     }
 

@@ -173,6 +173,43 @@ class EvaluateRuleCommand extends Command
                     );
                     if ($existing) continue;
 
+                    // Cross-rule dedup — detect overlapping work across different rules for the same URL
+                    // Group rules by action type to identify semantic duplicates
+                    $actionType = match(true) {
+                        str_contains(strtolower($title), 'proprietary') || str_contains(strtolower($title), 'z-frame') || str_contains(strtolower($title), 'brand term') => 'proprietary_terms',
+                        str_contains(strtolower($title), 'internal link') || str_contains(strtolower($title), 'link') && str_contains(strtolower($title), 'add') => 'internal_links',
+                        str_contains(strtolower($title), 'schema') || str_contains(strtolower($title), 'json-ld') || str_contains(strtolower($title), 'structured data') => 'schema',
+                        str_contains(strtolower($title), 'alt text') || str_contains(strtolower($title), 'image') => 'images',
+                        str_contains(strtolower($title), 'title tag') || str_contains(strtolower($title), 'h1') || str_contains(strtolower($title), 'heading') => 'headings',
+                        str_contains(strtolower($title), 'word count') || str_contains(strtolower($title), 'thin content') || str_contains(strtolower($title), 'expand') => 'content_length',
+                        str_contains(strtolower($title), 'meta description') => 'meta_description',
+                        default => null,
+                    };
+                    if ($actionType && $url) {
+                        $crossDup = $this->db->fetchAssociative(
+                            "SELECT id, rule_id, title FROM tasks WHERE title LIKE :url AND status NOT IN ('done','closed') AND rule_id != :rule LIMIT 1",
+                            ['url' => '%' . $url . '%', 'rule' => $rule['id']]
+                        );
+                        if ($crossDup) {
+                            // Check if the existing task covers the same action type
+                            $existingTitle = strtolower($crossDup['title'] ?? '');
+                            $overlap = match($actionType) {
+                                'proprietary_terms' => str_contains($existingTitle, 'proprietary') || str_contains($existingTitle, 'z-frame') || str_contains($existingTitle, 'brand'),
+                                'internal_links' => str_contains($existingTitle, 'link'),
+                                'schema' => str_contains($existingTitle, 'schema') || str_contains($existingTitle, 'json-ld'),
+                                'images' => str_contains($existingTitle, 'alt') || str_contains($existingTitle, 'image'),
+                                'headings' => str_contains($existingTitle, 'h1') || str_contains($existingTitle, 'title') || str_contains($existingTitle, 'heading'),
+                                'content_length' => str_contains($existingTitle, 'word count') || str_contains($existingTitle, 'thin') || str_contains($existingTitle, 'expand'),
+                                'meta_description' => str_contains($existingTitle, 'meta description'),
+                                default => false,
+                            };
+                            if ($overlap) {
+                                $output->writeln("     ⚡ CROSS-RULE DEDUP: Skipping {$rule['id']} task for {$url} — overlaps with {$crossDup['rule_id']} task #{$crossDup['id']}");
+                                continue;
+                            }
+                        }
+                    }
+
                     // Determine priority — normalize LLM output
                     $rawPriority = strtolower(trim($brief['priority'] ?? $rule['priority'] ?? 'high'));
                     $priority = match(true) {
@@ -1671,7 +1708,3 @@ GLOSSARY;
         }
     }
 }
-
-    
-
-    
