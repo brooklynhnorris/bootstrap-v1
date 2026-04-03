@@ -48,7 +48,10 @@ class AppcustomAuthenticator extends AbstractLoginFormAuthenticator implements A
     public function onAuthenticationSuccess(Request $request, TokenInterface $token, string $firewallName): ?Response
     {
         if ($targetPath = $this->getTargetPath($request->getSession(), $firewallName)) {
-            return new RedirectResponse($targetPath);
+            // Never redirect to API endpoints or chat after login — always go to dashboard
+            if (!str_contains($targetPath, '/api/') && !str_contains($targetPath, '/chat')) {
+                return new RedirectResponse($targetPath);
+            }
         }
 
         return new RedirectResponse('/');
@@ -73,6 +76,11 @@ class AppcustomAuthenticator extends AbstractLoginFormAuthenticator implements A
               || $request->headers->get('Accept') === 'application/json';
 
         if ($isApi) {
+            // Clear target path so login doesn't redirect to an API endpoint
+            try {
+                $this->removeTargetPath($request->getSession(), 'main');
+            } catch (\Exception $e) {}
+
             return new JsonResponse([
                 'error' => 'session_expired',
                 'message' => 'Your session has expired. Please refresh the page and log in again.',
