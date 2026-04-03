@@ -1086,8 +1086,24 @@ PROMPT;
 
             // Try to extract executable SQL from the rule's trigger condition
             $sql = $rule['trigger_sql'] ?? '';
+            $ruleId = $rule['id'];
+            $tc = $rule['trigger_condition'] ?? '';
 
-            // If the trigger_sql looks like a valid SELECT, execute it directly
+            // ── SIMPLIFIED QUERIES (PRIMARY) ──
+            // These are hand-tuned queries with proper relevance filters,
+            // dedup guards, and accurate column references. Use these first.
+            $simplifiedQuery = $this->getSimplifiedQuery($ruleId, $tc);
+            if ($simplifiedQuery) {
+                try {
+                    $results = $this->db->fetchAllAssociative($simplifiedQuery);
+                    if (!empty($results)) return $results;
+                } catch (\Exception $e) {
+                    // Simplified query failed — fall through to trigger_sql
+                }
+            }
+
+            // ── TRIGGER_SQL FALLBACK ──
+            // Only used if no simplified query exists or it returned empty
             if ($sql && preg_match('/^\s*SELECT\s/i', $sql)) {
                 // Ensure LIMIT is present
                 if (!preg_match('/LIMIT\s+\d+/i', $sql)) {
@@ -1097,23 +1113,7 @@ PROMPT;
                     $results = $this->db->fetchAllAssociative($sql);
                     if (!empty($results)) return $results;
                 } catch (\Exception $e) {
-                    // SQL failed (missing columns/tables) — fall through to simplified query
-                }
-            }
-
-            // ── SIMPLIFIED FALLBACK QUERIES ──
-            // When the rule's SQL references columns that don't exist yet,
-            // use the rule's core intent to build a working query from available fields.
-            $ruleId = $rule['id'];
-            $tc = $rule['trigger_condition'] ?? '';
-
-            // Detect the rule's intent from its trigger condition text and build a simplified query
-            $simplifiedQuery = $this->getSimplifiedQuery($ruleId, $tc);
-            if ($simplifiedQuery) {
-                try {
-                    return $this->db->fetchAllAssociative($simplifiedQuery);
-                } catch (\Exception $e) {
-                    // Still failed — continue to legacy fallback
+                    // SQL failed (missing columns/tables) — fall through to legacy
                 }
             }
 
@@ -1708,3 +1708,7 @@ GLOSSARY;
         }
     }
 }
+
+    
+
+    
