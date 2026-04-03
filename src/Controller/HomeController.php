@@ -1108,6 +1108,13 @@ class HomeController extends AbstractController
         return new JsonResponse(['ok' => true]);
     }
 
+    #[Route('/api/tasks/clear-pending', name: 'api_tasks_clear_pending', methods: ['POST'])]
+    public function clearPendingTasks(): JsonResponse
+    {
+        $count = $this->db->executeStatement("DELETE FROM tasks WHERE status = 'pending'");
+        return new JsonResponse(['ok' => true, 'deleted' => $count]);
+    }
+
     #[Route('/api/tasks/{id}/status', name: 'api_tasks_status', methods: ['POST'])]
     public function updateTaskStatus(int $id, Request $request): JsonResponse
     {

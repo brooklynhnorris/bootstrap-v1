@@ -2863,13 +2863,9 @@
         if (lower.match(/clear\s+all\s+pending/)) {
             if (!confirm('Delete ALL pending tasks? This cannot be undone.')) return;
             try {
-                const res = await fetch('/api/tasks');
-                const tasks = await res.json();
-                const pending = tasks.filter(t => t.status === 'pending');
-                for (const t of pending) {
-                    await fetch('/api/tasks/' + t.id, { method: 'DELETE' });
-                }
-                showNotification('Cleared ' + pending.length + ' pending tasks', 'green');
+                const res = await fetch('/api/tasks/clear-pending', { method: 'POST' });
+                const data = await res.json();
+                showNotification('Cleared ' + (data.deleted || 'all') + ' pending tasks', 'green');
                 await refreshTasksPanel();
                 await loadDashboardData();
             } catch(e) {
