@@ -1514,14 +1514,11 @@
         </div>
     </div>
 
-    <!-- Add Learning Modal -->
-    <div id="add-learning-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;display:none;align-items:center;justify-content:center;">
-
     <!-- Dismiss Task Modal -->
     <div id="dismiss-task-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
         <div style="background:var(--bg-primary);border-radius:12px;padding:24px;width:440px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
             <h3 style="margin:0 0 16px;font-size:16px;">Close Task</h3>
-            <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">This task will be closed and won't enter the recheck cycle. The feedback will be stored so the rule can learn from it.</p>
+            <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">This task will be closed and won't enter the recheck cycle. Your feedback is stored so the rule learns from it.</p>
             <input type="hidden" id="dismiss-task-id">
             <div style="margin-bottom:12px;">
                 <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Why are you closing this?</label>
@@ -1543,6 +1540,9 @@
             </div>
         </div>
     </div>
+
+    <!-- Add Learning Modal -->
+    <div id="add-learning-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:1000;align-items:center;justify-content:center;">
         <div style="background:var(--bg-primary);border-radius:12px;padding:24px;width:480px;max-width:90vw;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
             <h3 style="margin:0 0 16px;font-size:16px;">Add a Learning</h3>
             <textarea id="new-learning-text" placeholder="What should Logiri remember? e.g. 'Never suggest external links — we use citation mentions only'" style="width:100%;padding:10px;border:1px solid var(--border-subtle);border-radius:8px;font-size:13px;min-height:60px;resize:vertical;box-sizing:border-box;font-family:var(--font-main);"></textarea>

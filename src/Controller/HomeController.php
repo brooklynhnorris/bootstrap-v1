@@ -533,9 +533,8 @@ class HomeController extends AbstractController
             'created_at'      => date('Y-m-d H:i:s'),
         ]);
 
-        // ── Extract learnings from conversation (async-style, non-blocking) ──
-        // Only extract after 4+ messages (enough context to learn from)
-        if (count($messages) >= 3 && $claudeKey) {
+        // ── Extract learnings from conversation (runs after every chat exchange) ──
+        if (count($messages) >= 2 && $claudeKey) {
             try {
                 $this->extractLearnings($messages, $text, $claudeKey, $userName);
             } catch (\Exception $e) {
@@ -919,6 +918,25 @@ class HomeController extends AbstractController
                         'change_type'      => $dismissType === 'false_positive' ? 'refine_threshold' : 'none',
                         'created_at'       => date('Y-m-d H:i:s'),
                     ]);
+                }
+
+                // Also store as an immediate chat learning so Logiri remembers this NOW
+                if ($reason && strlen($reason) > 10) {
+                    $learning = "Rule {$ruleId} task dismissed ({$dismissType}): {$reason}";
+                    $existingLearning = $this->db->fetchOne(
+                        "SELECT COUNT(*) FROM chat_learnings WHERE learning ILIKE ? AND is_active = TRUE",
+                        ['%' . substr($reason, 0, 50) . '%']
+                    );
+                    if (!$existingLearning) {
+                        $this->db->insert('chat_learnings', [
+                            'learning'     => substr($learning, 0, 500),
+                            'category'     => 'rules_feedback',
+                            'confidence'   => $dismissType === 'false_positive' ? 9 : 7,
+                            'learned_from' => 'task_dismiss',
+                            'is_active'    => true,
+                            'created_at'   => date('Y-m-d H:i:s'),
+                        ]);
+                    }
                 }
             } catch (\Exception $e) {
                 // Non-fatal — feedback storage failure doesn't block dismiss
@@ -2334,5 +2352,3 @@ PROMPT;
         }
     }
 }
-
-    
