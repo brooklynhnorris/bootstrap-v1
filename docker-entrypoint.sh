@@ -3,20 +3,16 @@ set -e
 
 echo "Running startup tasks..."
 
-# Strip BOM from PHP files using Python (Windows editors add UTF-8 BOM that breaks PHP namespace declarations)
+# Strip BOM from index.php using Python (more reliable than sed hex escapes)
 python3 -c "
-import sys, os, glob
-count = 0
-for f in glob.glob('/var/www/html/src/**/*.php', recursive=True) + ['/var/www/html/public/index.php']:
-    data = open(f,'rb').read()
-    if data[:3] == b'\xef\xbb\xbf':
-        open(f,'wb').write(data[3:])
-        count += 1
-        print(f'BOM stripped from {f}')
-if count == 0:
-    print('No BOM found in any PHP files')
+import sys
+f = '/var/www/html/public/index.php'
+data = open(f,'rb').read()
+if data[:3] == b'\xef\xbb\xbf':
+    open(f,'wb').write(data[3:])
+    print('BOM stripped from index.php')
 else:
-    print(f'Stripped BOM from {count} files')
+    print('No BOM found in index.php')
 " 2>/dev/null || true
 find /var/www/html/src -name "*.php" -exec sed -i 's/\r//' {} \;
 
@@ -65,38 +61,6 @@ php /var/www/html/bin/console app:ensure-schema 2>/dev/null || php -r "
 )');
 
 \$pdo->exec('CREATE TABLE IF NOT EXISTS conversations (id SERIAL PRIMARY KEY, user_id INT DEFAULT NULL, title VARCHAR(255) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, is_archived BOOLEAN DEFAULT FALSE)');
-
-\$pdo->exec('CREATE TABLE IF NOT EXISTS chat_learnings (
-    id SERIAL PRIMARY KEY,
-    learning TEXT NOT NULL,
-    category VARCHAR(50) DEFAULT \\'general\\',
-    confidence INT DEFAULT 5,
-    learned_from VARCHAR(255) DEFAULT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT NOW()
-)');
-
-\$pdo->exec('CREATE TABLE IF NOT EXISTS seo_rules (
-    id SERIAL PRIMARY KEY,
-    rule_id VARCHAR(50) NOT NULL UNIQUE,
-    name TEXT NOT NULL DEFAULT \\'\\',
-    category VARCHAR(100) DEFAULT NULL,
-    tier VARCHAR(50) DEFAULT \\'A\\',
-    trigger_source TEXT DEFAULT \\'page_crawl_snapshots\\',
-    trigger_condition TEXT DEFAULT \\'\\',
-    trigger_sql TEXT DEFAULT \\'\\',
-    threshold TEXT DEFAULT \\'\\',
-    diagnosis TEXT DEFAULT \\'\\',
-    action_output TEXT DEFAULT \\'\\',
-    priority VARCHAR(50) DEFAULT \\'Medium\\',
-    assigned VARCHAR(255) DEFAULT \\'Brook\\',
-    ai_relevance TEXT DEFAULT \\'\\',
-    full_text TEXT DEFAULT \\'\\',
-    is_active BOOLEAN DEFAULT TRUE,
-    updated_at TIMESTAMP DEFAULT NOW(),
-    updated_by VARCHAR(255) DEFAULT \\'system\\',
-    created_at TIMESTAMP DEFAULT NOW()
-)');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS messages (id SERIAL PRIMARY KEY, conversation_id INT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE, role VARCHAR(20) NOT NULL, content TEXT NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS rule_reviews (id SERIAL PRIMARY KEY, conversation_id INT DEFAULT NULL REFERENCES conversations(id) ON DELETE SET NULL, rule_id VARCHAR(20) NOT NULL, verdict VARCHAR(30) NOT NULL, feedback TEXT DEFAULT NULL, reviewed_by VARCHAR(100) DEFAULT NULL, reviewed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)');
 \$pdo->exec('CREATE TABLE IF NOT EXISTS user_overrides (id SERIAL PRIMARY KEY, url TEXT NOT NULL, field VARCHAR(50) NOT NULL, original_value TEXT DEFAULT NULL, override_value TEXT NOT NULL, reason TEXT DEFAULT NULL, overridden_by VARCHAR(100) DEFAULT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, UNIQUE(url, field))');
@@ -119,16 +83,72 @@ if (!in_array('logged_hours', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD 
 if (!in_array('recheck_days', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_days INT DEFAULT NULL'); }
 if (!in_array('recheck_criteria', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_criteria TEXT DEFAULT NULL'); }
 
-// Widen seo_rules columns if they exist with old narrow types
-\$seoCheck = \$pdo->query('SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = \'public\' AND table_name = \'seo_rules\'')->fetchColumn();
-if (\$seoCheck > 0) {
-    \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN rule_id TYPE VARCHAR(50)');
-    \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN priority TYPE VARCHAR(50)');
-    \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN assigned TYPE VARCHAR(255)');
-    \$pdo->exec('ALTER TABLE seo_rules ALTER COLUMN updated_by TYPE VARCHAR(255)');
+echo 'Tables ready.' . PHP_EOL;
+
+// ── Create rule_feedback table ──
+\$pdo->exec('CREATE TABLE IF NOT EXISTS rule_feedback (id SERIAL PRIMARY KEY, rule_id VARCHAR(50), task_id INT, url TEXT, feedback_type VARCHAR(50), what_worked TEXT, what_didnt TEXT, proposed_change TEXT, change_type VARCHAR(50) DEFAULT \\'none\\', created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
+
+// ── Create chat_learnings table ──
+\$pdo->exec('CREATE TABLE IF NOT EXISTS chat_learnings (id SERIAL PRIMARY KEY, learning TEXT NOT NULL, category VARCHAR(50) DEFAULT \\'general\\', confidence INT DEFAULT 7, learned_from VARCHAR(50) DEFAULT \\'auto\\', is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)');
+
+// ── Create seo_rules table ──
+\$pdo->exec('CREATE TABLE IF NOT EXISTS seo_rules (id SERIAL PRIMARY KEY, rule_id VARCHAR(50) NOT NULL UNIQUE, rule_name TEXT, category VARCHAR(100), tier VARCHAR(10), trigger_source VARCHAR(100), trigger_condition TEXT, trigger_sql TEXT, threshold TEXT, diagnosis TEXT, action_output TEXT, priority VARCHAR(50) DEFAULT \\'medium\\', assigned VARCHAR(255), ai_search_relevance TEXT, is_active BOOLEAN DEFAULT TRUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_by VARCHAR(100))');
+
+// ── Ensure page_crawl_snapshots has all required columns ──
+\$tables = \$pdo->query(\"SELECT tablename FROM pg_tables WHERE schemaname = 'public'\")->fetchAll(PDO::FETCH_COLUMN);
+if (in_array('page_crawl_snapshots', \$tables)) {
+    \$pcsCols = \$pdo->query(\"SELECT column_name FROM information_schema.columns WHERE table_name = 'page_crawl_snapshots'\")->fetchAll(PDO::FETCH_COLUMN);
+    \$needed = [
+        'target_query' => 'TEXT DEFAULT NULL',
+        'target_query_impressions' => 'INT DEFAULT 0',
+        'target_query_position' => 'FLOAT DEFAULT NULL',
+        'target_query_clicks' => 'INT DEFAULT 0',
+        'top_5_queries' => 'JSONB DEFAULT NULL',
+        'parent_url' => 'TEXT DEFAULT NULL',
+        'url_depth' => 'INT DEFAULT 0',
+        'sibling_count' => 'INT DEFAULT 0',
+        'images_without_alt' => 'INT DEFAULT 0',
+        'images_with_generic_alt' => 'INT DEFAULT 0',
+        'has_main_content_video' => 'BOOLEAN DEFAULT FALSE',
+        'video_metadata_valid' => 'BOOLEAN DEFAULT FALSE',
+        'video_topic_aligned' => 'BOOLEAN DEFAULT FALSE',
+        'video_thumbnail_url' => 'TEXT DEFAULT NULL',
+        'video_title' => 'TEXT DEFAULT NULL',
+        'video_duration_seconds' => 'INT DEFAULT NULL',
+        'video_upload_date' => 'VARCHAR(20) DEFAULT NULL',
+        'has_zframe_mention' => 'BOOLEAN DEFAULT FALSE',
+        'has_safetack_mention' => 'BOOLEAN DEFAULT FALSE',
+        'has_safebump_mention' => 'BOOLEAN DEFAULT FALSE',
+        'has_safekick_mention' => 'BOOLEAN DEFAULT FALSE',
+        'has_zframe_definition' => 'BOOLEAN DEFAULT FALSE',
+        'internal_link_count' => 'INT DEFAULT 0',
+        'is_utility' => 'BOOLEAN DEFAULT FALSE',
+        'has_core_link' => 'BOOLEAN DEFAULT FALSE',
+        'has_faq_section' => 'BOOLEAN DEFAULT FALSE',
+        'has_product_image' => 'BOOLEAN DEFAULT FALSE',
+        'mobile_viewport_set' => 'BOOLEAN DEFAULT FALSE',
+    ];
+    foreach (\$needed as \$col => \$type) {
+        if (!in_array(\$col, \$pcsCols)) {
+            \$pdo->exec(\"ALTER TABLE page_crawl_snapshots ADD COLUMN {\$col} {\$type}\");
+        }
+    }
+    echo 'page_crawl_snapshots columns ensured.' . PHP_EOL;
 }
 
-echo 'Tables ready.' . PHP_EOL;
+// ── Ensure tasks table has all required columns ──
+\$taskCols2 = \$pdo->query(\"SELECT column_name FROM information_schema.columns WHERE table_name = 'tasks'\")->fetchAll(PDO::FETCH_COLUMN);
+\$taskNeeded = [
+    'rule_id' => 'VARCHAR(50) DEFAULT NULL',
+    'completed_at' => 'TIMESTAMP DEFAULT NULL',
+];
+foreach (\$taskNeeded as \$col => \$type) {
+    if (!in_array(\$col, \$taskCols2)) {
+        \$pdo->exec(\"ALTER TABLE tasks ADD COLUMN {\$col} {\$type}\");
+    }
+}
+
+echo 'All schema migrations complete.' . PHP_EOL;
 "
 
 # Seed team members if empty
@@ -168,9 +188,6 @@ chown -R www-data:www-data /var/www/html/var/cache
 chmod -R 777 /var/www/html/var/cache
 chmod -R 777 /var/www/html/var/log
 chmod +x /var/www/html/crawl.sh 2>/dev/null || true
-
-# Seed rules from system-prompt.txt into seo_rules table (first deploy only — skips if already populated)
-php /var/www/html/bin/console app:seed-rules 2>&1 || echo "  [WARN] Rule seeding skipped"
 
 # Seed SEMrush if empty
 php -r "
