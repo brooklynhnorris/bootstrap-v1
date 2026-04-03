@@ -407,6 +407,117 @@ class HomeController extends AbstractController
             }
         }
 
+        // ── Execute actions from LLM response ──
+        $actionsExecuted = [];
+        if (preg_match('/<!-- ACTIONS_JSON -->\s*(.*?)\s*<!-- \/ACTIONS_JSON -->/s', $text, $actionMatches)) {
+            $actions = json_decode(trim($actionMatches[1]), true);
+            if (is_array($actions)) {
+                foreach ($actions as $action) {
+                    $type = $action['action'] ?? '';
+                    try {
+                        switch ($type) {
+                            case 'clear_tasks':
+                                $rId = strtoupper($action['rule_id'] ?? '');
+                                if ($rId) {
+                                    $count = $this->db->executeStatement(
+                                        "DELETE FROM tasks WHERE rule_id = ? AND status NOT IN ('done','closed')",
+                                        [$rId]
+                                    );
+                                    $actionsExecuted[] = "Cleared {$count} pending tasks for {$rId}";
+                                }
+                                break;
+
+                            case 'clear_tasks_url':
+                                $url = $action['url'] ?? '';
+                                if ($url) {
+                                    $count = $this->db->executeStatement(
+                                        "DELETE FROM tasks WHERE title LIKE ? AND status NOT IN ('done','closed')",
+                                        ['%' . $url . '%']
+                                    );
+                                    $actionsExecuted[] = "Cleared {$count} pending tasks for {$url}";
+                                }
+                                break;
+
+                            case 'disable_rule':
+                                $rId = strtoupper($action['rule_id'] ?? '');
+                                if ($rId) {
+                                    $this->db->update('seo_rules', ['is_active' => false, 'updated_at' => date('Y-m-d H:i:s'), 'updated_by' => 'logiri_chat'], ['rule_id' => $rId]);
+                                    $actionsExecuted[] = "Rule {$rId} deactivated";
+                                }
+                                break;
+
+                            case 'enable_rule':
+                                $rId = strtoupper($action['rule_id'] ?? '');
+                                if ($rId) {
+                                    $this->db->update('seo_rules', ['is_active' => true, 'updated_at' => date('Y-m-d H:i:s'), 'updated_by' => 'logiri_chat'], ['rule_id' => $rId]);
+                                    $actionsExecuted[] = "Rule {$rId} activated";
+                                }
+                                break;
+
+                            case 'update_rule_field':
+                                $rId = strtoupper($action['rule_id'] ?? '');
+                                $field = $action['field'] ?? '';
+                                $value = $action['value'] ?? '';
+                                $allowedFields = ['trigger_sql', 'trigger_condition', 'threshold', 'diagnosis', 'action_output', 'priority', 'assigned'];
+                                if ($rId && $field && in_array($field, $allowedFields)) {
+                                    $this->db->update('seo_rules', [$field => $value, 'updated_at' => date('Y-m-d H:i:s'), 'updated_by' => 'logiri_chat'], ['rule_id' => $rId]);
+                                    $actionsExecuted[] = "Rule {$rId} field '{$field}' updated";
+                                }
+                                break;
+
+                            case 'add_learning':
+                                $learning = $action['learning'] ?? '';
+                                $category = $action['category'] ?? 'general';
+                                if ($learning && strlen($learning) > 5) {
+                                    $existing = $this->db->fetchOne("SELECT COUNT(*) FROM chat_learnings WHERE learning ILIKE ? AND is_active = TRUE", ['%' . substr($learning, 0, 50) . '%']);
+                                    if (!$existing) {
+                                        $this->db->insert('chat_learnings', [
+                                            'learning' => substr($learning, 0, 500),
+                                            'category' => $category,
+                                            'confidence' => 8,
+                                            'learned_from' => 'logiri_action',
+                                            'is_active' => true,
+                                            'created_at' => date('Y-m-d H:i:s'),
+                                        ]);
+                                        $actionsExecuted[] = "Learning stored: " . substr($learning, 0, 60);
+                                    }
+                                }
+                                break;
+
+                            case 'dismiss_task':
+                                $taskId = intval($action['task_id'] ?? 0);
+                                $dismissType = $action['type'] ?? 'invalid';
+                                $reason = $action['reason'] ?? 'Dismissed by Logiri';
+                                if ($taskId > 0) {
+                                    $this->db->update('tasks', [
+                                        'status' => 'closed',
+                                        'completed_at' => date('Y-m-d H:i:s'),
+                                        'recheck_date' => null,
+                                        'recheck_verified' => true,
+                                        'recheck_result' => $dismissType,
+                                        'recheck_criteria' => $reason,
+                                    ], ['id' => $taskId]);
+                                    $actionsExecuted[] = "Task #{$taskId} closed as {$dismissType}";
+                                }
+                                break;
+                        }
+                    } catch (\Exception $e) {
+                        $actionsExecuted[] = "Action {$type} failed: " . substr($e->getMessage(), 0, 80);
+                    }
+                }
+            }
+            // Strip the actions block from the visible response
+            $text = preg_replace('/<!-- ACTIONS_JSON -->.*?<!-- \/ACTIONS_JSON -->/s', '', $text);
+        }
+
+        // If actions were executed, append a confirmation to the response
+        if (!empty($actionsExecuted)) {
+            $text .= "\n\n---\n**✓ Actions executed:**\n";
+            foreach ($actionsExecuted as $ae) {
+                $text .= "- {$ae}\n";
+            }
+        }
+
         // ── Auto-create tasks ──
         $tasksCreated = [];
         if (preg_match('/<!-- TASKS_JSON -->\s*(.*?)\s*<!-- \/TASKS_JSON -->/s', $text, $matches)) {
@@ -543,9 +654,10 @@ class HomeController extends AbstractController
         }
 
         return new JsonResponse([
-            'response'        => $text,
-            'tasks_created'   => $tasksCreated,
-            'conversation_id' => $conversationId,
+            'response'          => $text,
+            'tasks_created'     => $tasksCreated,
+            'actions_executed'  => $actionsExecuted,
+            'conversation_id'   => $conversationId,
         ]);
     }
 
@@ -2018,6 +2130,19 @@ PROMPT;
         $intro .= "\n[{\"title\":\"Example\",\"assigned_to\":\"Brook\",\"priority\":\"high\",\"estimated_hours\":2,\"recheck_type\":\"h1_fix\",\"recheck_days\":7,\"recheck_criteria\":\"h1_matches_title = TRUE for /example/\",\"description\":\"Example\"}]";
         $intro .= "\n<!-- /TASKS_JSON -->";
         $intro .= "\n\nCRITICAL: Include <!-- TASKS_JSON --> in EVERY response. Use [] if no tasks needed.";
+
+        $intro .= "\n\nEXECUTABLE ACTIONS — When the user asks you to DO something (clear tasks, disable a rule, modify a rule, etc.), include an ACTIONS_JSON block. These actions are executed IMMEDIATELY by the system — they are not suggestions.";
+        $intro .= "\nAvailable actions:";
+        $intro .= "\n  clear_tasks: Delete pending tasks for a rule. {\"action\":\"clear_tasks\",\"rule_id\":\"ILA-005\"}";
+        $intro .= "\n  clear_tasks_url: Delete pending tasks for a specific URL. {\"action\":\"clear_tasks_url\",\"url\":\"/some-page/\"}";
+        $intro .= "\n  disable_rule: Deactivate a rule. {\"action\":\"disable_rule\",\"rule_id\":\"MAO-R4\"}";
+        $intro .= "\n  enable_rule: Reactivate a rule. {\"action\":\"enable_rule\",\"rule_id\":\"MAO-R4\"}";
+        $intro .= "\n  update_rule_field: Modify a specific rule field. {\"action\":\"update_rule_field\",\"rule_id\":\"ILA-005\",\"field\":\"trigger_sql\",\"value\":\"SELECT ...\"}";
+        $intro .= "\n  add_learning: Store a learning. {\"action\":\"add_learning\",\"learning\":\"text\",\"category\":\"rules_feedback\"}";
+        $intro .= "\n  dismiss_task: Close a specific task. {\"action\":\"dismiss_task\",\"task_id\":123,\"type\":\"false_positive\",\"reason\":\"text\"}";
+        $intro .= "\nFormat: <!-- ACTIONS_JSON -->[{\"action\":\"...\"}]<!-- /ACTIONS_JSON -->";
+        $intro .= "\nPlace ACTIONS_JSON BEFORE TASKS_JSON. Actions execute first, then tasks are created.";
+        $intro .= "\nOnly include actions when the user explicitly asks you to do something. Do NOT include actions in regular briefings.";
         $intro .= "\n\nFOUNDATIONAL CONTENT RULES — RUN AUTOMATICALLY ON EVERY BRIEFING:";
         $intro .= "\nYou MUST evaluate ALL of the following rules on every briefing if crawl data is available. Do not wait for the user to ask. For each rule that has violations, output the findings AND a review card so the user can verify your classification logic.";
         $intro .= "\n\nFC-R1: Every indexed page must contain the central entity 'horse trailer' in the body text. Flag pages where has_central_entity = FALSE.";
@@ -2352,3 +2477,10 @@ PROMPT;
         }
     }
 }
+    
+
+    
+
+    
+
+    

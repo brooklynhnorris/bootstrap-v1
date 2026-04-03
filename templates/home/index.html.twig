@@ -2069,6 +2069,10 @@
                 await refreshTasksPanel();
                 injectPlayButtons(data.tasks_created);
             }
+            // Refresh dashboard if actions were executed (tasks cleared, rules changed, etc.)
+            if (data.actions_executed && data.actions_executed.length > 0) {
+                await refreshTasksPanel();
+            }
         } catch (e) {
             appendMessage('assistant', 'Error reaching Logiri. Please try again.');
         }

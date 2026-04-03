@@ -1170,7 +1170,10 @@ PROMPT;
 
     private function getSimplifiedQuery(string $ruleId, string $triggerCondition): ?string
     {
-        $cols = "url, page_type, word_count, h1, title_tag, has_central_entity, central_entity_count, schema_types, h1_matches_title, h2s, has_core_link, canonical_url, is_noindex, internal_links";
+        $cols = "url, page_type, word_count, h1, title_tag, has_central_entity, central_entity_count, schema_types, h1_matches_title, h2s, has_core_link, canonical_url, is_noindex, internal_links, internal_link_count, target_query, target_query_impressions, target_query_position";
+
+        // Relevance filter — exclude pages with zero GSC presence unless they're core product pages
+        $relevanceFilter = "AND (page_type = 'core' OR target_query IS NOT NULL OR target_query_impressions > 0)";
 
         return match($ruleId) {
             // Entity & Topical Authority
@@ -1178,7 +1181,7 @@ PROMPT;
             'ETA-02' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type IN ('core') AND has_central_entity = FALSE AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
             'ETA-03' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
             'ETA-04' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type IN ('core') AND schema_types NOT LIKE '%Product%' AND schema_types NOT LIKE '%Organization%' AND is_noindex = FALSE LIMIT 15",
-            'ETA-05' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE AND is_utility = FALSE LIMIT 15",
+            'ETA-05' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} LIMIT 15",
             'ETA-06' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 500 AND is_noindex = FALSE LIMIT 15",
 
             // E-E-A-T & Trust Signals
@@ -1186,7 +1189,7 @@ PROMPT;
             'DDT-EEAT-04' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url LIKE '%/about%' AND (word_count < 1000 OR schema_types NOT LIKE '%Organization%') LIMIT 15",
             'DDT-EEAT-05' => "SELECT {$cols} FROM page_crawl_snapshots WHERE (url LIKE '%privacy%' OR url LIKE '%terms%') AND (word_count < 1000 OR is_noindex = TRUE) LIMIT 15",
             'DDT-EEAT-06' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url LIKE '%contact%' AND (schema_types NOT LIKE '%LocalBusiness%' OR schema_types NOT LIKE '%ContactPoint%') LIMIT 15",
-            'DDT-EEAT-07' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count >= 1000 AND is_noindex = FALSE LIMIT 15",
+            'DDT-EEAT-07' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count >= 1000 AND is_noindex = FALSE {$relevanceFilter} LIMIT 15",
             'DDT-EEAT-08' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
 
             // Schema & Structured Data
@@ -1217,7 +1220,7 @@ PROMPT;
             'KIA-R3' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND (word_count = 0 OR has_central_entity = FALSE OR h1_matches_title = FALSE OR word_count > 500) AND is_noindex = FALSE LIMIT 15",
             'KIA-R4' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE g.impressions > 5000 AND g.position > 10 AND (g.query LIKE '%horse trailer%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%z-frame%' OR g.query LIKE '%safetack%') GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
             'KIA-R5' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%2 horse%' OR g.query LIKE '%3 horse%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%safetack%') AND g.impressions > 100 AND g.position > 30 GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
-            'KIA-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
+            'KIA-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE {$relevanceFilter} LIMIT 15",
             'KIA-R7' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%benefits%' OR g.query LIKE '%vs%' OR g.query LIKE '%safetack%') AND g.impressions > 500 AND g.position > 20 GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
             'KIA-R8' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE LIMIT 15",
 
@@ -1231,14 +1234,14 @@ PROMPT;
 
             // Media & Asset Optimization (simplified — can't check actual image alt text)
             'MAO-R1' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
-            'MAO-R2' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count >= 1000 AND is_noindex = FALSE LIMIT 15",
+            'MAO-R2' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count >= 1000 AND is_noindex = FALSE {$relevanceFilter} LIMIT 15",
             'MAO-R4' => "SELECT {$cols} FROM page_crawl_snapshots WHERE schema_types NOT LIKE '%VideoObject%' AND is_noindex = FALSE AND page_type IN ('core', 'outer') LIMIT 15",
             'MAO-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url LIKE '%.pdf' LIMIT 15",
-            'MAO-R7' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type IN ('core', 'outer') AND is_noindex = FALSE LIMIT 15",
+            'MAO-R7' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type IN ('core', 'outer') AND is_noindex = FALSE {$relevanceFilter} LIMIT 15",
 
             // Internal Link Architecture
             'ILA-004' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE LIMIT 15",
-            'ILA-005' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type IN ('core', 'outer') AND is_noindex = FALSE LIMIT 15",
+            'ILA-005' => "SELECT {$cols} FROM page_crawl_snapshots WHERE internal_link_count > 3 AND page_type IN ('core', 'outer') AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} ORDER BY internal_link_count DESC LIMIT 15",
             'ILA-006' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE LIMIT 15",
             'ILA-007' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE LIMIT 15",
 
