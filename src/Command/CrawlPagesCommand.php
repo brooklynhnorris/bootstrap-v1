@@ -786,29 +786,47 @@ class CrawlPagesCommand extends Command
         };
 
         // Body text snippet — first 500 chars for keyword checking
-        $bodyTextSnippet = $bodyText ? $sanitizeUtf8(substr(trim($bodyText), 0, 5000)) : null;
+        $bodyTextSnippet = $bodyText ? $sanitizeUtf8(substr(trim($bodyText), 0, 15000)) : null;
 
-        // First sentence text — extract first sentence after removing leading whitespace
+        // First sentence text — extract first real sentence from body content
         $firstSentenceText = null;
         if ($bodyText) {
             $trimmed = $sanitizeUtf8(trim($bodyText));
             
             // Strip common breadcrumb patterns from the start of text
-            // Pattern: "Home > Category > Page" or "Home / Category / Page" or "Home » Page"
             $trimmed = preg_replace('/^(Home\s*[>\/»›→]\s*)+/i', '', $trimmed);
-            // Pattern: site name at start followed by separator
             $trimmed = preg_replace('/^Double\s*D\s*Trailers?\s*[>\/»›→]\s*/i', '', $trimmed);
-            // Pattern: generic "You are here:" prefix
             $trimmed = preg_replace('/^You\s+are\s+here:?\s*/i', '', $trimmed);
-            // Pattern: multiple short words separated by > / » (breadcrumb chain)
             $trimmed = preg_replace('/^(\w{1,20}\s*[>\/»›→]\s*){2,}/u', '', $trimmed);
+            
+            // Strip leading lines that look like nav items (very short lines < 30 chars)
+            $lines = explode("\n", $trimmed);
+            $realStart = 0;
+            foreach ($lines as $i => $line) {
+                $line = trim($line);
+                if (strlen($line) < 5) continue; // skip blank/tiny lines
+                // Skip nav-like lines: short, no period, common nav words
+                if (strlen($line) < 30 && !str_contains($line, '.') && !str_contains($line, '?')) {
+                    $navWords = ['menu', 'home', 'about', 'contact', 'blog', 'cart', 'search', 'login', 'sign in', 'trailer', 'horse trailer'];
+                    $isNav = false;
+                    foreach ($navWords as $nw) {
+                        if (strtolower($line) === $nw) { $isNav = true; break; }
+                    }
+                    if ($isNav) continue;
+                }
+                // Found a real content line (30+ chars or has sentence punctuation)
+                if (strlen($line) >= 30 || preg_match('/[.!?]/', $line)) {
+                    $realStart = $i;
+                    break;
+                }
+            }
+            $trimmed = implode("\n", array_slice($lines, $realStart));
             $trimmed = trim($trimmed);
             
             // Match up to first period, question mark, or exclamation followed by space or end
             if (preg_match('/^(.+?[.!?])(?:\s|$)/', $trimmed, $fsMatch)) {
                 $firstSentenceText = substr(trim($fsMatch[1]), 0, 500);
             } else {
-                // No sentence-ending punctuation found — take first 200 chars
                 $firstSentenceText = substr($trimmed, 0, 200);
             }
         }
@@ -1188,6 +1206,60 @@ class CrawlPagesCommand extends Command
             $mobileViewportSet = true;
         }
 
+        // ── Target queries from GSC (top 5 by impressions for this page) ──
+        $targetQuery = null;
+        $targetQueryImpressions = 0;
+        $targetQueryPosition = null;
+        $targetQueryClicks = 0;
+        $top5Queries = [];
+        try {
+            $gscRows = $this->db->fetchAllAssociative(
+                "SELECT query, impressions, clicks, position FROM gsc_snapshots
+                 WHERE page LIKE :page AND date_range = '28d' AND query != '__PAGE_AGGREGATE__'
+                 ORDER BY impressions DESC LIMIT 5",
+                ['page' => '%' . $path . '%']
+            );
+            if (!empty($gscRows)) {
+                // Top 1 = primary target
+                $targetQuery = $gscRows[0]['query'];
+                $targetQueryImpressions = (int) $gscRows[0]['impressions'];
+                $targetQueryPosition = round((float) $gscRows[0]['position'], 1);
+                $targetQueryClicks = (int) $gscRows[0]['clicks'];
+                // All 5 for context
+                foreach ($gscRows as $gr) {
+                    $top5Queries[] = [
+                        'query' => $gr['query'],
+                        'impressions' => (int) $gr['impressions'],
+                        'clicks' => (int) $gr['clicks'],
+                        'position' => round((float) $gr['position'], 1),
+                    ];
+                }
+            }
+        } catch (\Exception $e) {
+            // GSC not available yet — fine
+        }
+
+        // ── Page hierarchy (inferred from URL structure) ──
+        $pathParts = array_filter(explode('/', trim($path, '/')));
+        $urlDepth = count($pathParts);
+        $parentUrl = null;
+        if ($urlDepth > 1) {
+            array_pop($pathParts);
+            $parentUrl = '/' . implode('/', $pathParts) . '/';
+        } elseif ($urlDepth === 1) {
+            $parentUrl = '/';
+        }
+        // Find sibling pages (same parent)
+        $siblingCount = 0;
+        try {
+            if ($parentUrl && $parentUrl !== '/') {
+                $siblingCount = (int) $this->db->fetchOne(
+                    "SELECT COUNT(*) FROM page_crawl_snapshots WHERE url LIKE :pattern AND url != :self",
+                    ['pattern' => $parentUrl . '%', 'self' => $path]
+                );
+            }
+        } catch (\Exception $e) {}
+
         return [
             'url'                  => $path,
             'http_status'          => $httpStatus,
@@ -1250,6 +1322,16 @@ class CrawlPagesCommand extends Command
             'images_with_generic_alt' => $imagesWithGenericAlt,
             'has_lazy_hero_image'  => $hasLazyHeroImage ? 1 : 0,
             'mobile_viewport_set'  => $mobileViewportSet ? 1 : 0,
+            // GSC target query (auto-inferred from top impressions)
+            'target_query'         => $targetQuery ? substr($targetQuery, 0, 500) : null,
+            'target_query_impressions' => $targetQueryImpressions,
+            'target_query_position' => $targetQueryPosition,
+            'target_query_clicks'  => $targetQueryClicks,
+            'top_5_queries'        => !empty($top5Queries) ? json_encode($top5Queries) : null,
+            // Page hierarchy
+            'parent_url'           => $parentUrl,
+            'url_depth'            => $urlDepth,
+            'sibling_count'        => $siblingCount,
         ];
     }
     
@@ -1660,6 +1742,14 @@ class CrawlPagesCommand extends Command
                 'images_with_generic_alt' => 'INT DEFAULT 0',          // MAO-01
                 'has_lazy_hero_image' => 'BOOLEAN DEFAULT FALSE',      // CWV-R7
                 'mobile_viewport_set' => 'BOOLEAN DEFAULT FALSE',      // CTA-F6
+                'target_query'        => 'TEXT DEFAULT NULL',          // GSC: top query by impressions
+                'target_query_impressions' => 'INT DEFAULT 0',        // GSC: impressions for target query
+                'target_query_position' => 'FLOAT DEFAULT NULL',      // GSC: avg position for target query
+                'target_query_clicks' => 'INT DEFAULT 0',             // GSC: clicks for target query
+                'top_5_queries'       => 'JSONB DEFAULT NULL',         // GSC: top 5 queries
+                'parent_url'          => 'TEXT DEFAULT NULL',          // URL hierarchy: inferred parent
+                'url_depth'           => 'INT DEFAULT 0',             // URL hierarchy: depth from root
+                'sibling_count'       => 'INT DEFAULT 0',             // URL hierarchy: pages at same level
                 'in_sitemap'          => 'BOOLEAN DEFAULT FALSE',      // TECH-R4
             ];
             foreach ($newCols as $col => $def) {

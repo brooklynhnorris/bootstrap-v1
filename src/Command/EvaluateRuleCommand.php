@@ -448,8 +448,8 @@ PROMPT;
                 $pageDetails .= "\n  {$key}: {$display}";
             }
             if ($bodySnippet) {
-                // Truncate to ~2000 chars for token efficiency but enough for placement context
-                $truncated = strlen($bodySnippet) > 2000 ? substr($bodySnippet, 0, 2000) . '...[truncated]' : $bodySnippet;
+                // Truncate to ~5000 chars for token efficiency but enough for full-page placement context
+                $truncated = strlen($bodySnippet) > 5000 ? substr($bodySnippet, 0, 5000) . '...[truncated]' : $bodySnippet;
                 $pageDetails .= "\n  PAGE_BODY_TEXT (use for exact placement):\n  " . str_replace("\n", "\n  ", $truncated);
             }
         }
@@ -487,6 +487,47 @@ PROMPT;
             $outcomeSection = "\n{$outcomeFeedback}\nUSE THIS TO IMPROVE YOUR RECOMMENDATIONS. If past fixes for this rule failed, propose a different approach. If they succeeded, replicate the winning pattern.\n";
         }
 
+        // Competitor SERP context — what top-ranking competitors look like for each page's target query
+        $competitorContext = '';
+        try {
+            $pageUrls = array_column(array_slice($firingPages, 0, 5), 'url');
+            $seenQueries = [];
+            foreach ($pageUrls as $pUrl) {
+                $tq = null;
+                foreach ($firingPages as $fp) {
+                    if (($fp['url'] ?? '') === $pUrl && !empty($fp['target_query'])) {
+                        $tq = $fp['target_query'];
+                        break;
+                    }
+                }
+                if (!$tq || isset($seenQueries[$tq])) continue;
+                $seenQueries[$tq] = true;
+
+                $serp = $this->db->fetchAssociative(
+                    "SELECT top_3_json, paa_json FROM live_serp_checks WHERE query = :q ORDER BY checked_at DESC LIMIT 1",
+                    ['q' => $tq]
+                );
+                if ($serp && !empty($serp['top_3_json'])) {
+                    $top3 = json_decode($serp['top_3_json'], true) ?: [];
+                    if (!empty($top3)) {
+                        $competitorContext .= "\nSERP COMPETITORS for \"{$tq}\":\n";
+                        foreach ($top3 as $comp) {
+                            $competitorContext .= "  #{$comp['position']} {$comp['domain']} — \"{$comp['title']}\"\n";
+                            if (!empty($comp['description'])) {
+                                $competitorContext .= "     Snippet: " . substr($comp['description'], 0, 200) . "\n";
+                            }
+                        }
+                    }
+                    $paa = json_decode($serp['paa_json'] ?? '[]', true) ?: [];
+                    if (!empty($paa)) {
+                        $competitorContext .= "  People Also Ask: " . implode(' | ', array_slice($paa, 0, 3)) . "\n";
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            // Non-fatal — SERP data not available
+        }
+
         return <<<PROMPT
 You are Logiri, an SEO intelligence engine for doubledtrailers.com (Double D Trailers — custom horse trailer manufacturer).
 
@@ -509,7 +550,7 @@ LLM assessments:{$s1Summary}
 {$feedbackSection}{$outcomeSection}
 REAL CORE PAGES ON THIS SITE (use ONLY these URLs when suggesting Core link targets):
 {$coreList}
-
+{$competitorContext}
 DATA FOR AFFECTED PAGES ({$total} total):
 {$pageDetails}
 
@@ -526,6 +567,7 @@ Each brief must include:
 4. RECHECK — number of days until recheck.
 
 CRITICAL RULES FOR OUTPUT:
+- TARGET QUERY IS THE NORTH STAR. Each page has a `target_query` field from GSC — this is the query the page is trying to rank for. ALL optimization decisions must align with this query. If the H1 matches the target query but the title tag doesn't, fix the TITLE TAG, not the H1. If the target query is "3 horse trailer with living quarters" and the H1 says "3 Horse Trailer with Living Quarters for Sale", the H1 is CORRECT — do not change it to match a branded title. Always state the target query in CURRENT_STATE.
 - ONE ACTION PER BRIEF. Adding a Z-Frame definition is one brief. Adding an internal link is a separate brief. Adding schema is a separate brief. NEVER combine these.
 - USE THE PAGE BODY TEXT to give exact placement. You have the page content — reference it. "Insert before the sentence that begins 'Our trailers feature...'" not "find the first mention and insert before it."
 - Do NOT write a report or analysis. Write task tickets.
@@ -540,15 +582,18 @@ CRITICAL RULES FOR OUTPUT:
 - Outer pages: minimum 1000 words. Below that = thin content.
 - Max 3 internal links per page. Zero external links.
 
-FORMAT (repeat for each page):
+FORMAT (repeat for each page, per action):
 
 PLAY_BRIEF: [Short title — verb + what + where]
 URL: [exact url path]
+TARGET_QUERY: [the target_query from crawl data — this is what the page is optimizing for]
 PRIORITY: [Critical / High / Medium / Low]
 ASSIGNED: [Brook / Brad / Kalib / Jeanne]
 CURRENT_STATE:
-- [field]: [value]
-- [field]: [value]
+- target_query: [query]
+- target_query_position: [position]
+- target_query_impressions: [count]
+- [other relevant fields]: [values]
 YOUR_MOVE:
 1. [Step]
 2. [Step]
@@ -1623,7 +1668,3 @@ GLOSSARY;
         }
     }
 }
-
-    
-
-    

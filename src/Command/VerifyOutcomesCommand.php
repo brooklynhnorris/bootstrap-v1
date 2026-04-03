@@ -122,6 +122,79 @@ class VerifyOutcomesCommand extends Command
                 continue;
             }
 
+            // ── Content diff check: verify the fix was actually implemented ──
+            $contentDiff = [];
+            $fixNotDeployed = false;
+            try {
+                $currentCrawl = $this->db->fetchAssociative(
+                    "SELECT body_text_snippet, h1, title_tag, schema_types, has_central_entity,
+                            has_zframe_definition, word_count, target_query
+                     FROM page_crawl_snapshots WHERE url = :url LIMIT 1",
+                    ['url' => $url]
+                );
+                if ($currentCrawl) {
+                    // Check rule-specific deployment criteria
+                    $rulePrefix = preg_replace('/[-_]\d+.*$/', '', $ruleId);
+                    $desc = strtolower($review['description'] ?? $review['title'] ?? '');
+
+                    // Z-Frame definition tasks
+                    if (str_contains($desc, 'z-frame') && str_contains($desc, 'definition')) {
+                        if (!($currentCrawl['has_zframe_definition'] ?? false)) {
+                            $contentDiff[] = 'Z-Frame definition NOT found in current crawl — fix may not be deployed';
+                            $fixNotDeployed = true;
+                        }
+                    }
+                    // Title tag changes
+                    if (str_contains($desc, 'title') && str_contains($desc, 'fix')) {
+                        // We can't compare old title since crawl overwrites, but we can flag if target_query is missing from title
+                        $tq = $currentCrawl['target_query'] ?? '';
+                        $title = strtolower($currentCrawl['title_tag'] ?? '');
+                        if ($tq && !str_contains($title, strtolower(explode(' ', $tq)[0]))) {
+                            $contentDiff[] = "Title tag may not contain target query \"{$tq}\"";
+                        }
+                    }
+                    // Schema tasks
+                    if (str_contains($desc, 'schema')) {
+                        $schemaTypes = json_decode($currentCrawl['schema_types'] ?? '[]', true) ?: [];
+                        if (str_contains($desc, 'videoobject') && !in_array('VideoObject', $schemaTypes)) {
+                            $contentDiff[] = 'VideoObject schema NOT found on page — fix may not be deployed';
+                            $fixNotDeployed = true;
+                        }
+                        if (str_contains($desc, 'faqpage') && !in_array('FAQPage', $schemaTypes)) {
+                            $contentDiff[] = 'FAQPage schema NOT found on page — fix may not be deployed';
+                            $fixNotDeployed = true;
+                        }
+                        if (str_contains($desc, 'organization') && !in_array('Organization', $schemaTypes)) {
+                            $contentDiff[] = 'Organization schema NOT found on page — fix may not be deployed';
+                            $fixNotDeployed = true;
+                        }
+                    }
+                    // Word count / content tasks
+                    if (str_contains($desc, 'expand') || str_contains($desc, 'word count') || str_contains($desc, 'thin content')) {
+                        $wc = (int) ($currentCrawl['word_count'] ?? 0);
+                        $pageType = strtolower($review['page_type'] ?? '');
+                        if ($pageType === 'outer' && $wc < 1000) {
+                            $contentDiff[] = "Word count still {$wc} (outer pages need 1000+) — content may not be deployed";
+                            $fixNotDeployed = true;
+                        }
+                    }
+                }
+            } catch (\Exception $e) {
+                // Non-fatal
+            }
+
+            if (!empty($contentDiff)) {
+                $output->writeln("   ⚠ CONTENT DIFF CHECK:");
+                foreach ($contentDiff as $cd) {
+                    $output->writeln("     - {$cd}");
+                }
+                if ($fixNotDeployed) {
+                    $output->writeln("   Fix appears NOT deployed — will mark accordingly.");
+                }
+            }
+            $review['content_diff'] = $contentDiff;
+            $review['fix_not_deployed'] = $fixNotDeployed;
+
             // Check schema errors for schema-related rules
             $schemaErrors = [];
             $schemaCheck = '';
@@ -157,6 +230,13 @@ class VerifyOutcomesCommand extends Command
                 $verdict['status'] = 'FAIL';
                 $verdict['reason'] = 'Schema validation failed: ' . implode('; ', array_slice($schemaErrors, 0, 3));
                 $verdict['next_action'] = 'Fix the schema errors listed above. Validate with Google Rich Results Test before marking complete. Errors: ' . implode(', ', $schemaErrors);
+            }
+
+            // Override verdict to FAIL if content diff shows fix was not deployed
+            if ($fixNotDeployed) {
+                $verdict['status'] = 'FAIL';
+                $verdict['reason'] = 'Fix not deployed: ' . implode('; ', $contentDiff);
+                $verdict['next_action'] = 'The fix was marked complete but the content change was NOT detected on the live page. Verify the change is published and re-crawl before rechecking GSC metrics.';
             }
 
             $icon     = match($verdict['status']) {

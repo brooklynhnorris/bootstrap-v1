@@ -281,7 +281,13 @@ class FetchDataForSeoCommand extends Command
                 $pos = $item['rank_absolute'] ?? null;
 
                 if (count($top3) < 3) {
-                    $top3[] = ['position' => $pos, 'domain' => $item['domain'] ?? '', 'title' => substr($item['title'] ?? '', 0, 60)];
+                    $top3[] = [
+                        'position' => $pos,
+                        'domain' => $item['domain'] ?? '',
+                        'title' => substr($item['title'] ?? '', 0, 120),
+                        'description' => substr($item['description'] ?? '', 0, 300),
+                        'url' => substr($item['url'] ?? '', 0, 200),
+                    ];
                 }
 
                 if (str_contains(strtolower($link), self::DOMAIN)) {
@@ -677,6 +683,3 @@ class FetchDataForSeoCommand extends Command
         }
     }
 }
-
-    
-

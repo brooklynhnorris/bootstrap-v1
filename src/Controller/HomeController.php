@@ -169,56 +169,90 @@ class HomeController extends AbstractController
         $userRole = $user ? ($user->getTeamRole() ?? 'Owner') : 'Owner';
         $userId   = $user ? $user->getId() : null;
 
-        // ── Fetch data for system prompt ──
+        // ── Classify message intent to load only relevant data ──
+        $lastUserMsg = '';
+        foreach (array_reverse($messages) as $m) {
+            if ($m['role'] === 'user') { $lastUserMsg = strtolower($m['content']); break; }
+        }
+
+        $needsGsc     = str_contains($lastUserMsg, 'gsc') || str_contains($lastUserMsg, 'query') || str_contains($lastUserMsg, 'ranking')
+                      || str_contains($lastUserMsg, 'position') || str_contains($lastUserMsg, 'impression') || str_contains($lastUserMsg, 'keyword')
+                      || str_contains($lastUserMsg, 'traffic') || str_contains($lastUserMsg, 'serp') || str_contains($lastUserMsg, 'cannibali')
+                      || str_contains($lastUserMsg, 'target query') || str_contains($lastUserMsg, 'briefing') || str_contains($lastUserMsg, 'play');
+        $needsGa4     = str_contains($lastUserMsg, 'ga4') || str_contains($lastUserMsg, 'analytics') || str_contains($lastUserMsg, 'bounce')
+                      || str_contains($lastUserMsg, 'engagement') || str_contains($lastUserMsg, 'session') || str_contains($lastUserMsg, 'conversion')
+                      || str_contains($lastUserMsg, 'landing');
+        $needsAds     = str_contains($lastUserMsg, 'ads') || str_contains($lastUserMsg, 'google ads') || str_contains($lastUserMsg, 'campaign')
+                      || str_contains($lastUserMsg, 'ppc') || str_contains($lastUserMsg, 'spend') || str_contains($lastUserMsg, 'cpc');
+        $needsCrawl   = str_contains($lastUserMsg, 'crawl') || str_contains($lastUserMsg, 'page') || str_contains($lastUserMsg, 'schema')
+                      || str_contains($lastUserMsg, 'content') || str_contains($lastUserMsg, 'h1') || str_contains($lastUserMsg, 'title')
+                      || str_contains($lastUserMsg, 'link') || str_contains($lastUserMsg, 'entity') || str_contains($lastUserMsg, 'word count')
+                      || str_contains($lastUserMsg, 'rule') || str_contains($lastUserMsg, 'play') || str_contains($lastUserMsg, 'signal')
+                      || str_contains($lastUserMsg, 'fix') || str_contains($lastUserMsg, 'url') || str_contains($lastUserMsg, '/');
+        $needsRules   = str_contains($lastUserMsg, 'rule') || str_contains($lastUserMsg, 'proposal') || str_contains($lastUserMsg, 'learning')
+                      || str_contains($lastUserMsg, 'approve') || str_contains($lastUserMsg, 'reject') || str_contains($lastUserMsg, 'verified')
+                      || str_contains($lastUserMsg, 'fail') || str_contains($lastUserMsg, 'pass');
+        $isGeneral    = str_contains($lastUserMsg, 'what should') || str_contains($lastUserMsg, 'briefing') || str_contains($lastUserMsg, 'overview')
+                      || str_contains($lastUserMsg, 'status') || str_contains($lastUserMsg, 'summary') || str_contains($lastUserMsg, 'learned')
+                      || strlen($lastUserMsg) < 20;
+
+        // General/briefing questions load everything; specific questions load targeted data
+        if ($isGeneral) { $needsGsc = true; $needsGa4 = true; $needsCrawl = true; $needsRules = true; }
+
+        // ── Fetch data for system prompt (conditionally) ──
         $semrush = $this->db->fetchAssociative(
             'SELECT organic_keywords, organic_traffic, fetched_at FROM semrush_snapshots ORDER BY fetched_at DESC LIMIT 1'
         );
-        $topQueries28d = $this->db->fetchAllAssociative(
+
+        $topQueries28d = $needsGsc ? $this->db->fetchAllAssociative(
             "SELECT query, page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE date_range = '28d' ORDER BY impressions DESC LIMIT 10"
-        );
-        $topQueries90d = $this->db->fetchAllAssociative(
+        ) : [];
+        $topQueries90d = $needsGsc ? $this->db->fetchAllAssociative(
             "SELECT query, page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE date_range = '90d' ORDER BY impressions DESC LIMIT 15"
-        );
-        $pageAggregates = $this->db->fetchAllAssociative(
+        ) : [];
+        $pageAggregates = $needsGsc ? $this->db->fetchAllAssociative(
             "SELECT page, clicks, impressions, ctr, position FROM gsc_snapshots WHERE query = '__PAGE_AGGREGATE__' ORDER BY impressions DESC LIMIT 15"
-        );
-        $brandedQueries = $this->db->fetchAllAssociative(
+        ) : [];
+        $brandedQueries = $needsGsc ? $this->db->fetchAllAssociative(
             "SELECT query, page, clicks, impressions, position FROM gsc_snapshots WHERE date_range = '28d_branded' ORDER BY impressions DESC LIMIT 10"
-        );
-        $cannibalizationCandidates = $this->db->fetchAllAssociative(
+        ) : [];
+        $cannibalizationCandidates = $needsGsc ? $this->db->fetchAllAssociative(
             "SELECT query, COUNT(DISTINCT page) as page_count, SUM(impressions) as total_impressions
              FROM gsc_snapshots WHERE date_range = '28d' AND query != '__PAGE_AGGREGATE__'
              GROUP BY query HAVING COUNT(DISTINCT page) > 1
              ORDER BY total_impressions DESC LIMIT 15"
-        );
-        $topPages = $this->db->fetchAllAssociative(
+        ) : [];
+
+        $topPages = $needsGa4 ? $this->db->fetchAllAssociative(
             "SELECT page_path, sessions, pageviews, bounce_rate, avg_engagement_time, engaged_sessions, conversions
              FROM ga4_snapshots WHERE date_range = '28d' ORDER BY sessions DESC LIMIT 15"
-        );
-        $previousPages = $this->db->fetchAllAssociative(
+        ) : [];
+        $previousPages = $needsGa4 ? $this->db->fetchAllAssociative(
             "SELECT page_path, sessions, pageviews, bounce_rate, avg_engagement_time, conversions
              FROM ga4_snapshots WHERE date_range = '28d_previous' ORDER BY sessions DESC LIMIT 15"
-        );
-        $landingPages = $this->db->fetchAllAssociative(
+        ) : [];
+        $landingPages = $needsGa4 ? $this->db->fetchAllAssociative(
             "SELECT page_path, sessions, bounce_rate, avg_engagement_time, conversions
              FROM ga4_snapshots WHERE date_range = '28d_landing' ORDER BY sessions DESC LIMIT 10"
-        );
-        $adsCampaigns = $this->db->fetchAllAssociative(
+        ) : [];
+
+        $adsCampaigns = $needsAds ? $this->db->fetchAllAssociative(
             "SELECT campaign_name, impressions, clicks, cost_micros, conversions, ctr, average_cpc, status
              FROM google_ads_snapshots WHERE data_type = 'campaign' ORDER BY cost_micros DESC LIMIT 8"
-        );
-        $adsKeywords = $this->db->fetchAllAssociative(
+        ) : [];
+        $adsKeywords = $needsAds ? $this->db->fetchAllAssociative(
             "SELECT keyword, match_type, campaign_name, impressions, clicks, cost_micros, conversions, ctr, average_cpc
              FROM google_ads_snapshots WHERE data_type = 'keyword' ORDER BY cost_micros DESC LIMIT 8"
-        );
-        $adsSearchTerms = $this->db->fetchAllAssociative(
+        ) : [];
+        $adsSearchTerms = $needsAds ? $this->db->fetchAllAssociative(
             "SELECT keyword as search_term, campaign_name, impressions, clicks, cost_micros, conversions, ctr
              FROM google_ads_snapshots WHERE data_type = 'search_term' ORDER BY clicks DESC LIMIT 8"
-        );
-        $adsDailySpend = $this->db->fetchAllAssociative(
+        ) : [];
+        $adsDailySpend = $needsAds ? $this->db->fetchAllAssociative(
             "SELECT date_range as date, cost_micros, clicks, impressions, conversions
              FROM google_ads_snapshots WHERE data_type = 'daily_spend' ORDER BY date_range DESC LIMIT 7"
-        );
+        ) : [];
+
         $activeTasks = $this->db->fetchAllAssociative(
             "SELECT id, title, assigned_to, assigned_role, status, priority, estimated_hours, logged_hours, created_at FROM tasks WHERE status != 'done' ORDER BY created_at DESC LIMIT 10"
         );
@@ -226,17 +260,17 @@ class HomeController extends AbstractController
             "SELECT id, title, assigned_to, recheck_date, recheck_type FROM tasks WHERE status = 'done' AND recheck_date IS NOT NULL AND recheck_verified = false AND recheck_date <= CURRENT_DATE + INTERVAL '3 days' ORDER BY recheck_date ASC LIMIT 5"
         );
 
-        // ── Load crawl data for rules engine ──
-        $crawlData = $this->loadCrawlData();
+        // ── Load crawl data for rules engine (conditionally) ──
+        $crawlData = $needsCrawl ? $this->loadCrawlData() : [];
 
         // ── Load recent rule reviews and overrides for context ──
-        $recentReviews = $this->loadRecentReviews();
-        $overrideCount = $this->loadOverrideCount();
+        $recentReviews = $needsRules ? $this->loadRecentReviews() : [];
+        $overrideCount = $needsRules ? $this->loadOverrideCount() : 0;
 
         // ── Load verification outcomes for learning context ──
-        $verificationResults = $this->loadVerificationResults();
-        $ruleFeedback = $this->loadRuleFeedback();
-        $ruleProposals = $this->loadRuleProposals();
+        $verificationResults = $needsRules ? $this->loadVerificationResults() : [];
+        $ruleFeedback = $needsRules ? $this->loadRuleFeedback() : [];
+        $ruleProposals = $needsRules ? $this->loadRuleProposals() : [];
 
         // ── Persist conversation ──
         if (!$conversationId) {
@@ -1550,7 +1584,8 @@ class HomeController extends AbstractController
                         word_count, h1, title_tag, h1_matches_title, h2s,
                         schema_types, is_noindex, internal_link_count,
                         image_count, has_faq_section, has_product_image,
-                        schema_errors
+                        schema_errors, crawled_at,
+                        target_query, target_query_impressions, target_query_position, target_query_clicks
                  FROM page_crawl_snapshots
                  WHERE crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
                    AND (
@@ -2019,7 +2054,9 @@ PROMPT;
                 }
                 if (empty($flags)) continue;
                 $h1short = substr($row['h1'] ?? '(none)', 0, 50);
-                $intro .= "- {$row['url']} [{$row['page_type']}] " . implode(', ', $flags) . " | H1: \"{$h1short}\"\n";
+                $tq = $row['target_query'] ?? null;
+                $tqInfo = $tq ? " | Target: \"{$tq}\" (pos:" . ($row['target_query_position'] ?? '?') . ", imp:" . ($row['target_query_impressions'] ?? 0) . ")" : '';
+                $intro .= "- {$row['url']} [{$row['page_type']}] " . implode(', ', $flags) . " | H1: \"{$h1short}\"{$tqInfo}\n";
             }
 
                         // Rule violation summaries for quick Logiri parsing
@@ -2236,9 +2273,6 @@ PROMPT;
         }
     }
 }
-    
-
-    
 
     
 
