@@ -1089,7 +1089,7 @@ PROMPT;
                 'FC-R1'  => "SELECT url, page_type, h1, title_tag, word_count, has_central_entity, central_entity_count FROM page_crawl_snapshots WHERE has_central_entity IS NOT TRUE AND word_count > 0 AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) {$utilExclude} LIMIT 10",
                 'FC-R2'  => "SELECT url, page_type, h1, title_tag FROM page_crawl_snapshots WHERE (page_type IS NULL OR page_type NOT IN ('core','outer','utility')) AND is_noindex IS NOT TRUE AND {$af} LIMIT 10",
                 'FC-R3'  => "SELECT url, page_type, word_count, h1, title_tag FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND word_count < 500 AND is_noindex IS NOT TRUE LIMIT 10",
-                'FC-R5'  => "SELECT url, page_type, has_core_link, core_links_found FROM page_crawl_snapshots WHERE page_type = 'outer' AND has_core_link IS NOT TRUE AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) {$utilExclude} LIMIT 10",
+                'FC-R5'  => "SELECT url, page_type, has_core_link, core_links_found FROM page_crawl_snapshots WHERE page_type = 'outer' AND has_core_link IS NOT TRUE AND is_noindex IS NOT TRUE AND (target_query IS NOT NULL OR target_query_impressions > 0) AND {$af} AND url NOT IN ({$t4}) {$utilExclude} LIMIT 10",
                 'FC-R6'  => "SELECT url, page_type, word_count, h2s, schema_types FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND word_count < 800 AND is_noindex IS NOT TRUE LIMIT 10",
                 'FC-R7'  => "SELECT url, page_type, h1, title_tag, h1_matches_title FROM page_crawl_snapshots WHERE (h1_matches_title IS NOT TRUE OR h1 IS NULL OR h1 = '') AND is_noindex IS NOT TRUE AND {$af} AND url NOT IN ({$t4}) {$utilExclude} LIMIT 10",
                 'FC-R8'  => "SELECT url, page_type, h2s, word_count FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND (h2s IS NULL OR h2s = '[]' OR h2s = '') AND is_noindex IS NOT TRUE AND url NOT IN ({$t4}) LIMIT 10",
@@ -1178,9 +1178,9 @@ PROMPT;
         return match($ruleId) {
             // Entity & Topical Authority
             'ETA-01' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND has_central_entity = FALSE AND is_noindex = FALSE LIMIT 15",
-            'ETA-02' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type IN ('core') AND has_central_entity = FALSE AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
-            'ETA-03' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
-            'ETA-04' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type IN ('core') AND schema_types NOT LIKE '%Product%' AND schema_types NOT LIKE '%Organization%' AND is_noindex = FALSE LIMIT 15",
+            'ETA-02' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND has_central_entity = FALSE AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
+            'ETA-03' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND is_noindex = FALSE AND (has_zframe_mention = FALSE AND has_safetack_mention = FALSE AND has_safebump_mention = FALSE AND has_safekick_mention = FALSE) LIMIT 15",
+            'ETA-04' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND schema_types NOT LIKE '%Product%' AND schema_types NOT LIKE '%Organization%' AND is_noindex = FALSE LIMIT 15",
             'ETA-05' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} LIMIT 15",
             'ETA-06' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 500 AND is_noindex = FALSE LIMIT 15",
 
@@ -1189,61 +1189,61 @@ PROMPT;
             'DDT-EEAT-04' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url LIKE '%/about%' AND (word_count < 1000 OR schema_types NOT LIKE '%Organization%') LIMIT 15",
             'DDT-EEAT-05' => "SELECT {$cols} FROM page_crawl_snapshots WHERE (url LIKE '%privacy%' OR url LIKE '%terms%') AND (word_count < 1000 OR is_noindex = TRUE) LIMIT 15",
             'DDT-EEAT-06' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url LIKE '%contact%' AND (schema_types NOT LIKE '%LocalBusiness%' OR schema_types NOT LIKE '%ContactPoint%') LIMIT 15",
-            'DDT-EEAT-07' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count >= 1000 AND is_noindex = FALSE {$relevanceFilter} LIMIT 15",
-            'DDT-EEAT-08' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
+            'DDT-EEAT-07' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count >= 1000 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} LIMIT 15",
+            'DDT-EEAT-08' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND has_zframe_mention = FALSE AND is_noindex = FALSE LIMIT 15",
 
             // Schema & Structured Data
-            'DDT-SD-002' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type IN ('core') AND schema_types NOT LIKE '%Organization%' AND is_noindex = FALSE LIMIT 15",
-            'DDT-SD-003' => "SELECT p.url, p.page_type, p.word_count, p.schema_types, p.h1, g.impressions FROM page_crawl_snapshots p LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.word_count >= 1000 AND p.schema_types NOT LIKE '%FAQPage%' AND p.is_noindex = FALSE AND g.impressions > 800 ORDER BY g.impressions DESC LIMIT 15",
+            'DDT-SD-002' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url = '/' AND schema_types NOT LIKE '%Organization%' AND is_noindex = FALSE LIMIT 1",
+            'DDT-SD-003' => "SELECT p.url, p.page_type, p.word_count, p.schema_types, p.h1, p.target_query, g.impressions FROM page_crawl_snapshots p LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.word_count >= 1000 AND p.schema_types NOT LIKE '%FAQPage%' AND p.is_noindex = FALSE AND p.is_utility = FALSE AND g.impressions > 800 ORDER BY g.impressions DESC LIMIT 15",
             'DDT-SD-004' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count <= 500 AND schema_types NOT LIKE '%AggregateRating%' AND is_noindex = FALSE LIMIT 15",
-            'DDT-SD-005' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url != '/' AND page_type NOT IN ('utility') AND schema_types NOT LIKE '%BreadcrumbList%' AND is_noindex = FALSE AND is_utility = FALSE LIMIT 15",
-            'DDT-SD-006' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type IN ('core') AND url IN ('/', '/horse-trailers/', '/gooseneck-horse-trailers/', '/bumper-pull-horse-trailers/', '/living-quarters-horse-trailers/') AND schema_types NOT LIKE '%ProductGroup%' AND word_count >= 0 LIMIT 15",
+            'DDT-SD-005' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url != '/' AND page_type NOT IN ('utility') AND schema_types NOT LIKE '%BreadcrumbList%' AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} LIMIT 15",
+            'DDT-SD-006' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url IN ('/', '/horse-trailers/', '/gooseneck-horse-trailers/', '/bumper-pull-horse-trailers/', '/living-quarters-horse-trailers/') AND schema_types NOT LIKE '%ProductGroup%' LIMIT 15",
 
             // Local & Dealer SEO
             'DDT-LOCAL-01' => "SELECT {$cols} FROM page_crawl_snapshots WHERE (url LIKE '%dealer%' OR url LIKE '%location%') AND schema_types NOT LIKE '%LocalBusiness%' AND is_noindex = FALSE AND is_utility = FALSE LIMIT 15",
             'DDT-LOCAL-02' => "SELECT {$cols} FROM page_crawl_snapshots WHERE (url LIKE '%dealer%' OR url LIKE '%location%') AND (word_count < 100 OR h1 IS NULL OR h1 = '') AND is_noindex = FALSE LIMIT 15",
             'DDT-LOCAL-03' => "SELECT {$cols} FROM page_crawl_snapshots WHERE (url LIKE '%dealer%' OR url LIKE '%location%') AND is_noindex = FALSE AND is_utility = FALSE LIMIT 15",
-            'DDT-LOCAL-04' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND (title_tag LIKE '%dealer%' OR title_tag LIKE '%trailer%in%' OR h1 LIKE '%dealer%') AND word_count < 1000 AND is_noindex = FALSE LIMIT 15",
+            'DDT-LOCAL-04' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND (title_tag LIKE '%dealer%' OR title_tag LIKE '%trailer%in%' OR h1 LIKE '%dealer%') AND word_count < 1000 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} LIMIT 15",
             'DDT-LOCAL-05' => "SELECT {$cols} FROM page_crawl_snapshots WHERE (url LIKE '%dealer%' OR url LIKE '%location%') AND is_noindex = FALSE AND is_utility = FALSE LIMIT 15",
 
-            // User Signals & Engagement (GSC joins)
-            'USE-R1' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.h1_matches_title, p.has_central_entity, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'core' AND g.impressions >= 500 AND g.position <= 15 AND g.ctr < 0.08 ORDER BY g.impressions DESC LIMIT 15",
-            'USE-R2' => "SELECT p.url, p.page_type, p.word_count, p.h1, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND g.impressions >= 1000 AND g.ctr < 0.01 ORDER BY g.impressions DESC LIMIT 15",
-            'USE-R3' => "SELECT p.url, p.page_type, p.word_count, p.has_central_entity, p.h1_matches_title, g.position, g.clicks, g.impressions FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'core' AND g.position <= 10 AND g.clicks >= 5 AND p.word_count < 150 ORDER BY g.clicks DESC LIMIT 15",
-            'USE-R4' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.h2s, g.impressions, g.clicks, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.word_count < 1000 AND g.impressions >= 500 AND g.position <= 30 ORDER BY g.impressions DESC LIMIT 15",
-            'USE-R5' => "SELECT p.url, p.page_type, p.word_count, p.h2s, p.h1_matches_title, g.impressions FROM page_crawl_snapshots p LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type IN ('core', 'outer') AND (p.h2s IS NULL OR p.h2s = '[]' OR p.h2s = '') AND p.word_count > 300 AND p.is_noindex = FALSE ORDER BY g.impressions DESC NULLS LAST LIMIT 15",
-            'USE-R6' => "SELECT p.url, p.page_type, p.h1, p.title_tag, p.meta_description, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND g.impressions >= 300 AND g.position <= 20 AND g.ctr < 0.025 ORDER BY g.impressions DESC LIMIT 15",
-            'USE-R7' => "SELECT p.url, p.page_type, p.has_central_entity, p.word_count, p.schema_types, p.h1_matches_title, g.impressions, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.has_central_entity = FALSE AND g.impressions >= 200 AND g.position <= 20 AND p.page_type IN ('core', 'outer') AND p.is_noindex = FALSE ORDER BY g.impressions DESC LIMIT 15",
+            // User Signals & Engagement (GSC joins — already have impressions filter = relevance built in)
+            'USE-R1' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.h1_matches_title, p.has_central_entity, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'core' AND p.is_utility = FALSE AND g.impressions >= 500 AND g.position <= 15 AND g.ctr < 0.08 ORDER BY g.impressions DESC LIMIT 15",
+            'USE-R2' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND g.impressions >= 1000 AND g.ctr < 0.01 ORDER BY g.impressions DESC LIMIT 15",
+            'USE-R3' => "SELECT p.url, p.page_type, p.word_count, p.has_central_entity, p.h1_matches_title, p.target_query, g.position, g.clicks, g.impressions FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'core' AND g.position <= 10 AND g.clicks >= 5 AND p.word_count < 150 ORDER BY g.clicks DESC LIMIT 15",
+            'USE-R4' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.h2s, p.target_query, g.impressions, g.clicks, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND p.word_count < 1000 AND g.impressions >= 500 AND g.position <= 30 ORDER BY g.impressions DESC LIMIT 15",
+            'USE-R5' => "SELECT p.url, p.page_type, p.word_count, p.h2s, p.h1_matches_title, p.target_query, g.impressions FROM page_crawl_snapshots p LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type IN ('core', 'outer') AND p.is_utility = FALSE AND (p.h2s IS NULL OR p.h2s = '[]' OR p.h2s = '') AND p.word_count > 300 AND p.is_noindex = FALSE ORDER BY g.impressions DESC NULLS LAST LIMIT 15",
+            'USE-R6' => "SELECT p.url, p.page_type, p.h1, p.title_tag, p.meta_description, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND g.impressions >= 300 AND g.position <= 20 AND g.ctr < 0.025 ORDER BY g.impressions DESC LIMIT 15",
+            'USE-R7' => "SELECT p.url, p.page_type, p.has_central_entity, p.word_count, p.schema_types, p.h1_matches_title, p.target_query, g.impressions, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.has_central_entity = FALSE AND g.impressions >= 200 AND g.position <= 20 AND p.page_type IN ('core', 'outer') AND p.is_noindex = FALSE AND p.is_utility = FALSE ORDER BY g.impressions DESC LIMIT 15",
 
             // Keyword & Intent Alignment (GSC)
             'KIA-R2' => "SELECT query, COUNT(DISTINCT page) AS page_count, SUM(impressions) as total_imp, AVG(position) as avg_pos FROM gsc_snapshots WHERE position <= 20 GROUP BY query HAVING COUNT(DISTINCT page) > 1 AND SUM(impressions) > 100 ORDER BY total_imp DESC LIMIT 15",
-            'KIA-R3' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND (word_count = 0 OR has_central_entity = FALSE OR h1_matches_title = FALSE OR word_count > 500) AND is_noindex = FALSE LIMIT 15",
+            'KIA-R3' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND (word_count = 0 OR has_central_entity = FALSE OR h1_matches_title = FALSE) AND is_noindex = FALSE LIMIT 15",
             'KIA-R4' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE g.impressions > 5000 AND g.position > 10 AND (g.query LIKE '%horse trailer%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%z-frame%' OR g.query LIKE '%safetack%') GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
             'KIA-R5' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%2 horse%' OR g.query LIKE '%3 horse%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%safetack%') AND g.impressions > 100 AND g.position > 30 GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
-            'KIA-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE {$relevanceFilter} LIMIT 15",
+            'KIA-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} LIMIT 15",
             'KIA-R7' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%benefits%' OR g.query LIKE '%vs%' OR g.query LIKE '%safetack%') AND g.impressions > 500 AND g.position > 20 GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
-            'KIA-R8' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE LIMIT 15",
+            'KIA-R8' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND internal_link_count > 3 AND is_noindex = FALSE ORDER BY internal_link_count DESC LIMIT 15",
 
-            // Competitive Intelligence (mostly GSC-based)
+            // Competitive Intelligence (mostly GSC-based — already filtered by impressions)
             'CI-R1' => "SELECT g.query, g.page, g.position, g.impressions, g.clicks, g.ctr FROM gsc_snapshots g JOIN page_crawl_snapshots p ON g.page LIKE CONCAT('%', p.url) WHERE g.position > 10 AND g.impressions > 500 AND p.page_type = 'core' ORDER BY g.impressions DESC LIMIT 15",
             'CI-R4' => "SELECT g.query, g.page, g.position, g.impressions, g.clicks FROM gsc_snapshots g WHERE g.impressions > 1000 ORDER BY g.impressions DESC LIMIT 15",
-            'CI-R6' => "SELECT p.url, p.title_tag, p.meta_description, p.page_type, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE g.impressions > 5000 AND g.position < 10 AND g.ctr < 0.05 AND p.page_type IN ('core', 'outer') ORDER BY g.impressions DESC LIMIT 15",
+            'CI-R6' => "SELECT p.url, p.title_tag, p.meta_description, p.page_type, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE g.impressions > 5000 AND g.position < 10 AND g.ctr < 0.05 AND p.page_type IN ('core', 'outer') AND p.is_utility = FALSE ORDER BY g.impressions DESC LIMIT 15",
 
-            // Content Freshness
-            'CFL-04' => "SELECT p.url, p.word_count, p.page_type, g.impressions, g.clicks, g.position, g.ctr FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.word_count >= 1000 AND p.is_noindex = FALSE AND g.impressions > 1000 AND g.position > 15 AND g.ctr < 0.02 ORDER BY g.impressions DESC LIMIT 15",
+            // Content Freshness (already filtered by impressions)
+            'CFL-04' => "SELECT p.url, p.word_count, p.page_type, p.target_query, g.impressions, g.clicks, g.position, g.ctr FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND p.word_count >= 1000 AND p.is_noindex = FALSE AND g.impressions > 1000 AND g.position > 15 AND g.ctr < 0.02 ORDER BY g.impressions DESC LIMIT 15",
 
-            // Media & Asset Optimization (simplified — can't check actual image alt text)
-            'MAO-R1' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
-            'MAO-R2' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count >= 1000 AND is_noindex = FALSE {$relevanceFilter} LIMIT 15",
-            'MAO-R4' => "SELECT {$cols} FROM page_crawl_snapshots WHERE schema_types NOT LIKE '%VideoObject%' AND is_noindex = FALSE AND page_type IN ('core', 'outer') LIMIT 15",
+            // Media & Asset Optimization
+            'MAO-R1' => "SELECT {$cols}, images_without_alt FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND images_without_alt > 0 AND is_noindex = FALSE ORDER BY images_without_alt DESC LIMIT 15",
+            'MAO-R2' => "SELECT {$cols}, images_without_alt FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count >= 1000 AND images_without_alt > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} ORDER BY images_without_alt DESC LIMIT 15",
+            'MAO-R4' => "SELECT {$cols}, has_main_content_video, video_metadata_valid, video_topic_aligned FROM page_crawl_snapshots WHERE has_main_content_video = TRUE AND video_metadata_valid = TRUE AND video_topic_aligned = TRUE AND schema_types NOT LIKE '%VideoObject%' AND is_noindex = FALSE AND is_utility = FALSE LIMIT 15",
             'MAO-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url LIKE '%.pdf' LIMIT 15",
-            'MAO-R7' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type IN ('core', 'outer') AND is_noindex = FALSE {$relevanceFilter} LIMIT 15",
+            'MAO-R7' => "SELECT {$cols}, images_with_generic_alt FROM page_crawl_snapshots WHERE page_type IN ('core', 'outer') AND images_with_generic_alt > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} ORDER BY images_with_generic_alt DESC LIMIT 15",
 
             // Internal Link Architecture
-            'ILA-004' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE LIMIT 15",
+            'ILA-004' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE AND url_depth > 3 ORDER BY url_depth DESC LIMIT 15",
             'ILA-005' => "SELECT {$cols} FROM page_crawl_snapshots WHERE internal_link_count > 3 AND page_type IN ('core', 'outer') AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} ORDER BY internal_link_count DESC LIMIT 15",
-            'ILA-006' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE LIMIT 15",
-            'ILA-007' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE LIMIT 15",
+            'ILA-006' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE AND has_core_link = FALSE LIMIT 15",
+            'ILA-007' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE AND url_depth > 3 ORDER BY url_depth DESC LIMIT 15",
 
             // TECH rules
             'TECH-R1' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = TRUE AND http_status = 200 LIMIT 15",
@@ -1671,3 +1671,7 @@ GLOSSARY;
         }
     }
 }
+
+    
+
+    
