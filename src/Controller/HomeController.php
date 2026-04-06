@@ -2278,10 +2278,11 @@ PROMPT;
                     if (empty($row['schema_types']) || $row['schema_types'] === '[]')  $flags[] = 'FC-R9:no-schema';
                 }
                 if (empty($flags)) continue;
-                $h1short = substr($row['h1'] ?? '(none)', 0, 50);
+                $h1short = substr($row['h1'] ?? '(none)', 0, 120);
+                $titleTag = substr($row['title_tag'] ?? '(none)', 0, 120);
                 $tq = $row['target_query'] ?? null;
                 $tqInfo = $tq ? " | Target: \"{$tq}\" (pos:" . ($row['target_query_position'] ?? '?') . ", imp:" . ($row['target_query_impressions'] ?? 0) . ")" : '';
-                $intro .= "- {$row['url']} [{$row['page_type']}] " . implode(', ', $flags) . " | H1: \"{$h1short}\"{$tqInfo}\n";
+                $intro .= "- {$row['url']} [{$row['page_type']}] " . implode(', ', $flags) . " | H1: \"{$h1short}\" | Title: \"{$titleTag}\"{$tqInfo}\n";
             }
 
                         // Rule violation summaries for quick Logiri parsing
