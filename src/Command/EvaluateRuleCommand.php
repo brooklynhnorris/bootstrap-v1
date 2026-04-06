@@ -565,11 +565,26 @@ PROMPT;
             // Non-fatal — SERP data not available
         }
 
+        // Load learnings from chat_learnings for memory injection
+        $memorySection = '';
+        try {
+            $learnings = $this->db->fetchAllAssociative(
+                "SELECT learning, category FROM chat_learnings WHERE is_active = TRUE ORDER BY confidence DESC LIMIT 20"
+            );
+            if (!empty($learnings)) {
+                $memorySection = "\nYOUR MEMORY (learnings from past conversations — apply these to all output):\n";
+                foreach ($learnings as $l) {
+                    $memorySection .= "- [{$l['category']}] {$l['learning']}\n";
+                }
+                $memorySection .= "\n";
+            }
+        } catch (\Exception $e) {}
+
         return <<<PROMPT
 You are Logiri, an SEO intelligence engine for doubledtrailers.com (Double D Trailers — custom horse trailer manufacturer).
 
 Your job: produce ONE PLAY BRIEF per affected page. A play brief is a task ticket — specific, actionable, copy-paste ready.
-
+{$memorySection}
 BRAND TERMINOLOGY (use ONLY these terms — do NOT invent product names):
 {$brandGlossary}
 
@@ -1094,6 +1109,12 @@ PROMPT;
             // dedup guards, and accurate column references. Use these first.
             $simplifiedQuery = $this->getSimplifiedQuery($ruleId, $tc);
             if ($simplifiedQuery) {
+                // Inject global media exclusion into every query
+                $simplifiedQuery = preg_replace(
+                    '/\bLIMIT\b/i',
+                    "AND url NOT LIKE '%/wp-content/%' AND url NOT LIKE '%.png' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.jpeg' AND url NOT LIKE '%.gif' AND url NOT LIKE '%.pdf' AND url NOT LIKE '%.svg' LIMIT",
+                    $simplifiedQuery
+                );
                 try {
                     $results = $this->db->fetchAllAssociative($simplifiedQuery);
                     if (!empty($results)) return $results;
@@ -1210,7 +1231,11 @@ PROMPT;
         $cols = "url, page_type, word_count, h1, title_tag, has_central_entity, central_entity_count, schema_types, h1_matches_title, h2s, has_core_link, canonical_url, is_noindex, internal_links, internal_link_count, target_query, target_query_impressions, target_query_position";
 
         // Relevance filter — exclude pages with zero GSC presence unless they're core product pages
-        $relevanceFilter = "AND (page_type = 'core' OR target_query IS NOT NULL OR target_query_impressions > 0)";
+        // Also exclude wp-content/media assets that shouldn't be in the table at all
+        $relevanceFilter = "AND (page_type = 'core' OR target_query IS NOT NULL OR target_query_impressions > 0) AND url NOT LIKE '%/wp-content/%' AND url NOT LIKE '%.png' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.pdf'";
+
+        // Media exclusion — always applied, even to core-only queries
+        $noMedia = "AND url NOT LIKE '%/wp-content/%' AND url NOT LIKE '%.png' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.jpeg' AND url NOT LIKE '%.gif' AND url NOT LIKE '%.pdf' AND url NOT LIKE '%.svg'";
 
         return match($ruleId) {
             // Entity & Topical Authority
@@ -1708,7 +1733,3 @@ GLOSSARY;
         }
     }
 }
-
-    
-
-    

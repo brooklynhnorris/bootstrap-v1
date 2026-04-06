@@ -2310,10 +2310,18 @@
             const detailPanel = document.getElementById('task-detail-panel');
             if (detailPanel) detailPanel.style.display = 'none';
 
+            // Close results detail panel if open
+            const rdp = document.getElementById('results-detail-panel');
+            if (rdp) rdp.classList.remove('open');
+
             if (currentTaskId === taskId) currentTaskId = null;
 
-            // Return to dashboard
-            switchView('dashboard');
+            // Return to current view and refresh
+            if (currentView === 'results') {
+                loadResultsView();
+            } else {
+                switchView('dashboard');
+            }
             await refreshTasksPanel();
 
             showNotification('Task closed as ' + type + (reason ? ': ' + reason.substring(0, 50) : ''), 'green');
@@ -3748,20 +3756,27 @@
                 html += '<div style="font-size:12px;color:var(--text-secondary);line-height:1.6;white-space:pre-wrap;">' + escapeHtml(t.description.substring(0, 800)) + '</div>';
             }
 
-            // ── Action buttons for fail/partial tasks ──
-            if (t && t.recheck_verified) {
+            // ── Action buttons ──
+            if (t) {
+                html += '<div class="rdp-section-title">Actions</div>';
+                html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+
                 const result = (t.recheck_result || '').toLowerCase();
-                if (result === 'fail' || result === 'partial') {
-                    html += '<div class="rdp-section-title">Actions</div>';
-                    html += '<div style="display:flex;gap:8px;flex-wrap:wrap;">';
+
+                // Retry and Revise for fail/partial
+                if (t.recheck_verified && (result === 'fail' || result === 'partial')) {
                     html += '<button class="rdp-action-btn retry" onclick="retryPlay(' + t.id + ')">↻ Retry Play</button>';
                     if (t.rule_id) {
                         html += '<button class="rdp-action-btn revise" onclick="reviseRule(\'' + escapeHtml(t.rule_id) + '\', ' + t.id + ')">✎ Revise Rule</button>';
                     }
-                    html += '</div>';
-                    if (t.attempt_number && t.attempt_number > 1) {
-                        html += '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">This was attempt #' + t.attempt_number + '</div>';
-                    }
+                }
+
+                // Close button — always available
+                html += '<button onclick="showDismissModal(' + t.id + ')" style="padding:6px 14px;border:1px solid #fecaca;border-radius:6px;background:#fef2f2;color:var(--accent-red);font-size:12px;font-weight:600;cursor:pointer;">✕ Close</button>';
+
+                html += '</div>';
+                if (t.attempt_number && t.attempt_number > 1) {
+                    html += '<div style="font-size:11px;color:var(--text-muted);margin-top:6px;">This was attempt #' + t.attempt_number + '</div>';
                 }
             }
 

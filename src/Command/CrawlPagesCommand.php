@@ -104,8 +104,10 @@ class CrawlPagesCommand extends Command
         }
 
         if (!$singleUrl) {
+            // Clean up any stale media/image entries from previous crawls
+            $this->db->executeStatement("DELETE FROM page_crawl_snapshots WHERE url LIKE '%/wp-content/%' OR url LIKE '%.png' OR url LIKE '%.jpg' OR url LIKE '%.jpeg' OR url LIKE '%.gif' OR url LIKE '%.svg' OR url LIKE '%.pdf' OR url LIKE '%.mp4' OR url LIKE '%.mp3' OR url LIKE '%.zip' OR url LIKE '%.css' OR url LIKE '%.js'");
             $this->db->executeStatement('DELETE FROM page_crawl_snapshots');
-            $output->writeln('Cleared old crawl data.');
+            $output->writeln('Cleared old crawl data (including stale media entries).');
         }
 
         $crawled = 0;
@@ -582,7 +584,7 @@ class CrawlPagesCommand extends Command
             'http' => [
                 'method'          => 'GET',
                 'header'          => "User-Agent: Mozilla/5.0 (compatible; LogiriBot/1.0)\r\nAccept: text/html",
-                'timeout'         => 15,
+                'timeout'         => 30,
                 'follow_location' => 1,
                 'max_redirects'   => 3,
                 'ignore_errors'   => true,
@@ -721,6 +723,9 @@ class CrawlPagesCommand extends Command
             '//*[@class="entry-content"]',
             '//*[@class="page-content"]',
             '//*[@class="post-content"]',
+            '//*[@role="main"]',
+            '//*[contains(@class,"site-content")]',
+            '//*[contains(@class,"main-content")]',
         ];
 
         $contentText = '';
@@ -729,6 +734,29 @@ class CrawlPagesCommand extends Command
             if ($nodes->length > 0) {
                 $contentText = $this->extractCleanText($nodes->item(0), $xpath);
                 break;
+            }
+        }
+
+        // If primary selectors found too little content, aggregate from page builder sections
+        if (str_word_count(trim($contentText)) < 100) {
+            $builderSelectors = [
+                '//*[contains(@class,"ct-section")]',   // Oxygen Builder
+                '//*[contains(@class,"elementor-section")]', // Elementor
+                '//*[contains(@class,"fl-row")]',       // Beaver Builder
+                '//*[contains(@class,"et_pb_section")]', // Divi
+            ];
+            foreach ($builderSelectors as $bSel) {
+                $bNodes = $xpath->query($bSel);
+                if ($bNodes->length > 0) {
+                    $builderText = '';
+                    foreach ($bNodes as $bNode) {
+                        $builderText .= ' ' . $this->extractCleanText($bNode, $xpath);
+                    }
+                    if (str_word_count(trim($builderText)) > str_word_count(trim($contentText))) {
+                        $contentText = trim($builderText);
+                    }
+                    break;
+                }
             }
         }
 
@@ -1542,7 +1570,14 @@ class CrawlPagesCommand extends Command
             $paths[] = $core;
         }
 
-        return array_slice(array_unique($paths), 0, $limit);
+        // Filter out media/asset URLs that shouldn't be crawled as pages
+        $paths = array_filter($paths, function($p) {
+            if (str_contains($p, '/wp-content/')) return false;
+            if (preg_match('/\.(jpg|jpeg|png|gif|webp|svg|pdf|mp4|mp3|zip|css|js)$/i', $p)) return false;
+            return true;
+        });
+
+        return array_slice(array_unique(array_values($paths)), 0, $limit);
     }
 
     /**

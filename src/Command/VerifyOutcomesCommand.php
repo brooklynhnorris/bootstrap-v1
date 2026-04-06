@@ -541,7 +541,7 @@ class VerifyOutcomesCommand extends Command
 
     private function determineVerdict(string $ruleId, array $changes): array
     {
-        // Match threshold by rule ID prefix (e.g., OPQ-001 matches 'OPQ', DDT-SD-002 matches 'DDT-SD')
+        // Match threshold by rule ID prefix
         $threshold = self::THRESHOLDS['DEFAULT'];
         foreach (self::THRESHOLDS as $prefix => $t) {
             if ($prefix !== 'DEFAULT' && str_starts_with($ruleId, $prefix)) {
@@ -558,32 +558,77 @@ class VerifyOutcomesCommand extends Command
         $fromZero = $changes[$metric]['from_zero'] ?? false;
 
         // SPECIAL CASE: "From zero" — page wasn't in the index before, now it is.
-        // Any emergence in search (impressions > 0, or position gained) is a PASS.
         if ($fromZero) {
-            // For position: emerged in search results — always a win
             if ($metric === 'position') {
                 $status     = 'PASS';
                 $reason     = "Fix succeeded: page emerged in search results (position 0 → {$changes['position']['after']}).";
                 $nextAction = "Close task. Schedule 30-day stability check.";
                 return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => 100];
             }
-            // For impressions/clicks/ctr: went from invisible to visible
             $status     = 'PASS';
             $reason     = "Fix succeeded: {$metric} went from 0 to {$changes[$metric]['after']} (page was previously not ranking).";
             $nextAction = "Close task. Schedule 30-day stability check.";
             return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => 100];
         }
 
-        // Also check: if impressions emerged from zero even if the tracked metric is something else
+        // Also check: if impressions emerged from zero
         $impressionsFromZero = $changes['impressions']['from_zero'] ?? false;
         if ($impressionsFromZero && ($changes['impressions']['after'] ?? 0) > 50) {
             $status     = 'PASS';
-            $reason     = "Fix succeeded: page emerged in search (impressions 0 → {$changes['impressions']['after']}) even though tracked {$metric} didn't meet threshold.";
+            $reason     = "Fix succeeded: page emerged in search (impressions 0 → {$changes['impressions']['after']}).";
             $nextAction = "Close task. Schedule 30-day stability check.";
             return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => 'impressions', 'improvement_pct' => 100];
         }
 
-        // Position is special — negative delta = improvement (moved up)
+        // ── POSITION-TIER AWARE LOGIC ──
+        // When the primary metric is CTR but the page is at position 20+,
+        // CTR is irrelevant — use position improvement instead.
+        $posAfter  = (float) ($changes['position']['after'] ?? 0);
+        $posBefore = (float) ($changes['position']['before'] ?? 0);
+        $posDelta  = $posAfter - $posBefore; // negative = improvement
+
+        if ($metric === 'ctr' && $posBefore > 20) {
+            // Page is outside clickable range — judge on position, not CTR
+            if ($posDelta <= -3) {
+                return [
+                    'status' => 'PASS',
+                    'reason' => "Fix succeeded: position improved from {$posBefore} to {$posAfter} ({$posDelta} spots). CTR is not a valid metric at position {$posBefore} — judging on position gain instead.",
+                    'next_action' => "Close task. Page needs to reach position ≤20 before CTR becomes meaningful. Schedule 30-day stability check.",
+                    'metric' => 'position',
+                    'improvement_pct' => round(abs($posDelta / max($posBefore, 1)) * 100, 1),
+                ];
+            } elseif ($posDelta <= -1) {
+                return [
+                    'status' => 'PARTIAL',
+                    'reason' => "Partial improvement: position moved from {$posBefore} to {$posAfter} ({$posDelta} spots). Page still outside clickable range (position > 20) — CTR metric is deferred until page reaches top 20.",
+                    'next_action' => "Strengthen content and internal link signals. Re-verify in 14 days. Target: position ≤20.",
+                    'metric' => 'position',
+                    'improvement_pct' => round(abs($posDelta / max($posBefore, 1)) * 100, 1),
+                ];
+            }
+            // No position improvement either — genuine fail
+        }
+
+        // ── MULTI-SIGNAL PASS ──
+        // If the primary metric didn't pass but position improved significantly
+        // AND impressions held or grew, treat as PARTIAL rather than FAIL
+        $impDeltaPct = $changes['impressions']['delta_pct'] ?? 0;
+        if ($posDelta <= -3 && $impDeltaPct >= 0) {
+            // Position improved 3+ spots AND impressions didn't drop — not a failure
+            $improvement = ($metric === 'position') ? ($delta * -1) : $delta;
+            $improvPct   = ($metric === 'position') ? ($deltaPct * -1) : $deltaPct;
+            if ($improvPct < $partialThreshold && $improvement < $partialThreshold) {
+                return [
+                    'status' => 'PARTIAL',
+                    'reason' => "Primary metric ({$metric}) didn't meet threshold, but position improved {$posDelta} spots and impressions held. Multi-signal assessment: partial success.",
+                    'next_action' => "Continue monitoring. The ranking improvement suggests the fix is being processed. Re-verify in 14 days.",
+                    'metric' => $metric,
+                    'improvement_pct' => $improvPct,
+                ];
+            }
+        }
+
+        // Standard threshold check
         $improvement = ($metric === 'position') ? ($delta * -1) : $delta;
         $improvPct   = ($metric === 'position') ? ($deltaPct * -1) : $deltaPct;
 
@@ -899,45 +944,70 @@ class VerifyOutcomesCommand extends Command
         $schemaContext = '';
         $reviewSchemaErrors = $review['schema_errors'] ?? [];
         if (!empty($reviewSchemaErrors)) {
-            $schemaContext = "\nSCHEMA VALIDATION ERRORS FOUND ON THIS PAGE:\n";
-            foreach ($reviewSchemaErrors as $err) {
-                $schemaContext .= "- {$err}\n";
-            }
-            $schemaContext .= "These errors were detected by Logiri's crawl-time JSON-LD validator. Google Search Console has also flagged similar issues.\n";
+            $schemaContext = "\nSCHEMA ERRORS ON PAGE: " . implode('; ', array_slice($reviewSchemaErrors, 0, 3));
         }
 
-        $prompt = <<<PROMPT
-You are the Logiri SEO learning engine for Double D Trailers (doubledtrailers.com).
+        // Content diff context
+        $contentDiffContext = '';
+        if (!empty($review['content_diff'])) {
+            $contentDiffContext = "\nCONTENT DIFF: " . implode('; ', $review['content_diff']);
+        }
 
-A task was completed and the outcome has been verified against Google Search Console data.
+        // Get current crawl data for this URL
+        $crawlContext = '';
+        try {
+            $crawl = $this->db->fetchAssociative(
+                "SELECT word_count, target_query, target_query_impressions, target_query_position, 
+                        has_zframe_mention, has_zframe_definition, internal_link_count, 
+                        has_main_content_video, page_type, schema_types
+                 FROM page_crawl_snapshots WHERE url = :url LIMIT 1",
+                ['url' => $url]
+            );
+            if ($crawl) {
+                $crawlContext = "\nCURRENT CRAWL DATA:";
+                $crawlContext .= "\n  page_type: " . ($crawl['page_type'] ?? '?');
+                $crawlContext .= " | word_count: " . ($crawl['word_count'] ?? '?');
+                $crawlContext .= " | target_query: " . ($crawl['target_query'] ?? 'NONE');
+                $crawlContext .= " | target_position: " . ($crawl['target_query_position'] ?? '?');
+                $crawlContext .= " | internal_links: " . ($crawl['internal_link_count'] ?? '?');
+                $crawlContext .= " | has_video: " . ($crawl['has_main_content_video'] ? 'YES' : 'NO');
+                $crawlContext .= " | schema: " . ($crawl['schema_types'] ?? 'none');
+            }
+        } catch (\Exception $e) {}
+
+        $posAfter = (float) ($changes['position']['after'] ?? 0);
+
+        $prompt = <<<PROMPT
+You are analyzing an SEO task outcome for Double D Trailers. Be CONCRETE and DATA-DRIVEN. No generic SEO theory.
 
 RULE: {$ruleId}
 URL: {$url}
 TASK: {$taskTitle}
-ORIGINAL PLAY BRIEF (summary): {$taskDesc}
+BRIEF: {$taskDesc}
 OUTCOME: {$status}
-COMPLETED BY: {$assignee}
-
-GSC BEFORE → AFTER (28-day window):
-{$gscSummary}
+{$crawlContext}
 {$schemaContext}
+{$contentDiffContext}
 
-Based on this outcome, respond with EXACTLY this JSON structure (no markdown, no backticks):
+GSC (28-day before → after):
+{$gscSummary}
+
+Respond with EXACTLY this JSON (no markdown, no backticks):
 {
-  "summary": "2-3 sentence personalized feedback for {$assignee}. If PASS: what worked and why. If PARTIAL: what partially worked and what to try next. If FAIL: honest assessment of why it didn't work.",
-  "what_worked": "Specific element of the fix that drove improvement (or 'Nothing measurable' for FAIL)",
-  "what_didnt_work": "What didn't produce expected results (or 'N/A' for PASS)",
-  "winning_pattern": "If PASS or PARTIAL: a reusable pattern other pages can follow. If FAIL: null",
-  "rule_proposal": "If FAIL: propose a specific modification to rule {$ruleId} — what should the rule check differently? If PASS/PARTIAL: null",
-  "change_type": "One of: none, refine_threshold, modify_diagnosis, modify_action, deprecate_rule, split_rule"
+  "summary": "1-2 sentences. State the DATA: what moved, what didn't, and ONE specific reason why. No generic commentary.",
+  "what_worked": "Name the EXACT change that drove improvement. Reference the specific metric and delta. Or 'Nothing measurable' if FAIL.",
+  "what_didnt_work": "Name what DIDN'T improve and why, using the crawl data. Or 'N/A' for clean PASS.",
+  "rule_proposal": "ONLY for FAIL: propose ONE specific, executable change to rule {$ruleId}. Reference actual field names (internal_link_count, target_query_position, word_count, etc.). Or null for PASS/PARTIAL.",
+  "change_type": "One of: none, refine_threshold, modify_diagnosis, modify_action, review_rule, split_rule"
 }
 
-IMPORTANT:
-- Be specific to Double D Trailers: reference Z-Frame, SafeTack, SafeBump, SafeKick where relevant
-- For PASS: identify the exact signal that improved (not generic "good job")
-- For FAIL: be honest — was the rule's theory wrong, or was the fix insufficient?
-- Keep summary under 100 words
-- Do NOT wrap in markdown code blocks
+RULES:
+- NEVER say "suggesting some on-page signal was registered" — that's filler. Say what the signal IS.
+- NEVER propose splitting a rule unless you have concrete evidence both halves would fire differently.
+- If position > 30: CTR commentary is irrelevant. Don't mention CTR.
+- If the task was about adding video schema but has_main_content_video = NO: the rule fired incorrectly. Say that.
+- If target_query is NONE: say the page has no GSC query assignment and may not be worth optimizing.
+- Keep everything under 50 words per field.
 PROMPT;
 
         try {
@@ -947,7 +1017,7 @@ PROMPT;
                 CURLOPT_POST           => true,
                 CURLOPT_POSTFIELDS     => json_encode([
                     'model'      => 'claude-sonnet-4-6',
-                    'max_tokens' => 800,
+                    'max_tokens' => 600,
                     'messages'   => [['role' => 'user', 'content' => $prompt]],
                 ]),
                 CURLOPT_HTTPHEADER => [

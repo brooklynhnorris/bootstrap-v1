@@ -1034,7 +1034,11 @@ class HomeController extends AbstractController
 
                 // Also store as an immediate chat learning so Logiri remembers this NOW
                 if ($reason && strlen($reason) > 10) {
-                    $learning = "Rule {$ruleId} task dismissed ({$dismissType}): {$reason}";
+                    $taskUrl = '';
+                    if (preg_match('|(/[a-z0-9_-]+/)|i', $task['title'] ?? '', $urlMatch)) {
+                        $taskUrl = " on {$urlMatch[1]}";
+                    }
+                    $learning = "Rule {$ruleId} task dismissed ({$dismissType}){$taskUrl}: {$reason}";
                     $existingLearning = $this->db->fetchOne(
                         "SELECT COUNT(*) FROM chat_learnings WHERE learning ILIKE ? AND is_active = TRUE",
                         ['%' . substr($reason, 0, 50) . '%']
@@ -2520,5 +2524,3 @@ PROMPT;
         }
     }
 }
-
-    
