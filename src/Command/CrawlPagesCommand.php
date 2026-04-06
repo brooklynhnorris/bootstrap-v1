@@ -1251,6 +1251,7 @@ class CrawlPagesCommand extends Command
         $imagesWithoutAlt = 0;
         $imagesWithGenericAlt = 0;
         $hasLazyHeroImage = false;
+        $imageAltData = []; // Per-image src + alt for play cards
         $genericAltPatterns = ['image', 'photo', 'picture', 'img', 'dsc', 'untitled', 'screenshot'];
         
         $allImgNodes = $xpath->query('//body//img');
@@ -1258,7 +1259,18 @@ class CrawlPagesCommand extends Command
         foreach ($allImgNodes as $img) {
             $imgIndex++;
             $alt = $img->getAttribute('alt');
+            $src = $img->getAttribute('src');
             $loading = $img->getAttribute('loading');
+
+            // Store per-image data (limit to 30 images to avoid bloat)
+            if ($imgIndex <= 30 && $src) {
+                // Extract just the filename from the src
+                $filename = basename(parse_url($src, PHP_URL_PATH) ?: $src);
+                $imageAltData[] = [
+                    'src' => substr($filename, 0, 120),
+                    'alt' => $alt ?: null,
+                ];
+            }
             
             // Check for missing alt
             if (empty($alt)) {
@@ -1401,6 +1413,7 @@ class CrawlPagesCommand extends Command
             'question_h2_count'    => $questionH2Count,
             'images_without_alt'   => $imagesWithoutAlt,
             'images_with_generic_alt' => $imagesWithGenericAlt,
+            'image_alt_data'       => !empty($imageAltData) ? $sanitizeUtf8(json_encode($imageAltData)) : null,
             'has_lazy_hero_image'  => $hasLazyHeroImage ? 1 : 0,
             'mobile_viewport_set'  => $mobileViewportSet ? 1 : 0,
             // GSC target query (auto-inferred from top impressions)
@@ -1828,6 +1841,7 @@ class CrawlPagesCommand extends Command
                 'largest_image_kb'    => 'INT DEFAULT NULL',           // MAO-02
                 'images_without_alt'  => 'INT DEFAULT 0',              // MAO-01, MAO-02
                 'images_with_generic_alt' => 'INT DEFAULT 0',          // MAO-01
+                'image_alt_data'      => 'JSONB DEFAULT NULL',           // MAO-01: per-image src + alt for play cards
                 'has_lazy_hero_image' => 'BOOLEAN DEFAULT FALSE',      // CWV-R7
                 'mobile_viewport_set' => 'BOOLEAN DEFAULT FALSE',      // CTA-F6
                 'target_query'        => 'TEXT DEFAULT NULL',          // GSC: top query by impressions

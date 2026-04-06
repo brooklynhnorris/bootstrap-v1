@@ -282,6 +282,7 @@ class HomeController extends AbstractController
                                 schema_types, is_noindex, internal_link_count,
                                 image_count, has_faq_section, has_product_image,
                                 schema_errors, meta_description, first_sentence_text,
+                                images_without_alt, images_with_generic_alt, image_alt_data,
                                 target_query, target_query_impressions, target_query_position, target_query_clicks
                          FROM page_crawl_snapshots
                          WHERE url = ?
@@ -2196,6 +2197,8 @@ PROMPT;
         $intro .= "\n5. Keep the play to ONE role's actions when possible. If multiple roles are needed, separate with headers per person.";
         $intro .= "\n6. NEVER diagnose a problem without prescribing the fix. If you can't prescribe it, don't mention it.";
         $intro .= "\n7. LINK TARGETS MUST EXIST: When a play says 'link to X' or 'add internal links to these pages', EVERY target URL must appear in the CRAWL DATA below. If a URL is not in the crawl data, it does not exist on the site. NEVER suggest linking to /horse-trailers/, /about/, or any URL you assume should exist. Check the crawl data first. If no suitable link target exists in crawl data, say so — do not invent one.";
+        $intro .= "\n8. SINGLE RULE SCOPE: The play card title contains a rule ID (e.g. [MAO-R1], [FC-R3], [ILA-004]). Your play must ONLY address that specific rule. Do NOT bundle fixes for other rules into the same play. If you notice other violations on the page, mention them BRIEFLY at the end as 'Also flagged: [rule] — separate play needed' but do NOT include them in YOUR PLAY or SUCCESS criteria. Example: if the task is [MAO-R1] about alt text, do NOT add title tag fixes or schema deployment — those are separate plays for separate rules.";
+        $intro .= "\n9. SHOW YOUR DATA: When a play involves specific page elements (images, links, headings), list the actual elements from crawl data. For image alt text plays, show each image filename and its current alt. For link plays, show the actual links found. Do not say 'apply values from the table' or 'see your task description' — the play card IS the task description. If the crawl data doesn't have per-element detail, say so and tell the user to check the page source manually.";
         $intro .= "\n- At the END of every response that generates tasks, append ONLY the raw JSON block below — nothing else after it. The JSON must be the LAST thing in your response. Do NOT write any text after the closing <!-- /TASKS_JSON --> tag. Do NOT output JSON anywhere else in your response outside these tags.";
         $intro .= "\n<!-- TASKS_JSON -->";
         $intro .= "\n[{\"title\":\"Example\",\"assigned_to\":\"Brook\",\"priority\":\"high\",\"estimated_hours\":2,\"recheck_type\":\"h1_fix\",\"recheck_days\":7,\"recheck_criteria\":\"h1_matches_title = TRUE for /example/\",\"description\":\"Example\"}]";
@@ -2403,6 +2406,19 @@ PROMPT;
             $intro .= "Image count: " . ($playUrlData['image_count'] ?? 0) . "\n";
             $intro .= "Has FAQ section: " . $toBoolStr($playUrlData['has_faq_section']) . "\n";
             $intro .= "Has product image: " . $toBoolStr($playUrlData['has_product_image']) . "\n";
+            $intro .= "Images without alt: " . ($playUrlData['images_without_alt'] ?? 0) . "\n";
+            $intro .= "Images with generic alt: " . ($playUrlData['images_with_generic_alt'] ?? 0) . "\n";
+            // Per-image data for alt text plays
+            if (!empty($playUrlData['image_alt_data'])) {
+                $imgData = json_decode($playUrlData['image_alt_data'], true);
+                if (is_array($imgData) && !empty($imgData)) {
+                    $intro .= "Image alt text inventory:\n";
+                    foreach ($imgData as $imgItem) {
+                        $altDisplay = $imgItem['alt'] ?? 'NULL';
+                        $intro .= "  - " . $imgItem['src'] . " | alt: \"" . $altDisplay . "\"\n";
+                    }
+                }
+            }
             $intro .= "Meta description: \"" . ($playUrlData['meta_description'] ?? '(none)') . "\"\n";
             $intro .= "First sentence: \"" . ($playUrlData['first_sentence_text'] ?? '(none)') . "\"\n";
             $tq = $playUrlData['target_query'] ?? null;
