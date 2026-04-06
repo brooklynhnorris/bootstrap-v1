@@ -12,6 +12,8 @@ use Symfony\Component\Console\Output\OutputInterface;
 #[AsCommand(name: 'app:propose-rule-changes', description: 'Review failed/partial outcomes and propose rule modifications')]
 class ProposeRuleChangeCommand extends Command
 {
+    private const CONFIDENCE_THRESHOLD = 70;
+
     public function __construct(private Connection $db)
     {
         parent::__construct();
@@ -27,7 +29,6 @@ class ProposeRuleChangeCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $ruleFilter = $input->getOption('rule');
-        $autoApply  = (bool) $input->getOption('apply');
 
         $this->ensureSchema();
 
@@ -82,16 +83,40 @@ class ProposeRuleChangeCommand extends Command
                 $synthesis = $this->synthesizeProposal($ruleId, $ruleProposals, $output);
 
                 if ($synthesis) {
+                    // --- STRESS-TEST PASS ---
+                    $output->writeln("  >> Running stress-test validation pass...");
+                    $validation = $this->stressTestProposal($ruleId, $synthesis, $output);
+
+                    $synthesis['confidence']       = $validation['confidence'] ?? 0;
+                    $synthesis['validation_issues'] = $validation['issues'] ?? [];
+                    $synthesis['trigger_match_count'] = $validation['trigger_match_count'] ?? null;
+
+                    $confidence = $synthesis['confidence'];
+                    $status     = $confidence >= self::CONFIDENCE_THRESHOLD ? 'pending' : 'needs_review';
+
                     $output->writeln("  -- SYNTHESIZED PROPOSAL --");
                     $output->writeln("  Change type: {$synthesis['change_type']}");
                     $output->writeln("  Summary: {$synthesis['summary']}");
+                    $output->writeln("  Confidence: {$confidence}/100" . ($status === 'needs_review' ? " ⚠ BELOW THRESHOLD — flagged for review" : " ✓"));
+
+                    if (!empty($synthesis['validation_issues'])) {
+                        $output->writeln("  Issues flagged:");
+                        foreach ($synthesis['validation_issues'] as $issue) {
+                            $output->writeln("    - {$issue}");
+                        }
+                    }
+
+                    if ($synthesis['trigger_match_count'] !== null) {
+                        $output->writeln("  Trigger SQL matches: {$synthesis['trigger_match_count']} page(s) in crawl data");
+                    }
+
                     $output->writeln('');
                     $output->writeln("  Proposed new rule text:");
                     $output->writeln("  " . str_replace("\n", "\n  ", $synthesis['new_rule_text']));
                     $output->writeln('');
 
-                    $this->storeSynthesizedProposal($ruleId, $synthesis, $ruleProposals);
-                    $this->createReviewTask($ruleId, $synthesis, $ruleProposals, $output);
+                    $this->storeSynthesizedProposal($ruleId, $synthesis, $ruleProposals, $status);
+                    $this->createReviewTask($ruleId, $synthesis, $ruleProposals, $status, $output);
                 }
             } else {
                 $output->writeln("  Not enough failures to trigger rule modification.");
@@ -165,12 +190,13 @@ Respond with EXACTLY this JSON (no markdown, no backticks):
   "change_type": "One of: refine_threshold, modify_diagnosis, modify_action, deprecate_rule, split_rule",
   "summary": "1-2 sentence explanation of what should change and why",
   "new_rule_text": "Complete replacement rule text. Include: Rule ID | Name, Trigger Condition (valid SQL using only available fields), Threshold, Diagnosis, Action Output, Priority, Assigned.",
+  "trigger_sql": "The WHERE clause only (no SELECT, no FROM) from the new trigger condition, ready to run against page_crawl_snapshots",
   "rationale": "Why this change should improve outcomes based on the failure patterns"
 }
 
 CONSTRAINTS:
 - Do NOT change the rule ID
-- Trigger SQL must use ONLY the available crawl fields
+- Trigger SQL must use ONLY the available crawl fields listed above
 - Product pages max 500 words, outer pages min 1000 words, max 3 internal links, zero external links
 - Use only real DDT terms: Z-Frame, SafeTack, SafeBump, SafeKick
 PROMPT;
@@ -214,6 +240,196 @@ PROMPT;
         }
     }
 
+    /**
+     * Stage 2: Stress-test the proposed rule.
+     *
+     * 1. Dry-run the trigger SQL against page_crawl_snapshots to get a match count
+     *    and a sample of matched pages.
+     * 2. Send the proposal + match data to Claude for adversarial review.
+     * 3. Return confidence score (0-100) and any issues found.
+     */
+    private function stressTestProposal(string $ruleId, array $synthesis, OutputInterface $output): array
+    {
+        $claudeKey = $_ENV['ANTHROPIC_API_KEY'] ?? '';
+
+        // --- Step 1: Dry-run the trigger SQL ---
+        $triggerSql      = $synthesis['trigger_sql'] ?? null;
+        $matchCount      = null;
+        $samplePages     = [];
+        $sqlError        = null;
+
+        if ($triggerSql) {
+            try {
+                // Validate: only allow WHERE-clause content (no stacked statements)
+                $forbidden = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'TRUNCATE', 'ALTER', ';'];
+                $upperSql  = strtoupper($triggerSql);
+                foreach ($forbidden as $word) {
+                    if (str_contains($upperSql, $word)) {
+                        $sqlError = "Forbidden keyword '{$word}' in trigger SQL";
+                        break;
+                    }
+                }
+
+                if (!$sqlError) {
+                    $countSql  = "SELECT COUNT(*) as cnt FROM page_crawl_snapshots WHERE {$triggerSql}";
+                    $matchCount = (int) $this->db->fetchOne($countSql);
+
+                    // Pull up to 5 sample URLs that match
+                    $sampleSql  = "SELECT url, page_type, word_count FROM page_crawl_snapshots WHERE {$triggerSql} LIMIT 5";
+                    $samplePages = $this->db->fetchAllAssociative($sampleSql);
+                }
+            } catch (\Exception $e) {
+                $sqlError = substr($e->getMessage(), 0, 200);
+            }
+        }
+
+        // --- Step 2: Load all current rules for contradiction check ---
+        $allRules = [];
+        try {
+            $rows = $this->db->fetchAllAssociative(
+                "SELECT rule_id, rule_name, trigger_condition FROM seo_rules WHERE rule_id != :rid ORDER BY rule_id",
+                ['rid' => $ruleId]
+            );
+            foreach ($rows as $r) {
+                $allRules[] = "{$r['rule_id']} | {$r['rule_name']}: {$r['trigger_condition']}";
+            }
+        } catch (\Exception $e) {}
+
+        // --- Step 3: Build stress-test prompt ---
+        $matchSummary = $matchCount !== null
+            ? "Trigger SQL matched {$matchCount} page(s) in live crawl data."
+            : ($sqlError ? "Trigger SQL FAILED to execute: {$sqlError}" : "No trigger SQL provided.");
+
+        $sampleSummary = "";
+        if (!empty($samplePages)) {
+            $sampleSummary = "Sample matched pages:\n";
+            foreach ($samplePages as $sp) {
+                $sampleSummary .= "  - {$sp['url']} (type: {$sp['page_type']}, words: {$sp['word_count']})\n";
+            }
+        }
+
+        $ruleListSummary = !empty($allRules)
+            ? implode("\n", array_slice($allRules, 0, 30))
+            : "(no other rules loaded)";
+
+        if (!$claudeKey) {
+            // No API key — return a pass-through with low confidence
+            return [
+                'confidence'          => 50,
+                'issues'              => ['Could not run stress-test: ANTHROPIC_API_KEY not set'],
+                'trigger_match_count' => $matchCount,
+            ];
+        }
+
+        $prompt = <<<PROMPT
+You are a critical QA reviewer for the Logiri SEO rule engine at Double D Trailers (doubledtrailers.com).
+
+A proposed rule change has been generated. Your job is to find problems with it BEFORE it goes to a human for approval.
+
+PROPOSED CHANGE:
+Rule ID: {$ruleId}
+Change type: {$synthesis['change_type']}
+Summary: {$synthesis['summary']}
+Rationale: {$synthesis['rationale']}
+
+PROPOSED RULE TEXT:
+{$synthesis['new_rule_text']}
+
+TRIGGER SQL (WHERE clause):
+{$synthesis['trigger_sql']}
+
+LIVE VALIDATION RESULT:
+{$matchSummary}
+{$sampleSummary}
+
+OTHER ACTIVE RULES (for contradiction check — first 30):
+{$ruleListSummary}
+
+SITE CONSTRAINTS TO CHECK AGAINST:
+- Product pages: max 500 words, page_type = 'product'
+- Outer/content pages: min 1000 words
+- Max 3 internal links on any page
+- Zero external links
+- Valid DDT terms only: Z-Frame, SafeTack, SafeBump, SafeKick
+
+STRESS-TEST CHECKLIST — evaluate each:
+1. Does the trigger SQL use only valid crawl fields? (url, http_status, title_tag, h1, h2s, meta_description, word_count, has_central_entity, central_entity_count, internal_links, has_core_link, core_links_found, h1_matches_title, schema_types, canonical_url, is_noindex, page_type, crawled_at, is_utility, internal_link_count, body_text_snippet, first_sentence_text, image_count, last_modified_date, has_faq_section, has_product_image)
+2. Is the trigger too broad? (would it fire on pages it shouldn't?)
+3. Is the trigger too narrow? (would it miss pages that need the fix?)
+4. Does the proposed action contradict any other rule listed above?
+5. Does the proposed threshold make sense given the match count?
+6. Are there word count or link count values that violate site constraints?
+7. Does the diagnosis accurately describe what the trigger detects?
+8. Is the action output specific enough to be actionable?
+9. If trigger_match_count is 0, is that a problem or expected?
+10. Any DDT-specific terminology errors?
+
+Respond with EXACTLY this JSON (no markdown, no backticks):
+{
+  "confidence": <integer 0-100>,
+  "issues": ["list of specific problems found, empty array if none"],
+  "verdict": "One of: approved, needs_review, reject",
+  "verdict_reason": "1-2 sentence explanation of the verdict"
+}
+
+Scoring guide:
+- 90-100: No issues, trigger validated, no contradictions
+- 70-89: Minor issues only, safe to surface for human review
+- 50-69: Moderate issues, flag as needs_review
+- 0-49: Serious problems (bad SQL, contradictions, over-broad trigger), recommend reject
+PROMPT;
+
+        try {
+            $ch = curl_init('https://api.anthropic.com/v1/messages');
+            curl_setopt_array($ch, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_POST           => true,
+                CURLOPT_POSTFIELDS     => json_encode([
+                    'model'      => 'claude-sonnet-4-6',
+                    'max_tokens' => 1000,
+                    'messages'   => [['role' => 'user', 'content' => $prompt]],
+                ]),
+                CURLOPT_HTTPHEADER => [
+                    'Content-Type: application/json',
+                    'x-api-key: ' . $claudeKey,
+                    'anthropic-version: 2023-06-01',
+                ],
+                CURLOPT_TIMEOUT => 60,
+            ]);
+
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode !== 200 || !$response) {
+                return ['confidence' => 50, 'issues' => ['Stress-test API call failed'], 'trigger_match_count' => $matchCount];
+            }
+
+            $data   = json_decode($response, true);
+            $text   = $data['content'][0]['text'] ?? '';
+            $text   = preg_replace('/^```json\s*/', '', $text);
+            $text   = preg_replace('/\s*```$/', '', $text);
+            $parsed = json_decode($text, true);
+
+            if (!$parsed || !isset($parsed['confidence'])) {
+                return ['confidence' => 50, 'issues' => ['Could not parse stress-test response'], 'trigger_match_count' => $matchCount];
+            }
+
+            // Inject SQL error as an issue if it occurred
+            if ($sqlError) {
+                $parsed['issues'][] = "Trigger SQL execution error: {$sqlError}";
+                $parsed['confidence'] = min($parsed['confidence'], 30);
+            }
+
+            $parsed['trigger_match_count'] = $matchCount;
+            return $parsed;
+
+        } catch (\Exception $e) {
+            $output->writeln("   [WARN] Stress-test failed: " . substr($e->getMessage(), 0, 80));
+            return ['confidence' => 50, 'issues' => ['Stress-test exception: ' . substr($e->getMessage(), 0, 100)], 'trigger_match_count' => $matchCount];
+        }
+    }
+
     private function loadCurrentRule(string $ruleId): string
     {
         try {
@@ -241,39 +457,59 @@ PROMPT;
         }
     }
 
-    private function storeSynthesizedProposal(string $ruleId, array $synthesis, array $proposals): void
+    private function storeSynthesizedProposal(string $ruleId, array $synthesis, array $proposals, string $status): void
     {
         try {
             $this->db->insert('rule_change_proposals', [
-                'rule_id'       => $ruleId,
-                'change_type'   => $synthesis['change_type'] ?? 'modify_action',
-                'summary'       => $synthesis['summary'] ?? '',
-                'new_rule_text' => $synthesis['new_rule_text'] ?? '',
-                'rationale'     => $synthesis['rationale'] ?? '',
-                'source_count'  => count($proposals),
-                'status'        => 'pending',
-                'created_at'    => date('Y-m-d H:i:s'),
+                'rule_id'             => $ruleId,
+                'change_type'         => $synthesis['change_type'] ?? 'modify_action',
+                'summary'             => $synthesis['summary'] ?? '',
+                'new_rule_text'       => $synthesis['new_rule_text'] ?? '',
+                'rationale'           => $synthesis['rationale'] ?? '',
+                'source_count'        => count($proposals),
+                'confidence'          => $synthesis['confidence'] ?? null,
+                'validation_issues'   => !empty($synthesis['validation_issues'])
+                    ? json_encode($synthesis['validation_issues'])
+                    : null,
+                'trigger_match_count' => $synthesis['trigger_match_count'] ?? null,
+                'status'              => $status,
+                'created_at'          => date('Y-m-d H:i:s'),
             ]);
         } catch (\Exception $e) {}
     }
 
-    private function createReviewTask(string $ruleId, array $synthesis, array $proposals, OutputInterface $output): void
+    private function createReviewTask(string $ruleId, array $synthesis, array $proposals, string $status, OutputInterface $output): void
     {
         try {
             $assignees     = array_unique(array_filter(array_column($proposals, 'assigned_to')));
             $assignee      = !empty($assignees) ? $assignees[0] : null;
             $proposalCount = count($proposals);
+            $confidence    = $synthesis['confidence'] ?? '?';
+            $matchCount    = $synthesis['trigger_match_count'] ?? '?';
 
-            $title = "[RULE-CHANGE] Review proposed modification to {$ruleId}";
-            $desc  = "PROPOSED RULE CHANGE\n"
+            $statusLabel = $status === 'needs_review' ? ' ⚠ NEEDS REVIEW' : '';
+            $title       = "[RULE-CHANGE{$statusLabel}] Review proposed modification to {$ruleId}";
+
+            $issueLines = "";
+            if (!empty($synthesis['validation_issues'])) {
+                $issueLines = "\nVALIDATION ISSUES FLAGGED:\n";
+                foreach ($synthesis['validation_issues'] as $issue) {
+                    $issueLines .= "  - {$issue}\n";
+                }
+            }
+
+            $desc = "PROPOSED RULE CHANGE\n"
                 . "Rule: {$ruleId}\n"
                 . "Change type: {$synthesis['change_type']}\n"
-                . "Reason: {$synthesis['summary']}\n\n"
+                . "Reason: {$synthesis['summary']}\n"
+                . "Confidence: {$confidence}/100 | Trigger matches: {$matchCount} page(s)\n"
+                . "Status: {$status}\n\n"
                 . "Based on {$proposalCount} FAIL/PARTIAL outcome(s).\n\n"
-                . "RATIONALE:\n{$synthesis['rationale']}\n\n"
+                . "RATIONALE:\n{$synthesis['rationale']}\n"
+                . $issueLines . "\n"
                 . "NEW RULE TEXT:\n{$synthesis['new_rule_text']}\n\n"
                 . "ACTION REQUIRED:\n"
-                . "1. Review the proposed change above\n"
+                . "1. Review the proposed change and any validation issues above\n"
                 . "2. If approved: click Approve in the Logiri Rules tab to upsert directly to the seo_rules DB\n"
                 . "3. If rejected: mark done with a note explaining why\n"
                 . "4. Re-run: php bin/console app:evaluate-rule --rule={$ruleId} --skip-validation";
@@ -290,7 +526,7 @@ PROMPT;
                     'rule_id'         => $ruleId,
                     'assigned_to'     => $assignee,
                     'status'          => 'pending',
-                    'priority'        => 'high',
+                    'priority'        => $status === 'needs_review' ? 'critical' : 'high',
                     'estimated_hours' => 1,
                     'logged_hours'    => 0,
                     'created_at'      => date('Y-m-d H:i:s'),
@@ -304,7 +540,7 @@ PROMPT;
                     'action'       => 'proposed_rule_change',
                     'target_type'  => 'rule',
                     'target_title' => $ruleId,
-                    'details'      => "{$synthesis['change_type']}: {$synthesis['summary']}",
+                    'details'      => "{$synthesis['change_type']}: {$synthesis['summary']} [confidence: {$confidence}/100]",
                     'created_at'   => date('Y-m-d H:i:s'),
                 ]);
             } catch (\Exception $e) {}
@@ -316,20 +552,34 @@ PROMPT;
         try {
             $this->db->executeStatement("
                 CREATE TABLE IF NOT EXISTS rule_change_proposals (
-                    id              SERIAL PRIMARY KEY,
-                    rule_id         VARCHAR(30) NOT NULL,
-                    change_type     VARCHAR(30) NOT NULL,
-                    summary         TEXT,
-                    new_rule_text   TEXT,
-                    rationale       TEXT,
-                    source_count    INT DEFAULT 0,
-                    status          VARCHAR(20) DEFAULT 'pending',
-                    approved_by     VARCHAR(100),
-                    approved_at     TIMESTAMP,
-                    applied_at      TIMESTAMP,
-                    created_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                    id                   SERIAL PRIMARY KEY,
+                    rule_id              VARCHAR(30) NOT NULL,
+                    change_type          VARCHAR(30) NOT NULL,
+                    summary              TEXT,
+                    new_rule_text        TEXT,
+                    rationale            TEXT,
+                    source_count         INT DEFAULT 0,
+                    confidence           INT DEFAULT NULL,
+                    validation_issues    TEXT DEFAULT NULL,
+                    trigger_match_count  INT DEFAULT NULL,
+                    status               VARCHAR(20) DEFAULT 'pending',
+                    approved_by          VARCHAR(100),
+                    approved_at          TIMESTAMP,
+                    applied_at           TIMESTAMP,
+                    created_at           TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
                 )
             ");
+
+            // Add new columns to existing tables if they don't exist yet
+            foreach (['confidence', 'validation_issues', 'trigger_match_count'] as $col) {
+                try {
+                    $this->db->executeStatement("ALTER TABLE rule_change_proposals ADD COLUMN IF NOT EXISTS {$col} " . match($col) {
+                        'confidence'          => 'INT DEFAULT NULL',
+                        'validation_issues'   => 'TEXT DEFAULT NULL',
+                        'trigger_match_count' => 'INT DEFAULT NULL',
+                    });
+                } catch (\Exception $e) {}
+            }
         } catch (\Exception $e) {}
     }
 }
