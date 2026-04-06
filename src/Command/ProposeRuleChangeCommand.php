@@ -21,7 +21,7 @@ class ProposeRuleChangeCommand extends Command
     {
         $this
             ->addOption('rule', null, InputOption::VALUE_OPTIONAL, 'Propose changes for a specific rule ID only')
-            ->addOption('apply', null, InputOption::VALUE_NONE, 'Auto-apply approved proposals to system-prompt.txt');
+            ->addOption('apply', null, InputOption::VALUE_NONE, 'Auto-apply approved proposals to the seo_rules DB table');
     }
 
     protected function execute(InputInterface $input, OutputInterface $output): int
@@ -38,7 +38,6 @@ class ProposeRuleChangeCommand extends Command
         $output->writeln('+============================================+');
         $output->writeln('');
 
-        // Pull unapproved proposals from rule_feedback where change_type != 'none'
         $proposals = $this->getPendingProposals($ruleFilter);
 
         if (empty($proposals)) {
@@ -50,7 +49,6 @@ class ProposeRuleChangeCommand extends Command
         $output->writeln("Found " . count($proposals) . " pending proposal(s).");
         $output->writeln('');
 
-        // Group proposals by rule_id
         $grouped = [];
         foreach ($proposals as $p) {
             $grouped[$p['rule_id']][] = $p;
@@ -76,7 +74,6 @@ class ProposeRuleChangeCommand extends Command
                 $output->writeln('');
             }
 
-            // If multiple failures for the same rule, synthesize a single recommendation
             if (count($ruleProposals) >= 2 && ($failCount >= 2 || ($failCount + $partialCount) >= 3)) {
                 $output->writeln("  !! PATTERN DETECTED: {$failCount} FAIL + {$partialCount} PARTIAL across " . count($ruleProposals) . " pages");
                 $output->writeln("  This rule may need modification, not just better execution.");
@@ -136,7 +133,7 @@ class ProposeRuleChangeCommand extends Command
         $claudeKey = $_ENV['ANTHROPIC_API_KEY'] ?? '';
         if (!$claudeKey) return null;
 
-        $currentRule = $this->loadCurrentRule($ruleId);
+        $currentRule   = $this->loadCurrentRule($ruleId);
         $proposalCount = count($proposals);
 
         $proposalContext = "";
@@ -167,7 +164,7 @@ Respond with EXACTLY this JSON (no markdown, no backticks):
 {
   "change_type": "One of: refine_threshold, modify_diagnosis, modify_action, deprecate_rule, split_rule",
   "summary": "1-2 sentence explanation of what should change and why",
-  "new_rule_text": "Complete replacement text for this rule in system-prompt.txt format. Include: Rule ID | Name, Trigger Condition (valid SQL using only available fields), Threshold, Diagnosis, Action Output, Priority, Assigned.",
+  "new_rule_text": "Complete replacement rule text. Include: Rule ID | Name, Trigger Condition (valid SQL using only available fields), Threshold, Diagnosis, Action Output, Priority, Assigned.",
   "rationale": "Why this change should improve outcomes based on the failure patterns"
 }
 
@@ -202,12 +199,12 @@ PROMPT;
 
             if ($httpCode !== 200 || !$response) return null;
 
-            $data = json_decode($response, true);
-            $text = $data['content'][0]['text'] ?? '';
-            $text = preg_replace('/^```json\s*/', '', $text);
-            $text = preg_replace('/\s*```$/', '', $text);
-
+            $data   = json_decode($response, true);
+            $text   = $data['content'][0]['text'] ?? '';
+            $text   = preg_replace('/^```json\s*/', '', $text);
+            $text   = preg_replace('/\s*```$/', '', $text);
             $parsed = json_decode($text, true);
+
             if (!$parsed || !isset($parsed['summary'])) return null;
 
             return $parsed;
@@ -219,16 +216,29 @@ PROMPT;
 
     private function loadCurrentRule(string $ruleId): string
     {
-        $promptPath = dirname(__DIR__, 2) . '/system-prompt.txt';
-        if (!file_exists($promptPath)) return "(Rule not found)";
+        try {
+            $row = $this->db->fetchAssociative(
+                "SELECT rule_id, rule_name, trigger_condition, threshold, diagnosis, action_output, priority, assigned_to
+                 FROM seo_rules WHERE rule_id = :rule_id",
+                ['rule_id' => $ruleId]
+            );
 
-        $content = file_get_contents($promptPath);
-        $escaped = preg_quote($ruleId, '/');
-        if (preg_match("/\n{$escaped}\s*\|.*?\n---/s", $content, $match)) {
-            return substr(trim($match[0]), 0, 2000);
+            if (!$row) {
+                return "(Rule {$ruleId} not found in seo_rules)";
+            }
+
+            return implode("\n", array_filter([
+                "{$row['rule_id']} | {$row['rule_name']}",
+                "Trigger: "   . ($row['trigger_condition'] ?? ''),
+                "Threshold: " . ($row['threshold'] ?? ''),
+                "Diagnosis: " . ($row['diagnosis'] ?? ''),
+                "Action: "    . ($row['action_output'] ?? ''),
+                "Priority: "  . ($row['priority'] ?? ''),
+                "Assigned: "  . ($row['assigned_to'] ?? ''),
+            ]));
+        } catch (\Exception $e) {
+            return "(Error loading rule {$ruleId}: " . substr($e->getMessage(), 0, 100) . ")";
         }
-
-        return "(Rule {$ruleId} not found in system-prompt.txt)";
     }
 
     private function storeSynthesizedProposal(string $ruleId, array $synthesis, array $proposals): void
@@ -250,8 +260,8 @@ PROMPT;
     private function createReviewTask(string $ruleId, array $synthesis, array $proposals, OutputInterface $output): void
     {
         try {
-            $assignees = array_unique(array_filter(array_column($proposals, 'assigned_to')));
-            $assignee  = !empty($assignees) ? $assignees[0] : null;
+            $assignees     = array_unique(array_filter(array_column($proposals, 'assigned_to')));
+            $assignee      = !empty($assignees) ? $assignees[0] : null;
             $proposalCount = count($proposals);
 
             $title = "[RULE-CHANGE] Review proposed modification to {$ruleId}";
@@ -264,7 +274,7 @@ PROMPT;
                 . "NEW RULE TEXT:\n{$synthesis['new_rule_text']}\n\n"
                 . "ACTION REQUIRED:\n"
                 . "1. Review the proposed change above\n"
-                . "2. If approved: update system-prompt.txt with the new rule text\n"
+                . "2. If approved: click Approve in the Logiri Rules tab to upsert directly to the seo_rules DB\n"
                 . "3. If rejected: mark done with a note explaining why\n"
                 . "4. Re-run: php bin/console app:evaluate-rule --rule={$ruleId} --skip-validation";
 
