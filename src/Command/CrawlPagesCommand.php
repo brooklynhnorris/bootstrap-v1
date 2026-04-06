@@ -796,6 +796,59 @@ class CrawlPagesCommand extends Command
             }
         }
 
+        // ── Extract JS-rendered content from <script class="nolazy"> (product pages) ──
+        // Product pages store content in a _trailerData JS variable inside a nolazy script.
+        // The crawler can't execute JS, so this content gets stripped with other <script> tags.
+        // We parse it here to capture overview, summary, and features text.
+        $nolazyScripts = $xpath->query('//script[contains(@class,"nolazy")]');
+        if ($nolazyScripts->length > 0) {
+            $scriptContent = $nolazyScripts->item(0)->textContent ?? '';
+            // Extract _trailerData JSON — it's assigned as: var _trailerData = [{...}];
+            // Use bracket-depth counting since the JSON contains nested arrays/objects
+            $tdPos = strpos($scriptContent, '_trailerData');
+            if ($tdPos !== false) {
+                $bracketStart = strpos($scriptContent, '[', $tdPos);
+                if ($bracketStart !== false) {
+                    $depth = 0;
+                    $bracketEnd = null;
+                    $len = strlen($scriptContent);
+                    for ($i = $bracketStart; $i < $len; $i++) {
+                        $ch = $scriptContent[$i];
+                        if ($ch === '[' || $ch === '{') $depth++;
+                        elseif ($ch === ']' || $ch === '}') {
+                            $depth--;
+                            if ($depth === 0) { $bracketEnd = $i; break; }
+                        }
+                    }
+                    if ($bracketEnd !== null) {
+                        $jsonStr = substr($scriptContent, $bracketStart, $bracketEnd - $bracketStart + 1);
+                        $trailerJson = json_decode($jsonStr, true);
+                        if (is_array($trailerJson) && !empty($trailerJson[0])) {
+                            $trailerItem = $trailerJson[0];
+                            $htmlFields = ['overview', 'summary', 'features'];
+                            $trailerText = '';
+                            foreach ($htmlFields as $field) {
+                                if (!empty($trailerItem[$field]) && is_string($trailerItem[$field])) {
+                                    $fieldHtml = $trailerItem[$field];
+                                    $fieldDoc = new \DOMDocument();
+                                    @$fieldDoc->loadHTML('<body>' . $fieldHtml . '</body>', LIBXML_NOWARNING | LIBXML_NOERROR);
+                                    $fieldText = strip_tags($fieldDoc->textContent ?? '');
+                                    $fieldText = preg_replace('/\s+/', ' ', trim($fieldText));
+                                    if (!empty($fieldText)) {
+                                        $trailerText .= ' ' . $fieldText;
+                                    }
+                                }
+                            }
+                            $trailerText = trim($trailerText);
+                            if (!empty($trailerText)) {
+                                $contentText = trim($contentText . ' ' . $trailerText);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         $bodyText  = $contentText;
         $wordCount = $bodyText ? str_word_count(trim($bodyText)) : 0;
 
