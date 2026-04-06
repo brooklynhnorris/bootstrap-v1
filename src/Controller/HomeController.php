@@ -2318,30 +2318,39 @@ PROMPT;
             $intro .= "\n\nPAGE SIGNALS (last crawl: {$crawledAt}) — violations only:\n";
             foreach ($crawlData as $row) {
                 $flags = [];
-                if (!$row['has_central_entity'])                                       $flags[] = 'FC-R1:no-entity';
-                if (!$row['has_core_link'] && strtolower($row['page_type']) === 'outer') $flags[] = 'FC-R5:no-core-link';
-                if ($row['h1_matches_title'] === false || $row['h1_matches_title'] === '0' || $row['h1_matches_title'] === 0) $flags[] = 'FC-R7:h1-mismatch';
+                // Safe boolean check helper for DBAL (can return true/false, 1/0, '1'/'0', 't'/'f', empty string)
+                $isTruthy = function($val): bool {
+                    return $val === true || $val === 1 || $val === '1' || $val === 't' || $val === 'true';
+                };
+
+                if (!$isTruthy($row['has_central_entity']))                              $flags[] = 'FC-R1:no-entity';
+                if (!$isTruthy($row['has_core_link']) && strtolower($row['page_type']) === 'outer') $flags[] = 'FC-R5:no-core-link';
+                if (!$isTruthy($row['h1_matches_title']))                                $flags[] = 'FC-R7:h1-mismatch';
                 if (strtolower($row['page_type']) === 'core') {
-                    if (($row['word_count'] ?? 0) < 500)                               $flags[] = 'FC-R3:thin';
-                    if (($row['word_count'] ?? 0) < 800)                               $flags[] = 'FC-R6:thin';
-                    if (empty($row['h2s']) || $row['h2s'] === '[]')                    $flags[] = 'FC-R8:no-h2';
-                    if (empty($row['schema_types']) || $row['schema_types'] === '[]')  $flags[] = 'FC-R9:no-schema';
+                    if (($row['word_count'] ?? 0) < 500)                                 $flags[] = 'FC-R3:thin';
+                    // FC-R6 only applies to informational core pages, not product pages — LLM determines page subtype from context
+                    if (empty($row['h2s']) || $row['h2s'] === '[]')                      $flags[] = 'FC-R8:no-h2';
+                    if (empty($row['schema_types']) || $row['schema_types'] === '[]')    $flags[] = 'FC-R9:no-schema';
                 }
                 if (empty($flags)) continue;
                 $h1short = substr($row['h1'] ?? '(none)', 0, 120);
                 $titleTag = substr($row['title_tag'] ?? '(none)', 0, 120);
+                $wc = $row['word_count'] ?? 0;
                 $tq = $row['target_query'] ?? null;
                 $tqInfo = $tq ? " | Target: \"{$tq}\" (pos:" . ($row['target_query_position'] ?? '?') . ", imp:" . ($row['target_query_impressions'] ?? 0) . ")" : '';
-                $intro .= "- {$row['url']} [{$row['page_type']}] " . implode(', ', $flags) . " | H1: \"{$h1short}\" | Title: \"{$titleTag}\"{$tqInfo}\n";
+                $intro .= "- {$row['url']} [{$row['page_type']}] " . implode(', ', $flags) . " | {$wc}w | H1: \"{$h1short}\" | Title: \"{$titleTag}\"{$tqInfo}\n";
             }
 
                         // Rule violation summaries for quick Logiri parsing
-            $noEntity   = array_filter($crawlData, fn($r) => !$r['has_central_entity'] && !$r['is_noindex']);
-            $noCoreLink = array_filter($crawlData, fn($r) => $r['page_type'] === 'outer' && !$r['has_core_link'] && !$r['is_noindex']);
-            $thinCore   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && $r['word_count'] < 500 && !$r['is_noindex']);
-            $noH2Core   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && ($r['h2s'] === '[]' || !$r['h2s']) && !$r['is_noindex']);
-            $h1Mismatch = array_filter($crawlData, fn($r) => !$r['h1_matches_title'] && !$r['is_noindex']);
-            $noSchema   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && ($r['schema_types'] === '[]' || !$r['schema_types']) && !$r['is_noindex']);
+            $isTruthy = function($val): bool {
+                return $val === true || $val === 1 || $val === '1' || $val === 't' || $val === 'true';
+            };
+            $noEntity   = array_filter($crawlData, fn($r) => !$isTruthy($r['has_central_entity']) && !$isTruthy($r['is_noindex']));
+            $noCoreLink = array_filter($crawlData, fn($r) => $r['page_type'] === 'outer' && !$isTruthy($r['has_core_link']) && !$isTruthy($r['is_noindex']));
+            $thinCore   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && $r['word_count'] < 500 && !$isTruthy($r['is_noindex']));
+            $noH2Core   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && ($r['h2s'] === '[]' || !$r['h2s']) && !$isTruthy($r['is_noindex']));
+            $h1Mismatch = array_filter($crawlData, fn($r) => !$isTruthy($r['h1_matches_title']) && !$isTruthy($r['is_noindex']));
+            $noSchema   = array_filter($crawlData, fn($r) => $r['page_type'] === 'core' && ($r['schema_types'] === '[]' || !$r['schema_types']) && !$isTruthy($r['is_noindex']));
 
             $intro .= "\nCRAWL RULE VIOLATION SUMMARY:\n";
             $intro .= "FC-R1 (no central entity): " . count($noEntity) . " pages — " . implode(', ', array_column(array_slice($noEntity, 0, 5), 'url')) . "\n";
@@ -2372,22 +2381,28 @@ PROMPT;
 
         // ── Play-specific crawl data — full row for the URL being worked on ──
         if ($playUrlData) {
+            // Helper to safely convert DBAL boolean fields (can be true/false, 1/0, '1'/'0', 't'/'f', or empty string)
+            $toBoolStr = function($val): string {
+                if ($val === true || $val === 1 || $val === '1' || $val === 't' || $val === 'true') return 'TRUE';
+                return 'FALSE';
+            };
+
             $intro .= "\n\nPLAY TARGET URL — FULL CRAWL DATA (use ONLY these values, do NOT invent or override):\n";
             $intro .= "URL: " . $playUrlData['url'] . "\n";
             $intro .= "Page type: " . $playUrlData['page_type'] . "\n";
             $intro .= "Word count: " . $playUrlData['word_count'] . "\n";
             $intro .= "H1: \"" . ($playUrlData['h1'] ?? '(none)') . "\"\n";
             $intro .= "Title tag: \"" . ($playUrlData['title_tag'] ?? '(none)') . "\"\n";
-            $intro .= "H1 matches title: " . ($playUrlData['h1_matches_title'] ? 'TRUE' : 'FALSE') . "\n";
+            $intro .= "H1 matches title: " . $toBoolStr($playUrlData['h1_matches_title']) . "\n";
             $intro .= "H2s: " . ($playUrlData['h2s'] ?: '(none)') . "\n";
             $intro .= "Schema types: " . ($playUrlData['schema_types'] ?: '(none)') . "\n";
             $intro .= "Schema errors: " . ($playUrlData['schema_errors'] ?: '(none)') . "\n";
-            $intro .= "Has central entity: " . ($playUrlData['has_central_entity'] ? 'TRUE' : 'FALSE') . "\n";
-            $intro .= "Has core link: " . ($playUrlData['has_core_link'] ? 'TRUE' : 'FALSE') . "\n";
+            $intro .= "Has central entity: " . $toBoolStr($playUrlData['has_central_entity']) . "\n";
+            $intro .= "Has core link: " . $toBoolStr($playUrlData['has_core_link']) . "\n";
             $intro .= "Internal link count: " . ($playUrlData['internal_link_count'] ?? 0) . "\n";
             $intro .= "Image count: " . ($playUrlData['image_count'] ?? 0) . "\n";
-            $intro .= "Has FAQ section: " . ($playUrlData['has_faq_section'] ? 'TRUE' : 'FALSE') . "\n";
-            $intro .= "Has product image: " . ($playUrlData['has_product_image'] ? 'TRUE' : 'FALSE') . "\n";
+            $intro .= "Has FAQ section: " . $toBoolStr($playUrlData['has_faq_section']) . "\n";
+            $intro .= "Has product image: " . $toBoolStr($playUrlData['has_product_image']) . "\n";
             $intro .= "Meta description: \"" . ($playUrlData['meta_description'] ?? '(none)') . "\"\n";
             $intro .= "First sentence: \"" . ($playUrlData['first_sentence_text'] ?? '(none)') . "\"\n";
             $tq = $playUrlData['target_query'] ?? null;
