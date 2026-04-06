@@ -2167,7 +2167,7 @@ PROMPT;
         $intro .= "\n\nFC-R1: Every indexed page must contain the central entity 'horse trailer' in the body text. Flag pages where has_central_entity = FALSE.";
         $intro .= "\nFC-R2: Every page must be classified as Core or Outer. Flag unclassified pages.";
         $intro .= "\nFC-R3: Core pages must have at least 500 words. Flag Core pages where word_count < 500.";
-        $intro .= "\nFC-R5: Every Outer page must link to at least one Core page. Flag Outer pages where has_core_link = FALSE.";
+        $intro .= "\nFC-R5: Outer pages with 50+ GSC impressions (28d) must link to at least one Core page. Flag Outer pages where has_core_link = FALSE AND the page has at least 50 impressions in GSC data. Do NOT generate plays for outer pages with fewer than 50 impressions — they are not worth the effort.";
         $intro .= "\nFC-R6: PRODUCT core pages (e.g. trailer model pages) have a 500-word MAX — do NOT flag them for thin content if word_count >= 300. INFORMATIONAL core pages (buying guides, comparison pages) must have at least 800 words. Flag informational core pages where word_count < 800. NEVER tell the user to expand a product page to 800 words.";
         $intro .= "\nFC-R7: Every indexed page must have an H1 tag that matches or closely reflects the title tag. Flag pages where h1_matches_title = FALSE or h1 is empty.";
         $intro .= "\nFC-R8: Core pages must have at least one H2 tag. Flag Core pages where h2s is empty.";
