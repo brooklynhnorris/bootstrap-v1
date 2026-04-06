@@ -263,6 +263,34 @@ class HomeController extends AbstractController
 
         // ── Load crawl data for rules engine (conditionally) ──
         $crawlData = $needsCrawl ? $this->loadCrawlData() : [];
+        $allCrawledUrls = $needsCrawl ? $this->loadAllCrawledUrls() : [];
+
+        // ── If user opened a specific Play, load that URL's full crawl row ──
+        $playUrlData = null;
+        $rawLastUserMsg = '';
+        foreach (array_reverse($messages) as $m) {
+            if ($m['role'] === 'user') { $rawLastUserMsg = $m['content']; break; }
+        }
+        if (str_contains($rawLastUserMsg, 'I just opened the Play:')) {
+            // Extract URL from the play message — format: "...Play: [RULE] Title — /url/"
+            if (preg_match('#—\s*(/[^\s]+/)#', $rawLastUserMsg, $urlMatch)) {
+                $playUrl = $urlMatch[1];
+                try {
+                    $playUrlData = $this->db->fetchAssociative(
+                        "SELECT url, page_type, has_central_entity, has_core_link,
+                                word_count, h1, title_tag, h1_matches_title, h2s,
+                                schema_types, is_noindex, internal_link_count,
+                                image_count, has_faq_section, has_product_image,
+                                schema_errors, meta_description, first_sentence_text,
+                                target_query, target_query_impressions, target_query_position, target_query_clicks
+                         FROM page_crawl_snapshots
+                         WHERE url = ?
+                         ORDER BY crawled_at DESC LIMIT 1",
+                        [$playUrl]
+                    );
+                } catch (\Exception $e) { $playUrlData = null; }
+            }
+        }
 
         // ── Load recent rule reviews and overrides for context ──
         $recentReviews = $needsRules ? $this->loadRecentReviews() : [];
@@ -316,8 +344,8 @@ class HomeController extends AbstractController
             $activeTasks, $pendingRechecks, $topQueries90d, $pageAggregates,
             $brandedQueries, $cannibalizationCandidates, $previousPages, $landingPages,
             $adsCampaigns, $adsKeywords, $adsSearchTerms, $adsDailySpend,
-            $recentReviews, $overrideCount, $crawlData,
-            $verificationResults, $ruleFeedback, $ruleProposals
+            $recentReviews, $overrideCount, $crawlData, $allCrawledUrls,
+            $verificationResults, $ruleFeedback, $ruleProposals, $playUrlData
         );
 
         // ── Call Claude API ──
@@ -1806,6 +1834,28 @@ class HomeController extends AbstractController
         } catch (\Exception $e) { return []; }
     }
 
+    /**
+     * Load ALL crawled URLs (not just violations) so the LLM has a complete
+     * list of valid pages to reference when suggesting link targets.
+     */
+    private function loadAllCrawledUrls(): array
+    {
+        try {
+            $tables = $this->db->fetchFirstColumn(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'page_crawl_snapshots'"
+            );
+            if (empty($tables)) return [];
+
+            return $this->db->fetchAllAssociative(
+                "SELECT url, page_type, word_count, is_noindex
+                 FROM page_crawl_snapshots
+                 WHERE crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
+                   AND is_noindex = FALSE
+                 ORDER BY page_type, url"
+            );
+        } catch (\Exception $e) { return []; }
+    }
+
     private function loadRecentReviews(): array
     {
         try {
@@ -1980,8 +2030,8 @@ PROMPT;
         array $previousPages = [], array $landingPages = [],
         array $adsCampaigns = [], array $adsKeywords = [],
         array $adsSearchTerms = [], array $adsDailySpend = [],
-        array $recentReviews = [], int $overrideCount = 0, array $crawlData = [],
-        array $verificationResults = [], array $ruleFeedback = [], array $ruleProposals = []
+        array $recentReviews = [], int $overrideCount = 0, array $crawlData = [], array $allCrawledUrls = [],
+        array $verificationResults = [], array $ruleFeedback = [], array $ruleProposals = [], ?array $playUrlData = null
     ): string {
         $date = date('l, F j, Y');
 
@@ -2302,6 +2352,49 @@ PROMPT;
             $intro .= "FC-R9 (core missing schema): " . count($noSchema) . " pages — " . implode(', ', array_column(array_slice($noSchema, 0, 5), 'url')) . "\n";
         } else {
             $intro .= "\n\nPAGE CRAWL DATA: No crawl data available. Run php bin/console app:crawl-pages to populate.\n";
+        }
+
+        // ── Complete URL registry — so LLM never has to guess which pages exist ──
+        if (!empty($allCrawledUrls)) {
+            $coreUrls = array_filter($allCrawledUrls, fn($r) => strtolower($r['page_type']) === 'core');
+            $outerUrls = array_filter($allCrawledUrls, fn($r) => strtolower($r['page_type']) === 'outer');
+            $intro .= "\n\nVALID SITE URLS — COMPLETE LIST (use ONLY these when suggesting link targets):\n";
+            $intro .= "Core pages (" . count($coreUrls) . "):\n";
+            foreach ($coreUrls as $r) {
+                $intro .= "  " . $r['url'] . " (" . $r['word_count'] . "w)\n";
+            }
+            $intro .= "Outer pages (" . count($outerUrls) . "):\n";
+            foreach (array_slice(array_values($outerUrls), 0, 60) as $r) {
+                $intro .= "  " . $r['url'] . "\n";
+            }
+            $intro .= "\nIF A URL IS NOT IN THIS LIST, IT DOES NOT EXIST ON THE SITE. DO NOT REFERENCE IT.\n";
+        }
+
+        // ── Play-specific crawl data — full row for the URL being worked on ──
+        if ($playUrlData) {
+            $intro .= "\n\nPLAY TARGET URL — FULL CRAWL DATA (use ONLY these values, do NOT invent or override):\n";
+            $intro .= "URL: " . $playUrlData['url'] . "\n";
+            $intro .= "Page type: " . $playUrlData['page_type'] . "\n";
+            $intro .= "Word count: " . $playUrlData['word_count'] . "\n";
+            $intro .= "H1: \"" . ($playUrlData['h1'] ?? '(none)') . "\"\n";
+            $intro .= "Title tag: \"" . ($playUrlData['title_tag'] ?? '(none)') . "\"\n";
+            $intro .= "H1 matches title: " . ($playUrlData['h1_matches_title'] ? 'TRUE' : 'FALSE') . "\n";
+            $intro .= "H2s: " . ($playUrlData['h2s'] ?: '(none)') . "\n";
+            $intro .= "Schema types: " . ($playUrlData['schema_types'] ?: '(none)') . "\n";
+            $intro .= "Schema errors: " . ($playUrlData['schema_errors'] ?: '(none)') . "\n";
+            $intro .= "Has central entity: " . ($playUrlData['has_central_entity'] ? 'TRUE' : 'FALSE') . "\n";
+            $intro .= "Has core link: " . ($playUrlData['has_core_link'] ? 'TRUE' : 'FALSE') . "\n";
+            $intro .= "Internal link count: " . ($playUrlData['internal_link_count'] ?? 0) . "\n";
+            $intro .= "Image count: " . ($playUrlData['image_count'] ?? 0) . "\n";
+            $intro .= "Has FAQ section: " . ($playUrlData['has_faq_section'] ? 'TRUE' : 'FALSE') . "\n";
+            $intro .= "Has product image: " . ($playUrlData['has_product_image'] ? 'TRUE' : 'FALSE') . "\n";
+            $intro .= "Meta description: \"" . ($playUrlData['meta_description'] ?? '(none)') . "\"\n";
+            $intro .= "First sentence: \"" . ($playUrlData['first_sentence_text'] ?? '(none)') . "\"\n";
+            $tq = $playUrlData['target_query'] ?? null;
+            if ($tq) {
+                $intro .= "Target query: \"{$tq}\" (pos:" . ($playUrlData['target_query_position'] ?? '?') . ", imp:" . ($playUrlData['target_query_impressions'] ?? 0) . ", clicks:" . ($playUrlData['target_query_clicks'] ?? 0) . ")\n";
+            }
+            $intro .= "CRITICAL: The data above is the GROUND TRUTH for this URL. Do NOT contradict it. If it says h1_matches_title = TRUE, do NOT claim there is a mismatch. If it says word_count = 2100, do NOT say the page is thin.\n";
         }
 
         // ── Verification outcomes ──
