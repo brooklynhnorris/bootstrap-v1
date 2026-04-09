@@ -1108,24 +1108,36 @@ class CrawlPagesCommand extends Command
         $videoUploadDate = null;
         $videoTitle = null;
 
+        // First, remove <script> and <noscript> elements from the DOM clone for video detection
+        // This prevents YouTube references inside nolazy scripts from being counted as video embeds
+        $videoDetectionDom = new \DOMDocument();
+        $videoDetectionDom->appendChild($videoDetectionDom->importNode($dom->documentElement, true));
+        $videoDetectionXpath = new \DOMXPath($videoDetectionDom);
+        foreach (['//script', '//noscript'] as $removeTag) {
+            $removeNodes = $videoDetectionXpath->query($removeTag);
+            foreach ($removeNodes as $rn) {
+                if ($rn->parentNode) $rn->parentNode->removeChild($rn);
+            }
+        }
+        $videoDetectionXpath = new \DOMXPath($videoDetectionDom); // Re-create after DOM mutation
+
         // GATE 1: Check for video embeds specifically in main content area
-        $mainContentSelectors = [
+        $mainContentVideoSelectors = [
             '//main//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
             '//article//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
             '//*[contains(@class,"entry-content") or contains(@class,"post-content") or contains(@class,"page-content") or contains(@class,"content-area") or contains(@id,"content")]//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
             '//main//video/@src',
             '//article//video/@src',
         ];
-        // Also check anywhere on page (for has_video_embed general flag)
+        // Also check anywhere on page (excluding scripts) for has_video_embed general flag
         $anyVideoSelectors = [
             '//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
             '//video/@src',
-            '//*[@data-video-id]/@data-video-id',
         ];
 
         // Check main content first
-        foreach ($mainContentSelectors as $sel) {
-            $vidNodes = @$xpath->query($sel);
+        foreach ($mainContentVideoSelectors as $sel) {
+            $vidNodes = @$videoDetectionXpath->query($sel);
             if ($vidNodes && $vidNodes->length > 0) {
                 $hasMainContentVideo = true;
                 $hasVideoEmbed = true;
@@ -1134,10 +1146,10 @@ class CrawlPagesCommand extends Command
                 }
             }
         }
-        // Fallback: check anywhere
+        // Fallback: check anywhere (on cleaned DOM, scripts already removed)
         if (!$hasVideoEmbed) {
             foreach ($anyVideoSelectors as $sel) {
-                $vidNodes = @$xpath->query($sel);
+                $vidNodes = @$videoDetectionXpath->query($sel);
                 if ($vidNodes && $vidNodes->length > 0) {
                     $hasVideoEmbed = true;
                     foreach ($vidNodes as $v) {

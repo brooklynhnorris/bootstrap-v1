@@ -529,6 +529,48 @@ class HomeController extends AbstractController
                                     $actionsExecuted[] = "Task #{$taskId} closed as {$dismissType}";
                                 }
                                 break;
+
+                            case 'suppress_url':
+                                $suppressUrl = $action['url'] ?? '';
+                                $suppressRule = $action['rule_id'] ?? '__ALL__';
+                                $suppressReason = $action['reason'] ?? 'Suppressed via chat';
+                                if ($suppressUrl) {
+                                    try {
+                                        $this->db->executeStatement(
+                                            'CREATE TABLE IF NOT EXISTS suppressed_tasks (
+                                                id SERIAL PRIMARY KEY,
+                                                url TEXT NOT NULL,
+                                                rule_id VARCHAR(20),
+                                                reason TEXT,
+                                                suppressed_by VARCHAR(100),
+                                                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                                UNIQUE(url, rule_id)
+                                            )'
+                                        );
+                                        $existingSuppression = $this->db->fetchOne(
+                                            'SELECT COUNT(*) FROM suppressed_tasks WHERE url = ? AND rule_id = ?',
+                                            [$suppressUrl, $suppressRule]
+                                        );
+                                        if (!$existingSuppression) {
+                                            $this->db->insert('suppressed_tasks', [
+                                                'url'           => $suppressUrl,
+                                                'rule_id'       => $suppressRule,
+                                                'reason'        => $suppressReason,
+                                                'suppressed_by' => 'logiri_chat',
+                                                'created_at'    => date('Y-m-d H:i:s'),
+                                            ]);
+                                        }
+                                        // Also clear any pending tasks for this URL
+                                        $cleared = $this->db->executeStatement(
+                                            "DELETE FROM tasks WHERE title LIKE ? AND status NOT IN ('done','closed')",
+                                            ['%' . $suppressUrl . '%']
+                                        );
+                                        $actionsExecuted[] = "Suppressed {$suppressUrl} (rule: {$suppressRule}). Cleared {$cleared} pending tasks.";
+                                    } catch (\Exception $e) {
+                                        $actionsExecuted[] = "Suppress failed: " . substr($e->getMessage(), 0, 80);
+                                    }
+                                }
+                                break;
                         }
                     } catch (\Exception $e) {
                         $actionsExecuted[] = "Action {$type} failed: " . substr($e->getMessage(), 0, 80);
@@ -569,6 +611,29 @@ class HomeController extends AbstractController
                             ['%' . $urlFrag . '%', $rulePrefix . '%']
                         );
                         if ($nearDup) continue;
+
+                        // Check URL suppression — skip if this URL+rule was previously dismissed
+                        try {
+                            $ruleId = '';
+                            if (preg_match('/^\[([A-Z]+-[A-Za-z0-9]+)\]/', $title, $ruleMatch)) {
+                                $ruleId = $ruleMatch[1];
+                            }
+                            if ($ruleId) {
+                                $suppressed = $this->db->fetchOne(
+                                    'SELECT COUNT(*) FROM suppressed_tasks WHERE url = ? AND (rule_id = ? OR rule_id IS NULL)',
+                                    [$urlFrag, $ruleId]
+                                );
+                                if ($suppressed) continue;
+                            }
+                            // Also check if URL is suppressed for ALL rules (blanket suppress)
+                            $blanketSuppressed = $this->db->fetchOne(
+                                "SELECT COUNT(*) FROM suppressed_tasks WHERE url = ? AND rule_id = '__ALL__'",
+                                [$urlFrag]
+                            );
+                            if ($blanketSuppressed) continue;
+                        } catch (\Exception $e) {
+                            // Table might not exist yet — continue normally
+                        }
                     }
                     $priority = in_array($aiTask['priority'] ?? '', ['critical','high','medium','low']) ? $aiTask['priority'] : 'medium';
                     $this->db->insert('tasks', [
@@ -1047,6 +1112,48 @@ class HomeController extends AbstractController
             // Store feedback so the learning loop knows why this was dismissed
             try {
                 $ruleId = $task['rule_id'] ?? '';
+                // Extract URL from task title for suppression
+                $taskUrl = '';
+                if (preg_match('|(/[a-z0-9_-]+/)|i', $task['title'] ?? '', $urlMatch)) {
+                    $taskUrl = $urlMatch[1];
+                }
+
+                // ── URL SUPPRESSION: Prevent regeneration of dismissed tasks ──
+                // When a task is dismissed as false_positive or not_applicable,
+                // suppress that URL+rule combo so it never generates a new task.
+                if ($taskUrl && $ruleId && in_array($dismissType, ['false_positive', 'not_applicable', 'invalid'])) {
+                    try {
+                        // Create suppression table if it doesn't exist
+                        $this->db->executeStatement(
+                            'CREATE TABLE IF NOT EXISTS suppressed_tasks (
+                                id SERIAL PRIMARY KEY,
+                                url TEXT NOT NULL,
+                                rule_id VARCHAR(20),
+                                reason TEXT,
+                                suppressed_by VARCHAR(100),
+                                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                                UNIQUE(url, rule_id)
+                            )'
+                        );
+                        // Insert suppression (ignore if already exists)
+                        $existing = $this->db->fetchOne(
+                            'SELECT COUNT(*) FROM suppressed_tasks WHERE url = ? AND rule_id = ?',
+                            [$taskUrl, $ruleId]
+                        );
+                        if (!$existing) {
+                            $this->db->insert('suppressed_tasks', [
+                                'url'            => $taskUrl,
+                                'rule_id'        => $ruleId,
+                                'reason'         => $reason,
+                                'suppressed_by'  => 'task_dismiss',
+                                'created_at'     => date('Y-m-d H:i:s'),
+                            ]);
+                        }
+                    } catch (\Exception $e) {
+                        // Non-fatal
+                    }
+                }
+
                 if ($ruleId) {
                     $this->db->insert('rule_feedback', [
                         'rule_id'          => $ruleId,
@@ -1810,28 +1917,50 @@ class HomeController extends AbstractController
             );
             if (empty($tables)) return [];
 
-            return $this->db->fetchAllAssociative(
-                "SELECT url, page_type, has_central_entity, has_core_link,
-                        word_count, h1, title_tag, h1_matches_title, h2s,
-                        schema_types, is_noindex, internal_link_count,
-                        image_count, has_faq_section, has_product_image,
-                        schema_errors, crawled_at,
-                        target_query, target_query_impressions, target_query_position, target_query_clicks
-                 FROM page_crawl_snapshots
-                 WHERE crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
+            // Join with GSC page aggregates to get traffic data for triage
+            $rows = $this->db->fetchAllAssociative(
+                "SELECT p.url, p.page_type, p.has_central_entity, p.has_core_link,
+                        p.word_count, p.h1, p.title_tag, p.h1_matches_title, p.h2s,
+                        p.schema_types, p.is_noindex, p.internal_link_count,
+                        p.image_count, p.has_faq_section, p.has_product_image,
+                        p.schema_errors, p.crawled_at,
+                        p.target_query, p.target_query_impressions, p.target_query_position, p.target_query_clicks,
+                        COALESCE(g.impressions, 0) as page_impressions,
+                        COALESCE(g.clicks, 0) as page_clicks
+                 FROM page_crawl_snapshots p
+                 LEFT JOIN gsc_snapshots g ON g.page LIKE '%' || p.url AND g.query = '__PAGE_AGGREGATE__'
+                 WHERE p.crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
                    AND (
-                     has_central_entity = FALSE
-                     OR (page_type = 'core' AND word_count < 500)
-                     OR h1_matches_title = FALSE
-                     OR (page_type = 'core' AND (h2s IS NULL OR h2s = '' OR h2s = '[]'))
-                     OR (page_type = 'core' AND (schema_types IS NULL OR schema_types = '' OR schema_types = '[]'))
-                     OR (page_type = 'outer' AND has_core_link = FALSE)
-                     OR (schema_errors IS NOT NULL AND schema_errors != 'null' AND schema_errors != '[]')
-                     OR internal_link_count > 3
+                     p.has_central_entity = FALSE
+                     OR (p.page_type = 'core' AND p.word_count < 500)
+                     OR p.h1_matches_title = FALSE
+                     OR (p.page_type = 'core' AND (p.h2s IS NULL OR p.h2s = '' OR p.h2s = '[]'))
+                     OR (p.page_type = 'core' AND (p.schema_types IS NULL OR p.schema_types = '' OR p.schema_types = '[]'))
+                     OR (p.page_type = 'outer' AND p.has_core_link = FALSE)
+                     OR (p.schema_errors IS NOT NULL AND p.schema_errors != 'null' AND p.schema_errors != '[]')
+                     OR p.internal_link_count > 3
                    )
-                 ORDER BY page_type, url
+                 ORDER BY p.page_type, p.url
                  LIMIT 50"
             );
+
+            // Add triage classification to each row
+            foreach ($rows as &$row) {
+                $impressions = (int)($row['page_impressions'] ?? 0);
+                $clicks = (int)($row['page_clicks'] ?? 0);
+                if ($impressions >= 500) {
+                    $row['triage'] = 'high_value';
+                } elseif ($impressions >= 50) {
+                    $row['triage'] = 'optimize';
+                } elseif ($impressions > 0) {
+                    $row['triage'] = 'low_value';
+                } else {
+                    $row['triage'] = 'strategic_review';
+                }
+            }
+            unset($row);
+
+            return $rows;
         } catch (\Exception $e) { return []; }
     }
 
@@ -2169,6 +2298,14 @@ PROMPT;
         $intro .= "\n- If the user asks about a URL not in crawl data, tell them it needs to be crawled first — do NOT make up data for it.";
         $intro .= "\n- When suggesting content moves or link targets, ONLY suggest URLs that appear in the crawl data below.";
         $intro .= "\n- BEFORE writing any play that includes 'link to [URL]', mentally verify the URL exists in crawl data. If it does not appear below, DO NOT SUGGEST IT. Common hallucinated URLs: /horse-trailers/, /about/, /contact/, /gooseneck-horse-trailers/. These may not exist — check first.";
+        $intro .= "\n\nPAGE TRIAGE — APPLY BEFORE GENERATING ANY TASK:";
+        $intro .= "\nEvery page in PAGE SIGNALS has a triage classification. Use it to determine the RIGHT action:";
+        $intro .= "\n  [high_value] (500+ impressions): Full optimization plays. Fix every violation. These pages drive traffic.";
+        $intro .= "\n  [optimize] (50-499 impressions): Standard optimization plays. Worth fixing.";
+        $intro .= "\n  [low_value] (1-49 impressions): Minimal effort only. Fix H1/title if broken. Do NOT generate alt text, schema, or content expansion plays for these pages — not worth the time.";
+        $intro .= "\n  [strategic_review] (0 impressions): DO NOT generate optimization tasks. Instead, generate ONE strategic play: 'Evaluate /url/ for noindex, redirect, or consolidation — 0 impressions, no rankings. Recommend: [noindex if thin/irrelevant] or [301 redirect to /closest-core-page/ if topically related] or [consolidate content into /relevant-page/ if useful content exists].' Assign strategic reviews to Jeanne.";
+        $intro .= "\nCRITICAL: Never generate alt text, schema, internal link, or content expansion plays for [strategic_review] pages. The only valid play for a zero-traffic page is a strategic decision about whether to keep, redirect, or noindex it.";
+
         $intro .= "\n\nTASK GENERATION RULES:";
         $intro .= "\n- Generate tasks ONLY for the FC rules listed below (FC-R1 through FC-R10). Do NOT generate tasks for cannibalization, keyword research, or other topics not covered by the FC rules.";
         $intro .= "\n- Each task: title, assigned_to, priority (critical/high/medium/low), estimated_hours, recheck_type, recheck_days, recheck_criteria, description.";
@@ -2183,6 +2320,7 @@ PROMPT;
 - CURRENT USER: " . $userName . " (role: " . $userRole . "). Generate tasks for THIS person only. Never cross-assign in a single-user briefing.";
         $intro .= "\n- Do NOT duplicate tasks already in ACTIVE TASKS.";
         $intro .= "\n- ONE TASK = ONE URL. Never batch multiple URLs into one task.";
+        $intro .= "\n- NEVER generate tasks for URLs listed in the SUPPRESSED URLS section. These have been explicitly excluded by the user. If a suppressed URL has violations, skip it silently.";
         $intro .= "\n- Task title format: Action + URL. Example: \"Add H1 tag to /bumper-pull-horse-trailers/\"";
         $intro .= "\n- Task description: be surgical. Plain text only — NO HTML tags in descriptions. State exactly what to change and what value to use.";
         $intro .= "\n  Good: \"H1 is missing. Add the text: Bumper Pull Horse Trailers — in the hero section, as the first heading on the page.\"";
@@ -2214,6 +2352,7 @@ PROMPT;
         $intro .= "\n  update_rule_field: Modify a specific rule field. {\"action\":\"update_rule_field\",\"rule_id\":\"ILA-005\",\"field\":\"trigger_sql\",\"value\":\"SELECT ...\"}";
         $intro .= "\n  add_learning: Store a learning. {\"action\":\"add_learning\",\"learning\":\"text\",\"category\":\"rules_feedback\"}";
         $intro .= "\n  dismiss_task: Close a specific task. {\"action\":\"dismiss_task\",\"task_id\":123,\"type\":\"false_positive\",\"reason\":\"text\"}";
+        $intro .= "\n  suppress_url: Stop generating tasks for a URL. Use when user says a page is useless, irrelevant, or should be ignored. {\"action\":\"suppress_url\",\"url\":\"/some-page/\",\"rule_id\":\"__ALL__\",\"reason\":\"text\"}. Use rule_id=\"__ALL__\" to suppress all rules for that URL, or a specific rule_id to suppress only that rule.";
         $intro .= "\nFormat: <!-- ACTIONS_JSON -->[{\"action\":\"...\"}]<!-- /ACTIONS_JSON -->";
         $intro .= "\nPlace ACTIONS_JSON BEFORE TASKS_JSON. Actions execute first, then tasks are created.";
         $intro .= "\nOnly include actions when the user explicitly asks you to do something. Do NOT include actions in regular briefings.";
@@ -2339,9 +2478,12 @@ PROMPT;
                 $h1short = substr($row['h1'] ?? '(none)', 0, 120);
                 $titleTag = substr($row['title_tag'] ?? '(none)', 0, 120);
                 $wc = $row['word_count'] ?? 0;
+                $imp = $row['page_impressions'] ?? 0;
+                $clk = $row['page_clicks'] ?? 0;
+                $triage = $row['triage'] ?? 'unknown';
                 $tq = $row['target_query'] ?? null;
                 $tqInfo = $tq ? " | Target: \"{$tq}\" (pos:" . ($row['target_query_position'] ?? '?') . ", imp:" . ($row['target_query_impressions'] ?? 0) . ")" : '';
-                $intro .= "- {$row['url']} [{$row['page_type']}] " . implode(', ', $flags) . " | {$wc}w | H1: \"{$h1short}\" | Title: \"{$titleTag}\"{$tqInfo}\n";
+                $intro .= "- {$row['url']} [{$row['page_type']}] [{$triage}] " . implode(', ', $flags) . " | {$wc}w | {$imp}imp/{$clk}clk | H1: \"{$h1short}\" | Title: \"{$titleTag}\"{$tqInfo}\n";
             }
 
                         // Rule violation summaries for quick Logiri parsing
@@ -2380,6 +2522,23 @@ PROMPT;
                 $intro .= "  " . $r['url'] . "\n";
             }
             $intro .= "\nIF A URL IS NOT IN THIS LIST, IT DOES NOT EXIST ON THE SITE. DO NOT REFERENCE IT.\n";
+        }
+
+        // ── Suppressed URLs — never generate tasks for these ──
+        try {
+            $suppressedUrls = $this->db->fetchAllAssociative(
+                'SELECT url, rule_id, reason FROM suppressed_tasks ORDER BY url'
+            );
+            if (!empty($suppressedUrls)) {
+                $intro .= "\n\nSUPPRESSED URLS — STRATEGIC DECISIONS ALREADY MADE:\n";
+                foreach ($suppressedUrls as $s) {
+                    $scope = $s['rule_id'] === '__ALL__' ? 'all rules' : $s['rule_id'];
+                    $intro .= "- {$s['url']} ({$scope})" . ($s['reason'] ? " — {$s['reason']}" : "") . "\n";
+                }
+                $intro .= "These URLs have been reviewed and a strategic decision was made. Do NOT create optimization tasks for them. If asked about them, reference the decision above.\n";
+            }
+        } catch (\Exception $e) {
+            // Table doesn't exist yet — fine
         }
 
         // ── Play-specific crawl data — full row for the URL being worked on ──
