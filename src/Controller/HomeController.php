@@ -282,6 +282,7 @@ class HomeController extends AbstractController
                                 schema_types, is_noindex, internal_link_count,
                                 image_count, has_faq_section, has_product_image,
                                 schema_errors, meta_description, first_sentence_text,
+                                body_text_snippet,
                                 images_without_alt, images_with_generic_alt, image_alt_data,
                                 target_query, target_query_impressions, target_query_position, target_query_clicks
                          FROM page_crawl_snapshots
@@ -2585,6 +2586,20 @@ PROMPT;
                 $intro .= "Target query: \"{$tq}\" (pos:" . ($playUrlData['target_query_position'] ?? '?') . ", imp:" . ($playUrlData['target_query_impressions'] ?? 0) . ", clicks:" . ($playUrlData['target_query_clicks'] ?? 0) . ")\n";
             }
             $intro .= "CRITICAL: The data above is the GROUND TRUTH for this URL. Do NOT contradict it. If it says h1_matches_title = TRUE, do NOT claim there is a mismatch. If it says word_count = 2100, do NOT say the page is thin.\n";
+
+            // Include actual page content so the LLM can make surgical recommendations
+            if (!empty($playUrlData['body_text_snippet'])) {
+                $bodySnippet = $playUrlData['body_text_snippet'];
+                // Truncate to ~6000 chars to leave room in context window
+                if (strlen($bodySnippet) > 6000) {
+                    $bodySnippet = substr($bodySnippet, 0, 6000) . "\n... [truncated at 6000 chars]";
+                }
+                $intro .= "\nACTUAL PAGE CONTENT (from crawl — use this for surgical recommendations, do NOT invent content):\n";
+                $intro .= "---\n" . $bodySnippet . "\n---\n";
+                $intro .= "The text above is what the crawler extracted from the page. Base ALL content recommendations on this actual text. Do NOT invent section headings, opening sentences, or content that is not shown above.\n";
+            } else {
+                $intro .= "\nNOTE: No body text available for this URL. Do NOT guess what the page says. Ask the user to provide the current content before making rewrite recommendations.\n";
+            }
         }
 
         // ── Verification outcomes ──
