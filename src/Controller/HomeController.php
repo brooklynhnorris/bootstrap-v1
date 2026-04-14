@@ -292,7 +292,8 @@ class HomeController extends AbstractController
                 $playUrl = end($allUrls[1]);
             }
             // Ensure trailing slash
-            if ($playUrl && !str_ends_with($playUrl, '/')) {
+            if ($playUrl && substr($playUrl, -1) !== '/') {
+                // Ensure trailing slash for DB matching
                 $playUrl .= '/';
             }
             if ($playUrl) {
@@ -671,16 +672,26 @@ class HomeController extends AbstractController
                         }
 
                         // ── HARD TRAFFIC GATE: Skip optimization tasks for zero-traffic pages ──
-                        // Pages with 0 GSC impressions should only get strategic review tasks, not optimization.
-                        // This is a PHP-level gate — the LLM cannot override it.
+                        // Check crawl data for this URL's impressions instead of hitting DB
                         try {
-                            $pageImpressions = $this->db->fetchOne(
-                                "SELECT COALESCE(impressions, 0) FROM gsc_snapshots WHERE page LIKE ? AND query = '__PAGE_AGGREGATE__' LIMIT 1",
-                                ['%' . $urlFrag . '%']
-                            );
-                            $pageImpressions = (int)($pageImpressions ?: 0);
+                            $pageImpressions = 0;
+                            if (!empty($crawlData)) {
+                                foreach ($crawlData as $cd) {
+                                    if (str_contains($cd['url'], $urlFrag)) {
+                                        $pageImpressions = (int)($cd['target_query_impressions'] ?? 0);
+                                        break;
+                                    }
+                                }
+                            }
                             if ($pageImpressions === 0) {
-                                // Only allow strategic review tasks (assigned to Jeanne) for zero-traffic pages
+                                // Also try a quick DB check as fallback
+                                $dbImp = $this->db->fetchOne(
+                                    "SELECT target_query_impressions FROM page_crawl_snapshots WHERE url LIKE ? ORDER BY crawled_at DESC LIMIT 1",
+                                    ['%' . $urlFrag . '%']
+                                );
+                                $pageImpressions = (int)($dbImp ?: 0);
+                            }
+                            if ($pageImpressions === 0) {
                                 $assignedTo = strtolower($aiTask['assigned_to'] ?? '');
                                 $isStrategicReview = str_contains(strtolower($title), 'evaluate') 
                                     || str_contains(strtolower($title), 'noindex')
@@ -688,10 +699,10 @@ class HomeController extends AbstractController
                                     || str_contains(strtolower($title), 'strategic')
                                     || str_contains(strtolower($title), 'consolidat')
                                     || $assignedTo === 'jeanne';
-                                if (!$isStrategicReview) continue; // Skip non-strategic tasks for dead pages
+                                if (!$isStrategicReview) continue;
                             }
                         } catch (\Exception $e) {
-                            // GSC data not available — continue normally
+                            // Data not available — continue normally
                         }
                     }
                     $priority = in_array($aiTask['priority'] ?? '', ['critical','high','medium','low']) ? $aiTask['priority'] : 'medium';
@@ -2000,24 +2011,11 @@ class HomeController extends AbstractController
                  LIMIT 50"
             );
 
-            // Enrich each row with GSC traffic data for triage (separate query to avoid slow JOIN)
+            // Add triage classification using target_query_impressions already in crawl data (no extra queries)
             foreach ($rows as &$row) {
-                $row['page_impressions'] = 0;
-                $row['page_clicks'] = 0;
-                try {
-                    $gscRow = $this->db->fetchAssociative(
-                        "SELECT impressions, clicks FROM gsc_snapshots WHERE page LIKE ? AND query = '__PAGE_AGGREGATE__' LIMIT 1",
-                        ['%' . $row['url']]
-                    );
-                    if ($gscRow) {
-                        $row['page_impressions'] = (int)($gscRow['impressions'] ?? 0);
-                        $row['page_clicks'] = (int)($gscRow['clicks'] ?? 0);
-                    }
-                } catch (\Exception $e) {
-                    // GSC data not available
-                }
-
-                $impressions = (int)$row['page_impressions'];
+                $impressions = (int)($row['target_query_impressions'] ?? 0);
+                $row['page_impressions'] = $impressions;
+                $row['page_clicks'] = (int)($row['target_query_clicks'] ?? 0);
                 if ($impressions >= 500) {
                     $row['triage'] = 'high_value';
                 } elseif ($impressions >= 50) {
