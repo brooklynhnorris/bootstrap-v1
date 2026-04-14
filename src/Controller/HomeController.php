@@ -425,10 +425,19 @@ class HomeController extends AbstractController
         $data = json_decode($response, true);
 
         if (isset($data['error'])) {
-            return new JsonResponse(['error' => $data['error']['message']], 500);
+            $errMsg = $data['error']['message'] ?? 'Unknown API error';
+            $errType = $data['error']['type'] ?? 'unknown';
+            $promptLen = strlen($systemPrompt);
+            return new JsonResponse(['error' => "API error ({$errType}): {$errMsg} [prompt: {$promptLen} chars]"], 500);
         }
 
-        $text = $data['content'][0]['text'] ?? 'No response from Claude.';
+        if (!isset($data['content'][0]['text'])) {
+            $promptLen = strlen($systemPrompt);
+            $rawResp = substr($response, 0, 500);
+            return new JsonResponse(['error' => "Empty API response [prompt: {$promptLen} chars, raw: {$rawResp}]"], 500);
+        }
+
+        $text = $data['content'][0]['text'];
 
         // ── NLP ENTITY VALIDATION ──
         // Only run on actual page content rewrites (not task briefings or general chat).
@@ -2577,19 +2586,14 @@ PROMPT;
         }
 
         // ── Complete URL registry — so LLM never has to guess which pages exist ──
+        // Only include core pages (link targets) + limited outer pages to keep prompt size manageable
         if (!empty($allCrawledUrls)) {
             $coreUrls = array_filter($allCrawledUrls, fn($r) => strtolower($r['page_type']) === 'core');
-            $outerUrls = array_filter($allCrawledUrls, fn($r) => strtolower($r['page_type']) === 'outer');
-            $intro .= "\n\nVALID SITE URLS — COMPLETE LIST (use ONLY these when suggesting link targets):\n";
-            $intro .= "Core pages (" . count($coreUrls) . "):\n";
+            $intro .= "\n\nVALID CORE PAGE URLS (use ONLY these when suggesting link targets):\n";
             foreach ($coreUrls as $r) {
                 $intro .= "  " . $r['url'] . " (" . $r['word_count'] . "w)\n";
             }
-            $intro .= "Outer pages (" . count($outerUrls) . "):\n";
-            foreach (array_slice(array_values($outerUrls), 0, 60) as $r) {
-                $intro .= "  " . $r['url'] . "\n";
-            }
-            $intro .= "\nIF A URL IS NOT IN THIS LIST, IT DOES NOT EXIST ON THE SITE. DO NOT REFERENCE IT.\n";
+            $intro .= "\nIF A CORE URL IS NOT IN THIS LIST, IT DOES NOT EXIST. DO NOT REFERENCE IT.\n";
         }
 
         // ── Suppressed URLs — never generate tasks for these ──
@@ -2657,9 +2661,9 @@ PROMPT;
             // Include actual page content so the LLM can make surgical recommendations
             if (!empty($playUrlData['body_text_snippet'])) {
                 $bodySnippet = $playUrlData['body_text_snippet'];
-                // Truncate to ~6000 chars to leave room in context window
-                if (strlen($bodySnippet) > 6000) {
-                    $bodySnippet = substr($bodySnippet, 0, 6000) . "\n... [truncated at 6000 chars]";
+                // Truncate to ~4000 chars to keep prompt size manageable
+                if (strlen($bodySnippet) > 4000) {
+                    $bodySnippet = substr($bodySnippet, 0, 4000) . "\n... [truncated]";
                 }
                 $intro .= "\nACTUAL PAGE CONTENT (from crawl — use this for surgical recommendations, do NOT invent content):\n";
                 $intro .= "---\n" . $bodySnippet . "\n---\n";
