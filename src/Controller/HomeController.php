@@ -190,22 +190,22 @@ class HomeController extends AbstractController
 
         $isPlayOpen = str_contains($lastUserMsg, 'i just opened the play');
 
-        $needsGsc     = !$isCasual && (str_contains($lastUserMsg, 'gsc') || str_contains($lastUserMsg, 'ranking')
+        $needsGsc     = !$isCasual && !$isPlayOpen && (str_contains($lastUserMsg, 'gsc') || str_contains($lastUserMsg, 'ranking')
                       || str_contains($lastUserMsg, 'position') || str_contains($lastUserMsg, 'impression')
                       || str_contains($lastUserMsg, 'traffic') || str_contains($lastUserMsg, 'serp')
                       || $isBriefingRequest);
-        $needsGa4     = !$isCasual && (str_contains($lastUserMsg, 'ga4') || str_contains($lastUserMsg, 'analytics') || str_contains($lastUserMsg, 'bounce')
+        $needsGa4     = !$isCasual && !$isPlayOpen && (str_contains($lastUserMsg, 'ga4') || str_contains($lastUserMsg, 'analytics') || str_contains($lastUserMsg, 'bounce')
                       || str_contains($lastUserMsg, 'engagement') || str_contains($lastUserMsg, 'session') || str_contains($lastUserMsg, 'conversion')
                       || $isBriefingRequest);
         $needsAds     = !$isCasual && (str_contains($lastUserMsg, 'ads') || str_contains($lastUserMsg, 'google ads') || str_contains($lastUserMsg, 'campaign')
                       || str_contains($lastUserMsg, 'ppc') || str_contains($lastUserMsg, 'spend') || str_contains($lastUserMsg, 'cpc'));
-        $needsCrawl   = !$isCasual && (str_contains($lastUserMsg, 'crawl') || str_contains($lastUserMsg, 'page') || str_contains($lastUserMsg, 'schema')
+        $needsCrawl   = !$isCasual && !$isPlayOpen && (str_contains($lastUserMsg, 'crawl') || str_contains($lastUserMsg, 'page') || str_contains($lastUserMsg, 'schema')
                       || str_contains($lastUserMsg, 'h1') || str_contains($lastUserMsg, 'title')
                       || str_contains($lastUserMsg, 'link') || str_contains($lastUserMsg, 'entity') || str_contains($lastUserMsg, 'word count')
                       || str_contains($lastUserMsg, 'play') || str_contains($lastUserMsg, 'signal')
                       || str_contains($lastUserMsg, 'fix') || str_contains($lastUserMsg, '/')
-                      || $isBriefingRequest || $isPlayOpen);
-        $needsRules   = !$isCasual && (str_contains($lastUserMsg, 'rule') || str_contains($lastUserMsg, 'proposal') || str_contains($lastUserMsg, 'learning')
+                      || $isBriefingRequest);
+        $needsRules   = !$isCasual && !$isPlayOpen && (str_contains($lastUserMsg, 'rule') || str_contains($lastUserMsg, 'proposal') || str_contains($lastUserMsg, 'learning')
                       || str_contains($lastUserMsg, 'approve') || str_contains($lastUserMsg, 'reject')
                       || $isBriefingRequest);
         // Only load the full URL list when we actually need link targets (briefings, not play cards)
