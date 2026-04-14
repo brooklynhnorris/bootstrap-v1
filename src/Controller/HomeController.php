@@ -272,9 +272,30 @@ class HomeController extends AbstractController
             if ($m['role'] === 'user') { $rawLastUserMsg = $m['content']; break; }
         }
         if (str_contains($rawLastUserMsg, 'I just opened the Play:')) {
-            // Extract URL from the play message — format: "...Play: [RULE] Title — /url/"
-            if (preg_match('#—\s*(/[^\s]+/)#', $rawLastUserMsg, $urlMatch)) {
+            // Extract URL from the play message — try multiple patterns
+            $playUrl = null;
+            // Pattern 1: em dash separator — /url/
+            if (preg_match('#\x{2014}\s*(/[a-z0-9_-]+(?:/[a-z0-9_-]+)*/?)#u', $rawLastUserMsg, $urlMatch)) {
                 $playUrl = $urlMatch[1];
+            }
+            // Pattern 2: regular dash separator - /url/
+            elseif (preg_match('#\s-\s*(/[a-z0-9_-]+(?:/[a-z0-9_-]+)*/?)#i', $rawLastUserMsg, $urlMatch)) {
+                $playUrl = $urlMatch[1];
+            }
+            // Pattern 3: any URL path at the end of the message
+            elseif (preg_match('#(/[a-z0-9_-]+(?:/[a-z0-9_-]+)*/?)[\s]*$#i', $rawLastUserMsg, $urlMatch)) {
+                $playUrl = $urlMatch[1];
+            }
+            // Pattern 4: any URL path anywhere in the message (last resort)
+            elseif (preg_match_all('#(/[a-z0-9][a-z0-9_-]+/)#i', $rawLastUserMsg, $allUrls)) {
+                // Take the last URL found (most likely the page URL, not a rule reference)
+                $playUrl = end($allUrls[1]);
+            }
+            // Ensure trailing slash
+            if ($playUrl && !str_ends_with($playUrl, '/')) {
+                $playUrl .= '/';
+            }
+            if ($playUrl) {
                 try {
                     $playUrlData = $this->db->fetchAssociative(
                         "SELECT url, page_type, has_central_entity, has_core_link,
@@ -634,6 +655,30 @@ class HomeController extends AbstractController
                             if ($blanketSuppressed) continue;
                         } catch (\Exception $e) {
                             // Table might not exist yet — continue normally
+                        }
+
+                        // ── HARD TRAFFIC GATE: Skip optimization tasks for zero-traffic pages ──
+                        // Pages with 0 GSC impressions should only get strategic review tasks, not optimization.
+                        // This is a PHP-level gate — the LLM cannot override it.
+                        try {
+                            $pageImpressions = $this->db->fetchOne(
+                                "SELECT COALESCE(impressions, 0) FROM gsc_snapshots WHERE page LIKE ? AND query = '__PAGE_AGGREGATE__' LIMIT 1",
+                                ['%' . $urlFrag . '%']
+                            );
+                            $pageImpressions = (int)($pageImpressions ?: 0);
+                            if ($pageImpressions === 0) {
+                                // Only allow strategic review tasks (assigned to Jeanne) for zero-traffic pages
+                                $assignedTo = strtolower($aiTask['assigned_to'] ?? '');
+                                $isStrategicReview = str_contains(strtolower($title), 'evaluate') 
+                                    || str_contains(strtolower($title), 'noindex')
+                                    || str_contains(strtolower($title), 'redirect')
+                                    || str_contains(strtolower($title), 'strategic')
+                                    || str_contains(strtolower($title), 'consolidat')
+                                    || $assignedTo === 'jeanne';
+                                if (!$isStrategicReview) continue; // Skip non-strategic tasks for dead pages
+                            }
+                        } catch (\Exception $e) {
+                            // GSC data not available — continue normally
                         }
                     }
                     $priority = in_array($aiTask['priority'] ?? '', ['critical','high','medium','low']) ? $aiTask['priority'] : 'medium';
