@@ -304,7 +304,7 @@ class HomeController extends AbstractController
                                 image_count, has_faq_section, has_product_image,
                                 schema_errors, meta_description, first_sentence_text,
                                 body_text_snippet,
-                                images_without_alt, images_with_generic_alt, image_alt_data,
+                                images_without_alt, images_with_generic_alt,
                                 target_query, target_query_impressions, target_query_position, target_query_clicks
                          FROM page_crawl_snapshots
                          WHERE url = ?
@@ -312,6 +312,19 @@ class HomeController extends AbstractController
                         [$playUrl]
                     );
                 } catch (\Exception $e) { $playUrlData = null; }
+
+                // Try to load image_alt_data separately (column may not exist yet)
+                if ($playUrlData && $playUrl) {
+                    try {
+                        $imgData = $this->db->fetchOne(
+                            "SELECT image_alt_data FROM page_crawl_snapshots WHERE url = ? ORDER BY crawled_at DESC LIMIT 1",
+                            [$playUrl]
+                        );
+                        $playUrlData['image_alt_data'] = $imgData ?: null;
+                    } catch (\Exception $e) {
+                        $playUrlData['image_alt_data'] = null;
+                    }
+                }
             }
         }
 
@@ -1970,11 +1983,8 @@ class HomeController extends AbstractController
                         p.schema_types, p.is_noindex, p.internal_link_count,
                         p.image_count, p.has_faq_section, p.has_product_image,
                         p.schema_errors, p.crawled_at,
-                        p.target_query, p.target_query_impressions, p.target_query_position, p.target_query_clicks,
-                        COALESCE(g.impressions, 0) as page_impressions,
-                        COALESCE(g.clicks, 0) as page_clicks
+                        p.target_query, p.target_query_impressions, p.target_query_position, p.target_query_clicks
                  FROM page_crawl_snapshots p
-                 LEFT JOIN gsc_snapshots g ON g.page LIKE '%' || p.url AND g.query = '__PAGE_AGGREGATE__'
                  WHERE p.crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
                    AND (
                      p.has_central_entity = FALSE
@@ -1990,10 +2000,24 @@ class HomeController extends AbstractController
                  LIMIT 50"
             );
 
-            // Add triage classification to each row
+            // Enrich each row with GSC traffic data for triage (separate query to avoid slow JOIN)
             foreach ($rows as &$row) {
-                $impressions = (int)($row['page_impressions'] ?? 0);
-                $clicks = (int)($row['page_clicks'] ?? 0);
+                $row['page_impressions'] = 0;
+                $row['page_clicks'] = 0;
+                try {
+                    $gscRow = $this->db->fetchAssociative(
+                        "SELECT impressions, clicks FROM gsc_snapshots WHERE page LIKE ? AND query = '__PAGE_AGGREGATE__' LIMIT 1",
+                        ['%' . $row['url']]
+                    );
+                    if ($gscRow) {
+                        $row['page_impressions'] = (int)($gscRow['impressions'] ?? 0);
+                        $row['page_clicks'] = (int)($gscRow['clicks'] ?? 0);
+                    }
+                } catch (\Exception $e) {
+                    // GSC data not available
+                }
+
+                $impressions = (int)$row['page_impressions'];
                 if ($impressions >= 500) {
                     $row['triage'] = 'high_value';
                 } elseif ($impressions >= 50) {
