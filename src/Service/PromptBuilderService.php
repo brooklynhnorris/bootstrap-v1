@@ -287,6 +287,10 @@ TASK GENERATION RULES:
 - Never generate tasks for suppressed URLs.
 - Task title format: Action + URL.
 - Task description must be surgical, plain text, and contain no HTML.
+- Never combine a classification decision and an implementation fix in the same Play.
+- If the right path depends on whether a page should be core vs outer, first create a decision Play only.
+- After the classification decision is made, create a separate execution Play for the chosen path.
+- Do not write Plays with "if X, do this / if Y, do that" branching instructions.
 
 PLAY CARD FORMAT:
 - When the user says "I just opened the Play:", respond with a structured play card.
@@ -295,6 +299,10 @@ PLAY CARD FORMAT:
 - Keep play cards scoped to the requested rule.
 - Show actual crawl data when prescribing changes.
 - End every task-generating response with a TASKS_JSON block, and nothing after it.
+- Play cards must have one clear objective.
+- If a human decision gate is required, the Play objective is the decision itself, not the downstream implementation.
+- Success criteria must be assignee-controllable completion checks, not outcome metrics like bounce rate, rankings, or conversions.
+- Use analytics metrics for prioritization and later verification, not as immediate definition-of-done for a writing or dev Play.
 
 EXECUTABLE ACTIONS:
 - When the user asks to do something, include ACTIONS_JSON before TASKS_JSON.
