@@ -3493,46 +3493,85 @@
     }
 
     async function approveProposal(id, btn) {
+        const persona = getActivePersona();
+        btn.disabled = true;
+        btn.textContent = 'Approving...';
         try {
-            const res = await fetch('/api/rule-proposals/' + id + '/approve', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            const res = await fetch('/api/rule-proposals/' + id + '/approve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ approved_by: persona })
+            });
             const data = await res.json();
-
-            const parentCard = btn ? btn.closest('.rules-card, .proposal-card, [id^="proposal-"]') : document.getElementById('proposal-' + id);
-            if (parentCard) {
-                parentCard.style.transition = 'opacity 0.4s, transform 0.4s';
-                parentCard.style.opacity = '0';
-                parentCard.style.transform = 'translateY(-10px)';
-                setTimeout(() => parentCard.remove(), 400);
+            if (data.ok || data.status || data.message) {
+                const card = btn.closest('.proposal-card, [data-proposal-id], div');
+                if (card) {
+                    const btns = card.querySelectorAll('button');
+                    btns.forEach(b => {
+                        if (b.textContent.includes('Approve') || b.textContent.includes('Reject')) {
+                            b.style.display = 'none';
+                        }
+                    });
+                    const badge = document.createElement('span');
+                    badge.style.cssText = 'background:#198754;color:white;padding:4px 12px;border-radius:4px;font-size:13px;font-weight:600;';
+                    badge.textContent = '\u2713 Approved & Applied';
+                    btn.parentElement.appendChild(badge);
+                }
+            } else {
+                alert('Approval failed: ' + (data.error || 'Unknown error'));
+                btn.disabled = false;
+                btn.textContent = '\u2713 Approve';
             }
-
-            showNotification(data.applied
-                ? '✓ Rule updated in database — active on next cron run'
-                : (data.message || 'Approved but could not auto-apply: ' + (data.error || '')),
-                data.applied ? 'green' : 'red');
-
-            // Refresh rules view so card moves from "Change Pending" to "Recently Updated"
-            setTimeout(() => loadRulesView(), 500);
-        } catch(e) { showNotification('Failed to approve: ' + e.message, 'red'); }
+        } catch(e) {
+            alert('Approval failed: ' + e.message);
+            btn.disabled = false;
+            btn.textContent = '\u2713 Approve';
+        }
     }
 
     async function rejectProposal(id, btn) {
+        const feedback = prompt('Why are you rejecting this rule change? (This helps Logiri learn)');
+        if (feedback === null) return;
+        if (feedback.trim().length < 5) {
+            alert('Please provide a reason for rejection (at least 5 characters).');
+            return;
+        }
+        const persona = getActivePersona();
+        btn.disabled = true;
+        btn.textContent = 'Rejecting...';
         try {
-            const res = await fetch('/api/rule-proposals/' + id + '/reject', { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+            const res = await fetch('/api/rule-proposals/' + id + '/reject', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ approved_by: persona, feedback: feedback.trim() })
+            });
             const data = await res.json();
-
-            const parentCard = btn ? btn.closest('.rules-card, .proposal-card, [id^="proposal-"]') : document.getElementById('proposal-' + id);
-            if (parentCard) {
-                parentCard.style.transition = 'opacity 0.4s, transform 0.4s';
-                parentCard.style.opacity = '0';
-                parentCard.style.transform = 'translateY(-10px)';
-                setTimeout(() => parentCard.remove(), 400);
+            if (data.ok || data.status) {
+                const card = btn.closest('.proposal-card, [data-proposal-id], div');
+                if (card) {
+                    const btns = card.querySelectorAll('button');
+                    btns.forEach(b => {
+                        if (b.textContent.includes('Approve') || b.textContent.includes('Reject')) {
+                            b.style.display = 'none';
+                        }
+                    });
+                    const badge = document.createElement('span');
+                    badge.style.cssText = 'background:#dc3545;color:white;padding:4px 12px;border-radius:4px;font-size:13px;font-weight:600;';
+                    badge.textContent = '\u2717 Rejected \u2014 ' + feedback.trim().substring(0, 60);
+                    btn.parentElement.appendChild(badge);
+                }
+            } else {
+                alert('Rejection failed: ' + (data.error || 'Unknown error'));
+                btn.disabled = false;
+                btn.textContent = '\u2717 Reject';
             }
-
-            showNotification(data.message || 'Proposal rejected', 'green');
-            setTimeout(() => loadRulesView(), 500);
-        } catch(e) { showNotification('Failed to reject', 'red'); }
+        } catch(e) {
+            alert('Rejection failed: ' + e.message);
+            btn.disabled = false;
+            btn.textContent = '\u2717 Reject';
+        }
     }
-
+    
     // ── RESULTS VIEW ─────────────────────────────────
     let resultsData = { all: [], pass: [], fail: [], awaiting: [] };
     let currentResultsFilter = 'all';

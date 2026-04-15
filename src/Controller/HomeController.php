@@ -403,7 +403,7 @@ class HomeController extends AbstractController
         }
 
         $claudeKey   = $_ENV['ANTHROPIC_API_KEY'] ?? '';
-        $claudeModel = $_ENV['ANTHROPIC_MODEL'] ?? 'claude-sonnet-4-5';
+        $claudeModel = $_ENV['ANTHROPIC_MODEL'] ?? $_ENV['CLAUDE_MODEL'] ?? 'claude-sonnet-4-6';
 
         $payload = json_encode([
             'model'      => $claudeModel,
@@ -659,7 +659,8 @@ class HomeController extends AbstractController
                     );
                     if ($existing) continue;
                     // Also skip if same URL appears in an active task with same rule prefix
-                    if (preg_match('|(/[^/ ]+/)|u', $title, $urlParts)) {
+                    // Extract the full URL path (handles multi-segment URLs like /category/page/)
+                    if (preg_match('|(/[a-z0-9][a-z0-9_-]+(?:/[a-z0-9_-]+)*/)|i', $title, $urlParts)) {
                         $urlFrag = $urlParts[1];
                         $rulePrefix = substr($title, 0, 10);
                         $nearDup = $this->db->fetchAssociative(
@@ -2820,7 +2821,7 @@ Example: [{"learning":"User wants page hierarchy shown in task briefs","category
 PROMPT;
 
         $payload = json_encode([
-            'model'      => 'claude-sonnet-4-5',
+            'model'      => $_ENV['ANTHROPIC_MODEL'] ?? $_ENV['CLAUDE_MODEL'] ?? 'claude-sonnet-4-6',
             'max_tokens' => 500,
             'messages'   => [['role' => 'user', 'content' => $extractPrompt]],
         ]);
