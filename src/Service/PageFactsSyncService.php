@@ -3,6 +3,7 @@
 namespace App\Service;
 
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\ParameterType;
 
 class PageFactsSyncService
 {
@@ -50,6 +51,10 @@ class PageFactsSyncService
             $ga4 = $ga4Lookup[$url] ?? null;
             $schemaTypes = $this->normalizeJsonValue($row['schema_types'] ?? null, '[]');
             $schemaErrors = $this->normalizeJsonValue($row['schema_errors'] ?? null, '[]');
+            $isIndexable = !$this->toBool($row['is_noindex'] ?? false);
+            $h1MatchesTitle = $this->toNullableBool($row['h1_matches_title'] ?? null);
+            $hasCentralEntity = $this->toNullableBool($row['has_central_entity'] ?? null);
+            $hasCoreLink = $this->toNullableBool($row['has_core_link'] ?? null);
 
             $this->db->executeStatement(
                 "INSERT INTO page_facts (
@@ -95,16 +100,16 @@ class PageFactsSyncService
                 [
                     'url' => $url,
                     'page_type' => $row['page_type'] ?? null,
-                    'is_indexable' => !$this->toBool($row['is_noindex'] ?? false),
+                    'is_indexable' => $isIndexable,
                     'word_count' => $row['word_count'] !== null ? (int) $row['word_count'] : null,
                     'h1' => $row['h1'] ?? null,
                     'title_tag' => $row['title_tag'] ?? null,
-                    'h1_matches_title' => $row['h1_matches_title'] !== null ? $this->toBool($row['h1_matches_title']) : null,
+                    'h1_matches_title' => $h1MatchesTitle,
                     'h2_count' => $this->countHeadings($row['h2s'] ?? null),
                     'schema_types' => $schemaTypes,
                     'schema_errors' => $schemaErrors,
-                    'has_central_entity' => $row['has_central_entity'] !== null ? $this->toBool($row['has_central_entity']) : null,
-                    'has_core_link' => $row['has_core_link'] !== null ? $this->toBool($row['has_core_link']) : null,
+                    'has_central_entity' => $hasCentralEntity,
+                    'has_core_link' => $hasCoreLink,
                     'internal_link_count' => $row['internal_link_count'] !== null ? (int) $row['internal_link_count'] : null,
                     'target_query' => $row['target_query'] ?? null,
                     'target_query_impressions' => $row['target_query_impressions'] !== null ? (int) $row['target_query_impressions'] : null,
@@ -118,6 +123,12 @@ class PageFactsSyncService
                     'last_crawled_at' => $row['crawled_at'] ?? null,
                     'last_ga4_at' => $ga4['fetched_at'] ?? null,
                     'updated_at' => $now,
+                ],
+                [
+                    'is_indexable' => ParameterType::BOOLEAN,
+                    'h1_matches_title' => $h1MatchesTitle === null ? ParameterType::NULL : ParameterType::BOOLEAN,
+                    'has_central_entity' => $hasCentralEntity === null ? ParameterType::NULL : ParameterType::BOOLEAN,
+                    'has_core_link' => $hasCoreLink === null ? ParameterType::NULL : ParameterType::BOOLEAN,
                 ]
             );
         }
@@ -217,6 +228,19 @@ class PageFactsSyncService
     private function toBool(mixed $value): bool
     {
         return $value === true || $value === 1 || $value === '1' || $value === 't' || $value === 'true';
+    }
+
+    private function toNullableBool(mixed $value): ?bool
+    {
+        if ($value === null) {
+            return null;
+        }
+
+        if (is_string($value) && trim($value) === '') {
+            return null;
+        }
+
+        return $this->toBool($value);
     }
 
     private function tableExists(string $tableName): bool

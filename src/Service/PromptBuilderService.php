@@ -439,29 +439,12 @@ PROMPT;
 
         if (!empty($crawlData)) {
             $crawledAt = $crawlData[0]['crawled_at'] ?? 'unknown';
-            $context .= "\n\nPAGE SIGNALS (last crawl: {$crawledAt}) - violations only:\n";
+            $hasDeterministicRules = array_filter($crawlData, fn(array $row): bool => !empty($row['rule_ids'] ?? null));
+            $context .= $hasDeterministicRules
+                ? "\n\nPAGE SIGNALS (deterministic snapshot sourced from page_facts + rule_violations; crawl basis: {$crawledAt}):\n"
+                : "\n\nPAGE SIGNALS (last crawl: {$crawledAt}) - violations only:\n";
             foreach ($crawlData as $row) {
-                $flags = [];
-                if (!$this->isTruthy($row['has_central_entity'] ?? null)) {
-                    $flags[] = 'FC-R1:no-entity';
-                }
-                if (($row['page_type'] ?? '') === 'outer' && !$this->isTruthy($row['has_core_link'] ?? null)) {
-                    $flags[] = 'FC-R5:no-core-link';
-                }
-                if (!$this->isTruthy($row['h1_matches_title'] ?? null)) {
-                    $flags[] = 'FC-R7:h1-mismatch';
-                }
-                if (($row['page_type'] ?? '') === 'core') {
-                    if ((int) ($row['word_count'] ?? 0) < 500) {
-                        $flags[] = 'FC-R3:thin';
-                    }
-                    if (empty($row['h2s']) || $row['h2s'] === '[]') {
-                        $flags[] = 'FC-R8:no-h2';
-                    }
-                    if (empty($row['schema_types']) || $row['schema_types'] === '[]') {
-                        $flags[] = 'FC-R9:no-schema';
-                    }
-                }
+                $flags = $this->extractRuleFlags($row);
                 if (empty($flags)) {
                     continue;
                 }
@@ -485,20 +468,15 @@ PROMPT;
                     . "\n";
             }
 
-            $noEntity = array_filter($crawlData, fn(array $row): bool => !$this->isTruthy($row['has_central_entity'] ?? null) && !$this->isTruthy($row['is_noindex'] ?? null));
-            $noCoreLink = array_filter($crawlData, fn(array $row): bool => ($row['page_type'] ?? '') === 'outer' && !$this->isTruthy($row['has_core_link'] ?? null) && !$this->isTruthy($row['is_noindex'] ?? null));
-            $thinCore = array_filter($crawlData, fn(array $row): bool => ($row['page_type'] ?? '') === 'core' && (int) ($row['word_count'] ?? 0) < 500 && !$this->isTruthy($row['is_noindex'] ?? null));
-            $noH2Core = array_filter($crawlData, fn(array $row): bool => ($row['page_type'] ?? '') === 'core' && (($row['h2s'] ?? '') === '[]' || empty($row['h2s'])) && !$this->isTruthy($row['is_noindex'] ?? null));
-            $h1Mismatch = array_filter($crawlData, fn(array $row): bool => !$this->isTruthy($row['h1_matches_title'] ?? null) && !$this->isTruthy($row['is_noindex'] ?? null));
-            $noSchema = array_filter($crawlData, fn(array $row): bool => ($row['page_type'] ?? '') === 'core' && (($row['schema_types'] ?? '') === '[]' || empty($row['schema_types'])) && !$this->isTruthy($row['is_noindex'] ?? null));
+            $ruleCounts = $this->summarizeRules($crawlData);
 
             $context .= "\nCRAWL RULE VIOLATION SUMMARY:\n";
-            $context .= 'FC-R1 (no central entity): ' . count($noEntity) . ' pages - ' . implode(', ', array_column(array_slice($noEntity, 0, 5), 'url')) . "\n";
-            $context .= 'FC-R5 (outer missing core link): ' . count($noCoreLink) . ' pages - ' . implode(', ', array_column(array_slice($noCoreLink, 0, 5), 'url')) . "\n";
-            $context .= 'FC-R3/R6 (thin core <500w): ' . count($thinCore) . ' pages - ' . implode(', ', array_column(array_slice($thinCore, 0, 5), 'url')) . "\n";
-            $context .= 'FC-R8 (core missing H2s): ' . count($noH2Core) . ' pages - ' . implode(', ', array_column(array_slice($noH2Core, 0, 5), 'url')) . "\n";
-            $context .= 'FC-R7 (H1/title mismatch): ' . count($h1Mismatch) . ' pages - ' . implode(', ', array_column(array_slice($h1Mismatch, 0, 5), 'url')) . "\n";
-            $context .= 'FC-R9 (core missing schema): ' . count($noSchema) . ' pages - ' . implode(', ', array_column(array_slice($noSchema, 0, 5), 'url')) . "\n";
+            $context .= $this->buildRuleSummaryLine('FC-R1', 'no central entity', $ruleCounts, $crawlData);
+            $context .= $this->buildRuleSummaryLine('FC-R5', 'outer missing core link', $ruleCounts, $crawlData);
+            $context .= $this->buildRuleSummaryLine('FC-R3', 'thin core <500w', $ruleCounts, $crawlData);
+            $context .= $this->buildRuleSummaryLine('FC-R8', 'core missing H2s', $ruleCounts, $crawlData);
+            $context .= $this->buildRuleSummaryLine('FC-R7', 'H1/title mismatch', $ruleCounts, $crawlData);
+            $context .= $this->buildRuleSummaryLine('FC-R9', 'core missing schema', $ruleCounts, $crawlData);
         } else {
             $context .= "\n\nPAGE CRAWL DATA: No crawl data available. Run php bin/console app:crawl-pages to populate.\n";
         }
@@ -700,6 +678,81 @@ PROMPT;
     private function isTruthy(mixed $value): bool
     {
         return $value === true || $value === 1 || $value === '1' || $value === 't' || $value === 'true';
+    }
+
+    private function extractRuleFlags(array $row): array
+    {
+        if (!empty($row['rule_ids'])) {
+            $ruleIds = array_filter(array_map('trim', explode(',', (string) $row['rule_ids'])));
+            return array_map(
+                static fn(string $ruleId): string => match ($ruleId) {
+                    'FC-R1' => 'FC-R1:no-entity',
+                    'FC-R3' => 'FC-R3:thin',
+                    'FC-R5' => 'FC-R5:no-core-link',
+                    'FC-R7' => 'FC-R7:h1-mismatch',
+                    'FC-R8' => 'FC-R8:no-h2',
+                    'FC-R9' => 'FC-R9:no-schema',
+                    default => $ruleId,
+                },
+                $ruleIds
+            );
+        }
+
+        $flags = [];
+        if (!$this->isTruthy($row['has_central_entity'] ?? null)) {
+            $flags[] = 'FC-R1:no-entity';
+        }
+        if (($row['page_type'] ?? '') === 'outer' && !$this->isTruthy($row['has_core_link'] ?? null)) {
+            $flags[] = 'FC-R5:no-core-link';
+        }
+        if (!$this->isTruthy($row['h1_matches_title'] ?? null)) {
+            $flags[] = 'FC-R7:h1-mismatch';
+        }
+        if (($row['page_type'] ?? '') === 'core') {
+            if ((int) ($row['word_count'] ?? 0) < 500) {
+                $flags[] = 'FC-R3:thin';
+            }
+            if (empty($row['h2s']) || $row['h2s'] === '[]') {
+                $flags[] = 'FC-R8:no-h2';
+            }
+            if (empty($row['schema_types']) || $row['schema_types'] === '[]') {
+                $flags[] = 'FC-R9:no-schema';
+            }
+        }
+
+        return $flags;
+    }
+
+    private function summarizeRules(array $crawlData): array
+    {
+        $counts = [];
+
+        foreach ($crawlData as $row) {
+            $ruleIds = [];
+            if (!empty($row['rule_ids'])) {
+                $ruleIds = array_filter(array_map('trim', explode(',', (string) $row['rule_ids'])));
+            } else {
+                foreach ($this->extractRuleFlags($row) as $flag) {
+                    $ruleIds[] = strstr($flag, ':', true) ?: $flag;
+                }
+            }
+
+            foreach (array_unique($ruleIds) as $ruleId) {
+                $counts[$ruleId][] = (string) ($row['url'] ?? '');
+            }
+        }
+
+        return $counts;
+    }
+
+    private function buildRuleSummaryLine(string $ruleId, string $label, array $ruleCounts, array $crawlData): string
+    {
+        $urls = array_values(array_filter($ruleCounts[$ruleId] ?? []));
+        if (empty($urls)) {
+            return $ruleId . ' (' . $label . "): 0 pages\n";
+        }
+
+        return $ruleId . ' (' . $label . '): ' . count($urls) . ' pages - ' . implode(', ', array_slice($urls, 0, 5)) . "\n";
     }
 
     private function boolToPromptString(mixed $value): string

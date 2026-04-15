@@ -6,7 +6,10 @@ use Doctrine\DBAL\Connection;
 
 class TaskSuggestionService
 {
-    public function __construct(private Connection $db)
+    public function __construct(
+        private Connection $db,
+        private ViolationSnapshotService $violationSnapshotService
+    )
     {
     }
 
@@ -58,7 +61,14 @@ class TaskSuggestionService
         }
 
         $urlFragment = $this->extractUrlFragment($title);
+        $ruleId = $this->extractRuleId((string) ($aiTask['title'] ?? '')) ?? $this->normalizeRuleId($aiTask['rule_id'] ?? null);
+        $activeViolation = null;
         if ($urlFragment !== null) {
+            $activeViolation = $this->findActiveViolation($urlFragment, $ruleId, $crawlData);
+            if ($ruleId !== null && $activeViolation === null) {
+                return null;
+            }
+
             $rulePrefix = substr($title, 0, 10);
             $nearDuplicate = $this->db->fetchAssociative(
                 "SELECT id FROM tasks WHERE title LIKE ? AND title LIKE ? AND status NOT IN ('done','closed') LIMIT 1",
@@ -77,14 +87,14 @@ class TaskSuggestionService
             }
         }
 
-        $priority = in_array(($aiTask['priority'] ?? ''), ['critical', 'high', 'medium', 'low'], true)
-            ? $aiTask['priority']
-            : 'medium';
+        $priority = $this->resolvePriority($aiTask, $activeViolation);
+        $assignedTo = $aiTask['assigned_to'] ?? ($activeViolation['assignee'] ?? null);
+        $description = isset($aiTask['description']) ? strip_tags((string) $aiTask['description']) : null;
 
         $this->db->insert('tasks', [
             'title' => $title,
-            'description' => isset($aiTask['description']) ? strip_tags((string) $aiTask['description']) : null,
-            'assigned_to' => $aiTask['assigned_to'] ?? null,
+            'description' => $description,
+            'assigned_to' => $assignedTo,
             'assigned_role' => $aiTask['role'] ?? null,
             'status' => 'pending',
             'priority' => $priority,
@@ -122,6 +132,16 @@ class TaskSuggestionService
         return null;
     }
 
+    private function normalizeRuleId(mixed $ruleId): ?string
+    {
+        if (!is_string($ruleId)) {
+            return null;
+        }
+
+        $ruleId = strtoupper(trim($ruleId));
+        return $ruleId === '' ? null : $ruleId;
+    }
+
     private function isSuppressed(string $title, string $urlFragment): bool
     {
         try {
@@ -150,22 +170,7 @@ class TaskSuggestionService
     private function passesTrafficGate(array $aiTask, string $title, string $urlFragment, array $crawlData): bool
     {
         try {
-            $pageImpressions = 0;
-
-            foreach ($crawlData as $row) {
-                if (str_contains((string) ($row['url'] ?? ''), $urlFragment)) {
-                    $pageImpressions = (int) ($row['target_query_impressions'] ?? 0);
-                    break;
-                }
-            }
-
-            if ($pageImpressions === 0) {
-                $dbImpressions = $this->db->fetchOne(
-                    "SELECT target_query_impressions FROM page_crawl_snapshots WHERE url LIKE ? ORDER BY crawled_at DESC LIMIT 1",
-                    ['%' . $urlFragment . '%']
-                );
-                $pageImpressions = (int) ($dbImpressions ?: 0);
-            }
+            $pageImpressions = $this->lookupImpressions($urlFragment, $crawlData);
 
             if ($pageImpressions > 0) {
                 return true;
@@ -183,5 +188,88 @@ class TaskSuggestionService
         } catch (\Exception $e) {
             return true;
         }
+    }
+
+    private function lookupImpressions(string $urlFragment, array $crawlData): int
+    {
+        foreach ($crawlData as $row) {
+            if ($this->urlsMatch((string) ($row['url'] ?? ''), $urlFragment)) {
+                return (int) ($row['target_query_impressions'] ?? 0);
+            }
+        }
+
+        if ($this->tableExists('page_facts')) {
+            $dbImpressions = $this->db->fetchOne(
+                "SELECT target_query_impressions FROM page_facts WHERE url = ? LIMIT 1",
+                [$this->violationSnapshotService->normalizeUrl($urlFragment)]
+            );
+            if ($dbImpressions !== false && $dbImpressions !== null) {
+                return (int) $dbImpressions;
+            }
+        }
+
+        $dbImpressions = $this->db->fetchOne(
+            "SELECT target_query_impressions FROM page_crawl_snapshots WHERE url LIKE ? ORDER BY crawled_at DESC LIMIT 1",
+            ['%' . $urlFragment . '%']
+        );
+
+        return (int) ($dbImpressions ?: 0);
+    }
+
+    private function findActiveViolation(string $urlFragment, ?string $ruleId, array $crawlData): ?array
+    {
+        if ($ruleId === null) {
+            return null;
+        }
+
+        foreach ($crawlData as $row) {
+            if (!$this->urlsMatch((string) ($row['url'] ?? ''), $urlFragment)) {
+                continue;
+            }
+
+            $ruleIds = array_filter(array_map('trim', explode(',', (string) ($row['rule_ids'] ?? ''))));
+            if (in_array($ruleId, $ruleIds, true)) {
+                return [
+                    'url' => $row['url'],
+                    'rule_id' => $ruleId,
+                    'severity' => $row['severity'] ?? null,
+                    'assignee' => $row['assignee'] ?? null,
+                ];
+            }
+        }
+
+        return $this->violationSnapshotService->findActiveViolation($urlFragment, $ruleId);
+    }
+
+    private function resolvePriority(array $aiTask, ?array $activeViolation): string
+    {
+        $priority = strtolower((string) ($aiTask['priority'] ?? ''));
+        if (in_array($priority, ['critical', 'high', 'medium', 'low'], true)) {
+            return $priority;
+        }
+
+        $severity = strtolower((string) ($activeViolation['severity'] ?? ''));
+
+        return match ($severity) {
+            'critical' => 'critical',
+            'high' => 'high',
+            'medium' => 'medium',
+            default => 'medium',
+        };
+    }
+
+    private function urlsMatch(string $left, string $right): bool
+    {
+        return $this->violationSnapshotService->normalizeUrl($left) === $this->violationSnapshotService->normalizeUrl($right);
+    }
+
+    private function tableExists(string $tableName): bool
+    {
+        $tables = $this->db->fetchFirstColumn(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?",
+            [$tableName]
+        );
+
+        return !empty($tables);
     }
 }

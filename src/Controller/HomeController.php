@@ -5,6 +5,7 @@ namespace App\Controller;
 use App\Service\ActionRequestService;
 use App\Service\ClaudeChatService;
 use App\Service\ConversationService;
+use App\Service\CrawlContextService;
 use App\Service\LearningExtractionService;
 use App\Service\PromptBuilderService;
 use App\Service\RuleContextService;
@@ -25,6 +26,7 @@ class HomeController extends AbstractController
         private ActionRequestService $actionRequestService,
         private ClaudeChatService $claudeChatService,
         private ConversationService $conversationService,
+        private CrawlContextService $crawlContextService,
         private LearningExtractionService $learningExtractionService,
         private PromptBuilderService $promptBuilderService,
         private RuleContextService $ruleContextService,
@@ -271,8 +273,8 @@ class HomeController extends AbstractController
         );
 
         // ── Load crawl data for rules engine (conditionally) ──
-        $crawlData = $needsCrawl ? $this->loadCrawlData() : [];
-        $allCrawledUrls = $needsUrlList ? $this->loadAllCrawledUrls() : [];
+        $crawlData = $needsCrawl ? $this->crawlContextService->loadCrawlData() : [];
+        $allCrawledUrls = $needsUrlList ? $this->crawlContextService->loadAllCrawledUrls() : [];
 
         // ── If user opened a specific Play, load that URL's full crawl row ──
         $playUrlData = null;
@@ -306,35 +308,7 @@ class HomeController extends AbstractController
                 $playUrl .= '/';
             }
             if ($playUrl) {
-                try {
-                    $playUrlData = $this->db->fetchAssociative(
-                        "SELECT url, page_type, has_central_entity, has_core_link,
-                                word_count, h1, title_tag, h1_matches_title, h2s,
-                                schema_types, is_noindex, internal_link_count,
-                                image_count, has_faq_section, has_product_image,
-                                schema_errors, meta_description, first_sentence_text,
-                                body_text_snippet,
-                                images_without_alt, images_with_generic_alt,
-                                target_query, target_query_impressions, target_query_position, target_query_clicks
-                         FROM page_crawl_snapshots
-                         WHERE url = ?
-                         ORDER BY crawled_at DESC LIMIT 1",
-                        [$playUrl]
-                    );
-                } catch (\Exception $e) { $playUrlData = null; }
-
-                // Try to load image_alt_data separately (column may not exist yet)
-                if ($playUrlData && $playUrl) {
-                    try {
-                        $imgData = $this->db->fetchOne(
-                            "SELECT image_alt_data FROM page_crawl_snapshots WHERE url = ? ORDER BY crawled_at DESC LIMIT 1",
-                            [$playUrl]
-                        );
-                        $playUrlData['image_alt_data'] = $imgData ?: null;
-                    } catch (\Exception $e) {
-                        $playUrlData['image_alt_data'] = null;
-                    }
-                }
+                $playUrlData = $this->crawlContextService->loadPlayUrlData($playUrl);
             }
         }
 
@@ -1772,225 +1746,6 @@ class HomeController extends AbstractController
     //  HELPERS
     // ─────────────────────────────────────────────
 
-    private function loadCrawlData(): array
-    {
-        try {
-            $deterministicRows = $this->loadDeterministicCrawlData();
-            if (!empty($deterministicRows)) {
-                return $deterministicRows;
-            }
-
-            if (!$this->tableExists('page_crawl_snapshots')) return [];
-
-            // Join with GSC page aggregates to get traffic data for triage
-            $rows = $this->db->fetchAllAssociative(
-                "SELECT p.url, p.page_type, p.has_central_entity, p.has_core_link,
-                        p.word_count, p.h1, p.title_tag, p.h1_matches_title, p.h2s,
-                        p.schema_types, p.is_noindex, p.internal_link_count,
-                        p.image_count, p.has_faq_section, p.has_product_image,
-                        p.schema_errors, p.crawled_at,
-                        p.target_query, p.target_query_impressions, p.target_query_position, p.target_query_clicks
-                 FROM page_crawl_snapshots p
-                 WHERE p.crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
-                   AND (
-                     p.has_central_entity = FALSE
-                     OR (p.page_type = 'core' AND p.word_count < 500)
-                     OR p.h1_matches_title = FALSE
-                     OR (p.page_type = 'core' AND (p.h2s IS NULL OR p.h2s = '' OR p.h2s = '[]'))
-                     OR (p.page_type = 'core' AND (p.schema_types IS NULL OR p.schema_types = '' OR p.schema_types = '[]'))
-                     OR (p.page_type = 'outer' AND p.has_core_link = FALSE)
-                     OR (p.schema_errors IS NOT NULL AND p.schema_errors != 'null' AND p.schema_errors != '[]')
-                     OR p.internal_link_count > 3
-                   )
-                 ORDER BY p.page_type, p.url
-                 LIMIT 25"
-            );
-
-            // Add triage classification using target_query_impressions already in crawl data (no extra queries)
-            foreach ($rows as &$row) {
-                $impressions = (int)($row['target_query_impressions'] ?? 0);
-                $row['page_impressions'] = $impressions;
-                $row['page_clicks'] = (int)($row['target_query_clicks'] ?? 0);
-                if ($impressions >= 500) {
-                    $row['triage'] = 'high_value';
-                } elseif ($impressions >= 50) {
-                    $row['triage'] = 'optimize';
-                } elseif ($impressions > 0) {
-                    $row['triage'] = 'low_value';
-                } else {
-                    $row['triage'] = 'strategic_review';
-                }
-            }
-            unset($row);
-
-            return $rows;
-        } catch (\Exception $e) { return []; }
-    }
-
-    /**
-     * Load ALL crawled URLs (not just violations) so the LLM has a complete
-     * list of valid pages to reference when suggesting link targets.
-     */
-    private function loadAllCrawledUrls(): array
-    {
-        try {
-            if ($this->tableExists('page_facts')) {
-                $rows = $this->db->fetchAllAssociative(
-                    "SELECT url, page_type, word_count, CASE WHEN is_indexable = TRUE THEN FALSE ELSE TRUE END AS is_noindex
-                     FROM page_facts
-                     WHERE is_indexable = TRUE
-                     ORDER BY page_type, url"
-                );
-                if (!empty($rows)) {
-                    return $rows;
-                }
-            }
-
-            if (!$this->tableExists('page_crawl_snapshots')) return [];
-
-            return $this->db->fetchAllAssociative(
-                "SELECT url, page_type, word_count, is_noindex
-                 FROM page_crawl_snapshots
-                 WHERE crawled_at >= (SELECT MAX(crawled_at) - INTERVAL '1 hour' FROM page_crawl_snapshots)
-                   AND is_noindex = FALSE
-                 ORDER BY page_type, url"
-            );
-        } catch (\Exception $e) { return []; }
-    }
-
-    private function loadDeterministicCrawlData(): array
-    {
-        try {
-            if (!$this->tableExists('page_facts') || !$this->tableExists('rule_violations')) {
-                return [];
-            }
-
-            $snapshotVersion = (int) $this->db->fetchOne('SELECT COALESCE(MAX(snapshot_version), 0) FROM rule_violations');
-            if ($snapshotVersion <= 0) {
-                return [];
-            }
-
-            $rows = $this->db->fetchAllAssociative(
-                "SELECT pf.url, pf.page_type, pf.has_central_entity, pf.has_core_link,
-                        pf.word_count, pf.h1, pf.title_tag, pf.h1_matches_title,
-                        CASE WHEN pf.h2_count > 0 THEN '[\"present\"]' ELSE '[]' END AS h2s,
-                        COALESCE(CAST(pf.schema_types AS TEXT), '[]') AS schema_types,
-                        CASE WHEN pf.is_indexable = TRUE THEN FALSE ELSE TRUE END AS is_noindex,
-                        pf.internal_link_count,
-                        0 AS image_count,
-                        FALSE AS has_faq_section,
-                        FALSE AS has_product_image,
-                        COALESCE(CAST(pf.schema_errors AS TEXT), '[]') AS schema_errors,
-                        pf.last_crawled_at AS crawled_at,
-                        pf.target_query, pf.target_query_impressions, pf.target_query_position, pf.target_query_clicks,
-                        MAX(rv.triage) AS triage,
-                        STRING_AGG(rv.rule_id, ',' ORDER BY rv.rule_id) AS rule_ids
-                 FROM page_facts pf
-                 INNER JOIN rule_violations rv
-                    ON rv.url = pf.url
-                   AND rv.snapshot_version = :snapshot_version
-                   AND rv.status IN ('fail', 'suppressed')
-                 GROUP BY pf.url, pf.page_type, pf.has_central_entity, pf.has_core_link,
-                        pf.word_count, pf.h1, pf.title_tag, pf.h1_matches_title, pf.h2_count,
-                        pf.schema_types, pf.is_indexable, pf.internal_link_count, pf.schema_errors,
-                        pf.last_crawled_at, pf.target_query, pf.target_query_impressions,
-                        pf.target_query_position, pf.target_query_clicks
-                 ORDER BY COALESCE(pf.target_query_impressions, 0) DESC, pf.url
-                 LIMIT 25",
-                ['snapshot_version' => $snapshotVersion]
-            );
-
-            foreach ($rows as &$row) {
-                $impressions = (int) ($row['target_query_impressions'] ?? 0);
-                $row['page_impressions'] = $impressions;
-                $row['page_clicks'] = (int) ($row['target_query_clicks'] ?? 0);
-                if (empty($row['triage'])) {
-                    if ($impressions >= 500) {
-                        $row['triage'] = 'high_value';
-                    } elseif ($impressions >= 50) {
-                        $row['triage'] = 'optimize';
-                    } elseif ($impressions > 0) {
-                        $row['triage'] = 'low_value';
-                    } else {
-                        $row['triage'] = 'strategic_review';
-                    }
-                }
-            }
-            unset($row);
-
-            return $rows;
-        } catch (\Exception $e) {
-            return [];
-        }
-    }
-
-    private function loadRecentReviews(): array
-    {
-        try {
-            $tables = $this->db->fetchFirstColumn(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'rule_reviews'"
-            );
-            if (empty($tables)) return [];
-            return $this->db->fetchAllAssociative(
-                "SELECT rule_id, verdict, feedback, reviewed_by, reviewed_at FROM rule_reviews ORDER BY reviewed_at DESC LIMIT 10"
-            );
-        } catch (\Exception $e) { return []; }
-    }
-
-    private function loadOverrideCount(): int
-    {
-        try {
-            $tables = $this->db->fetchFirstColumn(
-                "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'user_overrides'"
-            );
-            if (empty($tables)) return 0;
-            return (int) $this->db->fetchOne('SELECT COUNT(*) FROM user_overrides');
-        } catch (\Exception $e) { return 0; }
-    }
-
-    private function loadVerificationResults(): array
-    {
-        try {
-            return $this->db->fetchAllAssociative(
-                "SELECT rule_id, url, outcome_status, outcome_reason, metric_tracked,
-                        impressions_before, impressions_after, clicks_before, clicks_after,
-                        position_before, position_after, verified_at
-                 FROM rule_outcomes
-                 ORDER BY verified_at DESC LIMIT 15"
-            );
-        } catch (\Exception $e) { return []; }
-    }
-
-    private function loadRuleFeedback(): array
-    {
-        try {
-            return $this->db->fetchAllAssociative(
-                "SELECT rule_id, url, outcome_status, what_worked, what_didnt_work,
-                        proposed_change, change_type, created_at
-                 FROM rule_feedback
-                 WHERE change_type != 'none'
-                 ORDER BY created_at DESC LIMIT 10"
-            );
-        } catch (\Exception $e) { return []; }
-    }
-
-    private function loadRuleProposals(): array
-    {
-        try {
-            return $this->db->fetchAllAssociative(
-                "SELECT rule_id, change_type, summary, rationale, status, created_at
-                 FROM rule_change_proposals
-                 WHERE status = 'pending'
-                 ORDER BY created_at DESC LIMIT 5"
-            );
-        } catch (\Exception $e) { return []; }
-    }
-
-    // ─────────────────────────────────────────────
-    //  NLP ENTITY VALIDATION
-    //  Validates first-sentence entity alignment using Claude
-    // ─────────────────────────────────────────────
-
     private function findOwnedConversation(int $conversationId, ?int $userId): ?array
     {
         return $this->conversationService->findOwnedConversation($conversationId, $userId);
@@ -2023,16 +1778,8 @@ class HomeController extends AbstractController
         $flag = strtolower((string) ($_ENV['LOGIRI_ENABLE_LLM_ACTIONS'] ?? ''));
         return in_array($flag, ['1', 'true', 'yes', 'on'], true);
     }
-
-    private function tableExists(string $tableName): bool
-    {
-        $tables = $this->db->fetchFirstColumn(
-            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?",
-            [$tableName]
-        );
-
-        return !empty($tables);
-    }
 }
+
+
 
 
