@@ -68,12 +68,15 @@ class AppcustomAuthenticator extends AbstractLoginFormAuthenticator implements A
      */
     public function start(Request $request, ?AuthenticationException $authException = null): Response
     {
+        $contentType = strtolower((string) $request->headers->get('Content-Type', ''));
+        $accept = strtolower((string) $request->headers->get('Accept', ''));
+
         // Check if this is an API or AJAX request
         $isApi = str_starts_with($request->getPathInfo(), '/api/')
               || $request->getPathInfo() === '/chat'
               || $request->isXmlHttpRequest()
-              || $request->headers->get('Content-Type') === 'application/json'
-              || $request->headers->get('Accept') === 'application/json';
+              || str_contains($contentType, 'application/json')
+              || str_contains($accept, 'application/json');
 
         if ($isApi) {
             // Clear target path so login doesn't redirect to an API endpoint

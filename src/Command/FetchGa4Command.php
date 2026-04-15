@@ -28,7 +28,6 @@ class FetchGa4Command extends Command
             return Command::FAILURE;
         }
 
-        // Get access token
         $output->writeln('Getting Google access token...');
         $tokenUrl = 'https://oauth2.googleapis.com/token';
         $tokenBody = http_build_query([
@@ -67,75 +66,37 @@ class FetchGa4Command extends Command
         $accessToken = $tokenData['access_token'];
         $output->writeln('Got access token.');
 
-        // Ensure expanded table schema
         $this->ensureSchema();
 
-        // Clear old data
-        $this->db->executeStatement("DELETE FROM ga4_snapshots");
-        $output->writeln('Cleared old GA4 data.');
-
-        $totalRows = 0;
-
-        // ── Fetch 1: Current 28-day page metrics with engagement ──
         $output->writeln('Fetching current 28-day page data with engagement metrics...');
         $currentRows = $this->fetchGA4Pages($accessToken, $propertyId, 28, 0, $output);
-        foreach ($currentRows as $row) {
-            $this->db->insert('ga4_snapshots', [
-                'page_path'             => $row['page_path'],
-                'sessions'              => $row['sessions'],
-                'pageviews'             => $row['pageviews'],
-                'bounce_rate'           => $row['bounce_rate'],
-                'avg_engagement_time'   => $row['avg_engagement_time'],
-                'engaged_sessions'      => $row['engaged_sessions'],
-                'conversions'           => $row['conversions'],
-                'date_range'            => '28d',
-                'fetched_at'            => date('Y-m-d H:i:s'),
-            ]);
-            $totalRows++;
-        }
-        $output->writeln("  Saved " . count($currentRows) . " current period rows.");
+        $output->writeln('  Retrieved ' . count($currentRows) . ' current period rows.');
 
-        // ── Fetch 2: Previous 28-day page metrics (for WoW/MoM comparison) ──
         $output->writeln('Fetching previous 28-day page data (comparison period)...');
         $previousRows = $this->fetchGA4Pages($accessToken, $propertyId, 28, 28, $output);
-        $countPrev = 0;
-        foreach ($previousRows as $row) {
-            $this->db->insert('ga4_snapshots', [
-                'page_path'             => $row['page_path'],
-                'sessions'              => $row['sessions'],
-                'pageviews'             => $row['pageviews'],
-                'bounce_rate'           => $row['bounce_rate'],
-                'avg_engagement_time'   => $row['avg_engagement_time'],
-                'engaged_sessions'      => $row['engaged_sessions'],
-                'conversions'           => $row['conversions'],
-                'date_range'            => '28d_previous',
-                'fetched_at'            => date('Y-m-d H:i:s'),
-            ]);
-            $countPrev++;
-            $totalRows++;
-        }
-        $output->writeln("  Saved {$countPrev} previous period rows.");
+        $output->writeln('  Retrieved ' . count($previousRows) . ' previous period rows.');
 
-        // ── Fetch 3: Landing page data with conversions ──
         $output->writeln('Fetching landing page + conversion data...');
         $landingRows = $this->fetchGA4LandingPages($accessToken, $propertyId, 28, $output);
-        $countLanding = 0;
-        foreach ($landingRows as $row) {
-            $this->db->insert('ga4_snapshots', [
-                'page_path'             => $row['page_path'],
-                'sessions'              => $row['sessions'],
-                'pageviews'             => 0,
-                'bounce_rate'           => $row['bounce_rate'],
-                'avg_engagement_time'   => $row['avg_engagement_time'],
-                'engaged_sessions'      => $row['engaged_sessions'],
-                'conversions'           => $row['conversions'],
-                'date_range'            => '28d_landing',
-                'fetched_at'            => date('Y-m-d H:i:s'),
-            ]);
-            $countLanding++;
-            $totalRows++;
+        $output->writeln('  Retrieved ' . count($landingRows) . ' landing page rows.');
+
+        $totalRows = count($currentRows) + count($previousRows) + count($landingRows);
+
+        $this->db->beginTransaction();
+        try {
+            $this->db->executeStatement('DELETE FROM ga4_snapshots');
+            $output->writeln('Cleared old GA4 data.');
+
+            $this->insertSnapshotRows($currentRows, '28d');
+            $this->insertSnapshotRows($previousRows, '28d_previous');
+            $this->insertSnapshotRows($landingRows, '28d_landing');
+
+            $this->db->commit();
+        } catch (\Throwable $e) {
+            $this->db->rollBack();
+            $output->writeln('Failed to store GA4 snapshot data: ' . $e->getMessage());
+            return Command::FAILURE;
         }
-        $output->writeln("  Saved {$countLanding} landing page rows.");
 
         $output->writeln("Done! Total: {$totalRows} GA4 rows saved to database.");
 
@@ -207,12 +168,12 @@ class FetchGa4Command extends Command
         foreach ($rows as $row) {
             $results[] = [
                 'page_path'           => $row['dimensionValues'][0]['value'] ?? '/',
-                'sessions'            => intval($row['metricValues'][0]['value'] ?? 0),
-                'pageviews'           => intval($row['metricValues'][1]['value'] ?? 0),
-                'bounce_rate'         => round(floatval($row['metricValues'][2]['value'] ?? 0), 4),
-                'avg_engagement_time' => round(floatval($row['metricValues'][3]['value'] ?? 0), 1),
-                'engaged_sessions'    => intval($row['metricValues'][4]['value'] ?? 0),
-                'conversions'         => intval($row['metricValues'][5]['value'] ?? 0),
+                'sessions'            => (int) ($row['metricValues'][0]['value'] ?? 0),
+                'pageviews'           => (int) ($row['metricValues'][1]['value'] ?? 0),
+                'bounce_rate'         => round((float) ($row['metricValues'][2]['value'] ?? 0), 4),
+                'avg_engagement_time' => round((float) ($row['metricValues'][3]['value'] ?? 0), 1),
+                'engaged_sessions'    => (int) ($row['metricValues'][4]['value'] ?? 0),
+                'conversions'         => (int) ($row['metricValues'][5]['value'] ?? 0),
             ];
         }
 
@@ -272,15 +233,33 @@ class FetchGa4Command extends Command
         foreach ($rows as $row) {
             $results[] = [
                 'page_path'           => $row['dimensionValues'][0]['value'] ?? '/',
-                'sessions'            => intval($row['metricValues'][0]['value'] ?? 0),
-                'bounce_rate'         => round(floatval($row['metricValues'][1]['value'] ?? 0), 4),
-                'avg_engagement_time' => round(floatval($row['metricValues'][2]['value'] ?? 0), 1),
-                'engaged_sessions'    => intval($row['metricValues'][3]['value'] ?? 0),
-                'conversions'         => intval($row['metricValues'][4]['value'] ?? 0),
+                'pageviews'           => 0,
+                'sessions'            => (int) ($row['metricValues'][0]['value'] ?? 0),
+                'bounce_rate'         => round((float) ($row['metricValues'][1]['value'] ?? 0), 4),
+                'avg_engagement_time' => round((float) ($row['metricValues'][2]['value'] ?? 0), 1),
+                'engaged_sessions'    => (int) ($row['metricValues'][3]['value'] ?? 0),
+                'conversions'         => (int) ($row['metricValues'][4]['value'] ?? 0),
             ];
         }
 
         return $results;
+    }
+
+    private function insertSnapshotRows(array $rows, string $dateRange): void
+    {
+        foreach ($rows as $row) {
+            $this->db->insert('ga4_snapshots', [
+                'page_path'             => $row['page_path'],
+                'sessions'              => $row['sessions'],
+                'pageviews'             => $row['pageviews'] ?? 0,
+                'bounce_rate'           => $row['bounce_rate'],
+                'avg_engagement_time'   => $row['avg_engagement_time'],
+                'engaged_sessions'      => $row['engaged_sessions'],
+                'conversions'           => $row['conversions'],
+                'date_range'            => $dateRange,
+                'fetched_at'            => date('Y-m-d H:i:s'),
+            ]);
+        }
     }
 
     private function ensureSchema(): void
@@ -288,13 +267,13 @@ class FetchGa4Command extends Command
         $cols = $this->db->fetchFirstColumn(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'ga4_snapshots'"
         );
-        if (!in_array('avg_engagement_time', $cols)) {
-            $this->db->executeStatement("ALTER TABLE ga4_snapshots ADD COLUMN avg_engagement_time FLOAT DEFAULT 0");
+        if (!in_array('avg_engagement_time', $cols, true)) {
+            $this->db->executeStatement('ALTER TABLE ga4_snapshots ADD COLUMN avg_engagement_time FLOAT DEFAULT 0');
         }
-        if (!in_array('engaged_sessions', $cols)) {
-            $this->db->executeStatement("ALTER TABLE ga4_snapshots ADD COLUMN engaged_sessions INT DEFAULT 0");
+        if (!in_array('engaged_sessions', $cols, true)) {
+            $this->db->executeStatement('ALTER TABLE ga4_snapshots ADD COLUMN engaged_sessions INT DEFAULT 0');
         }
-        if (!in_array('date_range', $cols)) {
+        if (!in_array('date_range', $cols, true)) {
             $this->db->executeStatement("ALTER TABLE ga4_snapshots ADD COLUMN date_range VARCHAR(20) DEFAULT '28d'");
         }
     }

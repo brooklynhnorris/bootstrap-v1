@@ -460,6 +460,15 @@ PROMPT;
     private function storeSynthesizedProposal(string $ruleId, array $synthesis, array $proposals, string $status): void
     {
         try {
+            // ── DEDUP: Skip if a pending proposal already exists for this rule ──
+            $existingPending = $this->db->fetchOne(
+                "SELECT COUNT(*) FROM rule_change_proposals WHERE rule_id = ? AND status = 'pending'",
+                [$ruleId]
+            );
+            if ($existingPending > 0) {
+                return; // Don't create duplicate proposals
+            }
+
             $this->db->insert('rule_change_proposals', [
                 'rule_id'             => $ruleId,
                 'change_type'         => $synthesis['change_type'] ?? 'modify_action',
@@ -477,7 +486,7 @@ PROMPT;
             ]);
         } catch (\Exception $e) {}
     }
-
+    
     private function createReviewTask(string $ruleId, array $synthesis, array $proposals, string $status, OutputInterface $output): void
     {
         try {

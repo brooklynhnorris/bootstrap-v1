@@ -43,6 +43,8 @@ class HomeController extends AbstractController
     #[Route('/api/admin/clear-slate', name: 'clear_slate', methods: ['POST'])]
     public function clearSlate(): JsonResponse
     {
+        $this->denyAccessUnlessGranted('ROLE_ADMIN');
+
         try {
             $this->db->executeStatement('DELETE FROM messages');
             $this->db->executeStatement('DELETE FROM conversations');
@@ -350,7 +352,12 @@ class HomeController extends AbstractController
         $ruleProposals = $needsRules ? $this->loadRuleProposals() : [];
 
         // ── Persist conversation ──
-        if (!$conversationId) {
+        if ($conversationId) {
+            $ownedConversation = $this->findOwnedConversation((int) $conversationId, $userId);
+            if (!$ownedConversation) {
+                return new JsonResponse(['error' => 'Conversation not found'], 404);
+            }
+        } else {
             // New conversation — create it
             $firstUserMsg = '';
             foreach ($messages as $msg) {
@@ -494,9 +501,12 @@ class HomeController extends AbstractController
 
         // ── Execute actions from LLM response ──
         $actionsExecuted = [];
+        $llmActionsEnabled = $this->llmActionsEnabled();
         if (preg_match('/<!-- ACTIONS_JSON -->\s*(.*?)\s*<!-- \/ACTIONS_JSON -->/s', $text, $actionMatches)) {
             $actions = json_decode(trim($actionMatches[1]), true);
-            if (is_array($actions)) {
+            if (!$llmActionsEnabled) {
+                $actionsExecuted[] = 'LLM actions were proposed but not executed because LOGIRI_ENABLE_LLM_ACTIONS is disabled.';
+            } elseif (is_array($actions)) {
                 foreach ($actions as $action) {
                     $type = $action['action'] ?? '';
                     try {
@@ -659,7 +669,6 @@ class HomeController extends AbstractController
                     );
                     if ($existing) continue;
                     // Also skip if same URL appears in an active task with same rule prefix
-                    // Extract the full URL path (handles multi-segment URLs like /category/page/)
                     if (preg_match('|(/[a-z0-9][a-z0-9_-]+(?:/[a-z0-9_-]+)*/)|i', $title, $urlParts)) {
                         $urlFrag = $urlParts[1];
                         $rulePrefix = substr($title, 0, 10);
@@ -867,6 +876,10 @@ class HomeController extends AbstractController
     #[Route('/api/conversations/{id}/messages', name: 'api_conversation_messages', methods: ['GET'])]
     public function getConversationMessages(int $id): JsonResponse
     {
+        if (!$this->findOwnedConversation($id, $this->getCurrentUserId())) {
+            return new JsonResponse(['error' => 'Not found'], 404);
+        }
+
         $msgs = $this->db->fetchAllAssociative(
             'SELECT role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC',
             [$id]
@@ -877,6 +890,10 @@ class HomeController extends AbstractController
     #[Route('/api/conversations/{id}/archive', name: 'api_conversation_archive', methods: ['POST'])]
     public function archiveConversation(int $id): JsonResponse
     {
+        if (!$this->findOwnedConversation($id, $this->getCurrentUserId())) {
+            return new JsonResponse(['error' => 'Not found'], 404);
+        }
+
         $this->db->executeStatement('UPDATE conversations SET is_archived = TRUE WHERE id = ?', [$id]);
         return new JsonResponse(['ok' => true]);
     }
@@ -884,6 +901,10 @@ class HomeController extends AbstractController
     #[Route('/api/conversations/{id}/delete', name: 'api_conversation_delete', methods: ['POST'])]
     public function deleteConversation(int $id): JsonResponse
     {
+        if (!$this->findOwnedConversation($id, $this->getCurrentUserId())) {
+            return new JsonResponse(['error' => 'Not found'], 404);
+        }
+
         $this->db->executeStatement('DELETE FROM messages WHERE conversation_id = ?', [$id]);
         $this->db->executeStatement('DELETE FROM conversations WHERE id = ?', [$id]);
         return new JsonResponse(['ok' => true]);
@@ -892,6 +913,10 @@ class HomeController extends AbstractController
     #[Route('/api/conversations/{id}/rename', name: 'api_conversation_rename', methods: ['POST'])]
     public function renameConversation(int $id, Request $request): JsonResponse
     {
+        if (!$this->findOwnedConversation($id, $this->getCurrentUserId())) {
+            return new JsonResponse(['error' => 'Not found'], 404);
+        }
+
         $body  = json_decode($request->getContent(), true);
         $title = trim($body['title'] ?? '');
         if (!$title) {
@@ -1160,8 +1185,7 @@ class HomeController extends AbstractController
 
             // Log activity (non-fatal)
             try {
-                $session = $this->requestStack->getSession();
-                $actor   = $session->get('persona_name', 'Unknown');
+                $actor = $this->getCurrentActorName();
                 $this->logActivity($actor, 'completed_task', 'task', $id, $task['title'] ?? '', "Recheck in {$recheckDays} days");
             } catch (\Exception $e) {
                 // Ignore logging errors
@@ -1205,7 +1229,7 @@ class HomeController extends AbstractController
                 $ruleId = $task['rule_id'] ?? '';
                 // Extract URL from task title for suppression
                 $taskUrl = '';
-                if (preg_match('|(/[a-z0-9_-]+/)|i', $task['title'] ?? '', $urlMatch)) {
+                if (preg_match('|(/[a-z0-9][a-z0-9_-]+(?:/[a-z0-9_-]+)*/)|i', $task['title'] ?? '', $urlMatch)) {
                     $taskUrl = $urlMatch[1];
                 }
 
@@ -1262,7 +1286,7 @@ class HomeController extends AbstractController
                 // Also store as an immediate chat learning so Logiri remembers this NOW
                 if ($reason && strlen($reason) > 10) {
                     $taskUrl = '';
-                    if (preg_match('|(/[a-z0-9_-]+/)|i', $task['title'] ?? '', $urlMatch)) {
+                    if (preg_match('|(/[a-z0-9][a-z0-9_-]+(?:/[a-z0-9_-]+)*/)|i', $task['title'] ?? '', $urlMatch)) {
                         $taskUrl = " on {$urlMatch[1]}";
                     }
                     $learning = "Rule {$ruleId} task dismissed ({$dismissType}){$taskUrl}: {$reason}";
@@ -2821,7 +2845,7 @@ Example: [{"learning":"User wants page hierarchy shown in task briefs","category
 PROMPT;
 
         $payload = json_encode([
-            'model'      => $_ENV['ANTHROPIC_MODEL'] ?? $_ENV['CLAUDE_MODEL'] ?? 'claude-sonnet-4-6',
+            'model'      => 'claude-sonnet-4-5',
             'max_tokens' => 500,
             'messages'   => [['role' => 'user', 'content' => $extractPrompt]],
         ]);
@@ -2914,5 +2938,45 @@ PROMPT;
                 'created_at'   => date('Y-m-d H:i:s'),
             ]);
         }
+    }
+
+    private function findOwnedConversation(int $conversationId, ?int $userId): ?array
+    {
+        if (!$userId) {
+            return null;
+        }
+
+        return $this->db->fetchAssociative(
+            'SELECT id, user_id, title FROM conversations WHERE id = ? AND user_id = ? LIMIT 1',
+            [$conversationId, $userId]
+        ) ?: null;
+    }
+
+    private function getCurrentUserId(): ?int
+    {
+        $user = $this->getUser();
+        return $user ? $user->getId() : null;
+    }
+
+    private function getCurrentActorName(): string
+    {
+        $session = $this->requestStack->getSession();
+        $activePersona = $session->get('active_persona', null);
+        if (is_array($activePersona) && !empty($activePersona['name'])) {
+            return (string) $activePersona['name'];
+        }
+
+        $user = $this->getUser();
+        if ($user && method_exists($user, 'getName') && $user->getName()) {
+            return (string) $user->getName();
+        }
+
+        return 'Unknown';
+    }
+
+    private function llmActionsEnabled(): bool
+    {
+        $flag = strtolower((string) ($_ENV['LOGIRI_ENABLE_LLM_ACTIONS'] ?? ''));
+        return in_array($flag, ['1', 'true', 'yes', 'on'], true);
     }
 }
