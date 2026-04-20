@@ -985,25 +985,43 @@ class CrawlPagesCommand extends Command
 
         // ── Internal links + core link detection — BODY ONLY (excludes nav/footer) ──
         $internalLinks  = [];
+        $bodyInternalLinks = [];
         $coreLinksFound = [];
         $hasCoreLink    = false;
+        $bodyLinkExtractionConfident = false;
+        $bodyLinkExtractionScope = 'body_fallback';
 
         // Only check links within main content areas, not nav/header/footer
         $contentLinkSelectors = ['//main//a[@href]', '//article//a[@href]',
-                                  '//*[@class="entry-content"]//a[@href]',
-                                  '//*[@id="content"]//a[@href]'];
-        $linkNodes = null;
+                                  '//*[contains(@class,"entry-content")]//a[@href]',
+                                  '//*[contains(@class,"post-content")]//a[@href]',
+                                  '//*[contains(@class,"page-content")]//a[@href]',
+                                  '//*[contains(@class,"main-content")]//a[@href]',
+                                  '//*[contains(@class,"article-content")]//a[@href]',
+                                  '//*[contains(@class,"content-area")]//a[@href]',
+                                  '//*[@id="content"]//a[@href]',
+                                  '//*[@id="main"]//a[@href]',
+                                  '//*[@role="main"]//a[@href]'];
+        $linkNodes = [];
         foreach ($contentLinkSelectors as $sel) {
             $nodes = $xpath->query($sel);
-            if ($nodes->length > 0) {
-                $linkNodes = $nodes;
-                break;
+            if ($nodes && $nodes->length > 0) {
+                $bodyLinkExtractionConfident = true;
+                $bodyLinkExtractionScope = 'main_content';
+                foreach ($nodes as $node) {
+                    $linkNodes[] = $node;
+                }
             }
         }
 
         // Fallback to all body links if no main content found
-        if ($linkNodes === null || $linkNodes->length === 0) {
-            $linkNodes = $xpath->query('//body//a[@href]');
+        if (empty($linkNodes)) {
+            $fallbackNodes = $xpath->query('//body//a[@href]');
+            if ($fallbackNodes) {
+                foreach ($fallbackNodes as $node) {
+                    $linkNodes[] = $node;
+                }
+            }
         }
 
         if ($linkNodes) {
@@ -1013,6 +1031,7 @@ class CrawlPagesCommand extends Command
                     $parsed = parse_url($href, PHP_URL_PATH);
                     if ($parsed) {
                         $internalLinks[] = $parsed;
+                        $bodyInternalLinks[] = $parsed;
                         if ($this->isCoreUrl($parsed)) {
                             $hasCoreLink      = true;
                             $coreLinksFound[] = $parsed;
@@ -1023,8 +1042,10 @@ class CrawlPagesCommand extends Command
         }
 
         $internalLinks  = array_values(array_unique($internalLinks));
+        $bodyInternalLinks = array_values(array_unique($bodyInternalLinks));
         $coreLinksFound = array_values(array_unique($coreLinksFound));
         $internalLinkCount = count($internalLinks);
+        $bodyInternalLinkCount = count($bodyInternalLinks);
 
         // ── H1 count (multiple H1s is an issue) ──
         $h1Count = $h1Nodes->length;
@@ -1376,6 +1397,7 @@ class CrawlPagesCommand extends Command
             'has_central_entity'   => $hasCentralEntity ? 1 : 0,
             'central_entity_count' => $centralEntityCount,
             'internal_links'       => json_encode(array_slice($internalLinks, 0, 100)),
+            'body_internal_links'  => json_encode(array_slice($bodyInternalLinks, 0, 100)),
             'has_core_link'        => $hasCoreLink ? 1 : 0,
             'core_links_found'     => json_encode($coreLinksFound),
             'h1_matches_title'     => $h1MatchesTitle ? 1 : 0,
@@ -1387,6 +1409,9 @@ class CrawlPagesCommand extends Command
             'crawled_at'           => date('Y-m-d H:i:s'),
             // Tier 1 & 2 fields
             'internal_link_count'  => $internalLinkCount,
+            'body_internal_link_count' => $bodyInternalLinkCount,
+            'body_link_extraction_confident' => $bodyLinkExtractionConfident ? 1 : 0,
+            'body_link_extraction_scope' => $bodyLinkExtractionScope,
             'body_text_snippet'    => $bodyTextSnippet,
             'first_sentence_text'  => $firstSentenceText,
             'image_count'          => $imageCount,
@@ -1778,6 +1803,7 @@ class CrawlPagesCommand extends Command
                     has_central_entity      BOOLEAN DEFAULT FALSE,
                     central_entity_count    INT DEFAULT 0,
                     internal_links          TEXT DEFAULT NULL,
+                    body_internal_links     TEXT DEFAULT NULL,
                     has_core_link           BOOLEAN DEFAULT FALSE,
                     core_links_found        TEXT DEFAULT NULL,
                     h1_matches_title        BOOLEAN DEFAULT FALSE,
@@ -1787,6 +1813,9 @@ class CrawlPagesCommand extends Command
                     page_type               VARCHAR(20) DEFAULT NULL,
                     is_utility              BOOLEAN DEFAULT FALSE,
                     internal_link_count     INT DEFAULT 0,
+                    body_internal_link_count INT DEFAULT 0,
+                    body_link_extraction_confident BOOLEAN DEFAULT FALSE,
+                    body_link_extraction_scope VARCHAR(30) DEFAULT NULL,
                     body_text_snippet       TEXT DEFAULT NULL,
                     first_sentence_text     TEXT DEFAULT NULL,
                     image_count             INT DEFAULT 0,
@@ -1806,6 +1835,10 @@ class CrawlPagesCommand extends Command
             $newCols = [
                 'is_utility'          => 'BOOLEAN DEFAULT FALSE',
                 'internal_link_count' => 'INT DEFAULT 0',
+                'body_internal_links' => 'TEXT DEFAULT NULL',
+                'body_internal_link_count' => 'INT DEFAULT 0',
+                'body_link_extraction_confident' => 'BOOLEAN DEFAULT FALSE',
+                'body_link_extraction_scope' => 'VARCHAR(30) DEFAULT NULL',
                 'body_text_snippet'   => 'TEXT DEFAULT NULL',
                 'first_sentence_text' => 'TEXT DEFAULT NULL',
                 'image_count'         => 'INT DEFAULT 0',

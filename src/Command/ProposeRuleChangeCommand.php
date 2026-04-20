@@ -13,6 +13,7 @@ use Symfony\Component\Console\Output\OutputInterface;
 class ProposeRuleChangeCommand extends Command
 {
     private const CONFIDENCE_THRESHOLD = 70;
+    private const DISTINCT_URL_THRESHOLD = 2;
 
     public function __construct(private Connection $db)
     {
@@ -80,6 +81,15 @@ class ProposeRuleChangeCommand extends Command
                 $output->writeln("  This rule may need modification, not just better execution.");
                 $output->writeln('');
 
+                $evidence = $this->assessEvidence($ruleProposals);
+                $output->writeln("  Evidence: {$evidence['distinct_url_count']} distinct URL(s), repeated same-URL share {$evidence['top_url_share']}%");
+                if (!empty($evidence['issues'])) {
+                    foreach ($evidence['issues'] as $issue) {
+                        $output->writeln("    - {$issue}");
+                    }
+                }
+                $output->writeln('');
+
                 $synthesis = $this->synthesizeProposal($ruleId, $ruleProposals, $output);
 
                 if ($synthesis) {
@@ -88,11 +98,14 @@ class ProposeRuleChangeCommand extends Command
                     $validation = $this->stressTestProposal($ruleId, $synthesis, $output);
 
                     $synthesis['confidence']       = $validation['confidence'] ?? 0;
-                    $synthesis['validation_issues'] = $validation['issues'] ?? [];
+                    $synthesis['validation_issues'] = array_values(array_unique(array_merge(
+                        $validation['issues'] ?? [],
+                        $evidence['issues'] ?? []
+                    )));
                     $synthesis['trigger_match_count'] = $validation['trigger_match_count'] ?? null;
 
                     $confidence = $synthesis['confidence'];
-                    $status     = $confidence >= self::CONFIDENCE_THRESHOLD ? 'pending' : 'needs_review';
+                    $status     = ($confidence >= self::CONFIDENCE_THRESHOLD && empty($evidence['issues'])) ? 'pending' : 'needs_review';
 
                     $output->writeln("  -- SYNTHESIZED PROPOSAL --");
                     $output->writeln("  Change type: {$synthesis['change_type']}");
@@ -457,18 +470,49 @@ PROMPT;
         }
     }
 
+    private function assessEvidence(array $proposals): array
+    {
+        $urls = array_values(array_filter(array_map(
+            static fn(array $proposal) => trim((string) ($proposal['url'] ?? '')),
+            $proposals
+        )));
+        $distinctUrls = array_values(array_unique($urls));
+        $urlCounts = array_count_values($urls);
+        arsort($urlCounts);
+
+        $topUrlCount = !empty($urlCounts) ? (int) reset($urlCounts) : 0;
+        $proposalCount = count($proposals);
+        $topUrlShare = $proposalCount > 0 ? (int) round(($topUrlCount / $proposalCount) * 100) : 0;
+
+        $failCount = count(array_filter($proposals, static fn(array $proposal) => ($proposal['outcome_status'] ?? '') === 'FAIL'));
+        $partialCount = count(array_filter($proposals, static fn(array $proposal) => ($proposal['outcome_status'] ?? '') === 'PARTIAL'));
+
+        $issues = [];
+
+        if (count($distinctUrls) < self::DISTINCT_URL_THRESHOLD) {
+            $issues[] = 'Evidence is concentrated on a single URL. Require at least 2 distinct URLs before surfacing a normal approval card.';
+        }
+
+        if ($topUrlShare >= 75 && $proposalCount >= 2) {
+            $issues[] = 'Most evidence comes from repeated attempts on the same URL, so this may reflect page-specific execution limits rather than a rule-level problem.';
+        }
+
+        if ($failCount === 0 && $partialCount > 0) {
+            $issues[] = 'This proposal is based on PARTIAL outcomes only. Treat it as review-only until a clear FAIL pattern appears across distinct URLs.';
+        }
+
+        return [
+            'distinct_url_count' => count($distinctUrls),
+            'top_url_share' => $topUrlShare,
+            'fail_count' => $failCount,
+            'partial_count' => $partialCount,
+            'issues' => $issues,
+        ];
+    }
+
     private function storeSynthesizedProposal(string $ruleId, array $synthesis, array $proposals, string $status): void
     {
         try {
-            // ── DEDUP: Skip if a pending proposal already exists for this rule ──
-            $existingPending = $this->db->fetchOne(
-                "SELECT COUNT(*) FROM rule_change_proposals WHERE rule_id = ? AND status = 'pending'",
-                [$ruleId]
-            );
-            if ($existingPending > 0) {
-                return; // Don't create duplicate proposals
-            }
-
             $this->db->insert('rule_change_proposals', [
                 'rule_id'             => $ruleId,
                 'change_type'         => $synthesis['change_type'] ?? 'modify_action',
@@ -486,7 +530,7 @@ PROMPT;
             ]);
         } catch (\Exception $e) {}
     }
-    
+
     private function createReviewTask(string $ruleId, array $synthesis, array $proposals, string $status, OutputInterface $output): void
     {
         try {

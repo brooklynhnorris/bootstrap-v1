@@ -1403,6 +1403,7 @@ class HomeController extends AbstractController
             $page = $this->db->fetchAssociative(
                 "SELECT url, page_type, word_count, h1, title_tag, h2s, meta_description,
                         has_central_entity, central_entity_count, internal_links, internal_link_count,
+                        body_internal_links, body_internal_link_count, body_link_extraction_confident, body_link_extraction_scope,
                         has_core_link, core_links_found, h1_matches_title, schema_types,
                         canonical_url, is_noindex, image_count, has_faq_section, has_product_image,
                         schema_errors, body_text_snippet, first_sentence_text, last_modified_date

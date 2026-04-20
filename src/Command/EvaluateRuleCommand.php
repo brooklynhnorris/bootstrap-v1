@@ -92,7 +92,11 @@ class EvaluateRuleCommand extends Command
                 if ($url && !isset($page['body_text_snippet'])) {
                     try {
                         $snippet = $this->db->fetchOne(
-                            "SELECT body_text_snippet FROM page_crawl_snapshots WHERE url = ? LIMIT 1",
+                            "SELECT body_text_snippet
+                             FROM page_crawl_snapshots
+                             WHERE url = ?
+                             ORDER BY crawled_at DESC, id DESC
+                             LIMIT 1",
                             [$url]
                         );
                         if ($snippet) {
@@ -1254,6 +1258,7 @@ PROMPT;
                     "AND url NOT LIKE '%/wp-content/%' AND url NOT LIKE '%.png' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.jpeg' AND url NOT LIKE '%.gif' AND url NOT LIKE '%.pdf' AND url NOT LIKE '%.svg' LIMIT",
                     $simplifiedQuery
                 );
+                $simplifiedQuery = $this->applyLatestSnapshotScope($simplifiedQuery);
                 try {
                     $results = $this->db->fetchAllAssociative($simplifiedQuery);
                     if (!empty($results)) return $results;
@@ -1269,6 +1274,7 @@ PROMPT;
                 if (!preg_match('/LIMIT\s+\d+/i', $sql)) {
                     $sql .= ' LIMIT 15';
                 }
+                $sql = $this->applyLatestSnapshotScope($sql);
                 try {
                     $results = $this->db->fetchAllAssociative($sql);
                     if (!empty($results)) return $results;
@@ -1296,7 +1302,7 @@ PROMPT;
             };
 
             if ($query) {
-                return $this->db->fetchAllAssociative($query);
+                return $this->db->fetchAllAssociative($this->applyLatestSnapshotScope($query));
             }
 
             // If no SQL and no legacy match, the trigger_condition is likely a bare WHERE clause
@@ -1315,7 +1321,7 @@ PROMPT;
 
                 if ($needsJoin) {
                     // JOIN query for rules that need GSC data
-                    return $this->db->fetchAllAssociative(
+                    return $this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
                         "SELECT p.url, p.page_type, p.word_count, p.h1, p.title_tag, p.has_central_entity,
                                 p.central_entity_count, p.schema_types, p.h1_matches_title, p.h2s,
                                 p.has_core_link, p.canonical_url, p.is_noindex,
@@ -1324,18 +1330,18 @@ PROMPT;
                          LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url)
                          WHERE {$where}
                          LIMIT 15"
-                    );
+                    ));
                 }
 
                 // Default: page_crawl_snapshots only
-                return $this->db->fetchAllAssociative(
+                return $this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
                     "SELECT url, page_type, word_count, h1, title_tag, has_central_entity,
                             central_entity_count, schema_types, h1_matches_title, h2s,
                             has_core_link, canonical_url, is_noindex
                      FROM page_crawl_snapshots
                      WHERE {$where}
                      LIMIT 15"
-                );
+                ));
             }
 
             return [];
@@ -1352,11 +1358,43 @@ PROMPT;
     {
         try {
             return $this->db->fetchAllAssociative(
-                "SELECT url, title_tag FROM page_crawl_snapshots WHERE page_type = 'core' ORDER BY url"
+                "WITH latest_page_crawl_snapshots AS (
+                    SELECT *
+                    FROM (
+                        SELECT pcs.*,
+                               ROW_NUMBER() OVER (PARTITION BY pcs.url ORDER BY pcs.crawled_at DESC, pcs.id DESC) AS rn
+                        FROM page_crawl_snapshots pcs
+                    ) ranked
+                    WHERE rn = 1
+                )
+                SELECT url, title_tag
+                FROM latest_page_crawl_snapshots
+                WHERE page_type = 'core'
+                ORDER BY url"
             );
         } catch (\Exception $e) {
             return [];
         }
+    }
+
+    private function applyLatestSnapshotScope(string $sql): string
+    {
+        if (!str_contains($sql, 'page_crawl_snapshots') || str_contains($sql, 'latest_page_crawl_snapshots')) {
+            return $sql;
+        }
+
+        $scopedSql = str_replace('page_crawl_snapshots', 'latest_page_crawl_snapshots', $sql);
+
+        return "WITH latest_page_crawl_snapshots AS (
+                    SELECT *
+                    FROM (
+                        SELECT pcs.*,
+                               ROW_NUMBER() OVER (PARTITION BY pcs.url ORDER BY pcs.crawled_at DESC, pcs.id DESC) AS rn
+                        FROM page_crawl_snapshots pcs
+                    ) ranked
+                    WHERE rn = 1
+                )
+                {$scopedSql}";
     }
 
     // ─────────────────────────────────────────────
@@ -1367,7 +1405,7 @@ PROMPT;
 
     private function getSimplifiedQuery(string $ruleId, string $triggerCondition): ?string
     {
-        $cols = "url, page_type, word_count, h1, title_tag, has_central_entity, central_entity_count, schema_types, h1_matches_title, h2s, has_core_link, canonical_url, is_noindex, internal_links, internal_link_count, target_query, target_query_impressions, target_query_position";
+        $cols = "url, page_type, word_count, h1, title_tag, has_central_entity, central_entity_count, schema_types, h1_matches_title, h2s, has_core_link, canonical_url, is_noindex, internal_links, internal_link_count, body_internal_links, body_internal_link_count, body_link_extraction_confident, body_link_extraction_scope, target_query, target_query_impressions, target_query_position";
 
         // Relevance filter — exclude pages with zero GSC presence unless they're core product pages
         // Also exclude wp-content/media assets that shouldn't be in the table at all
@@ -1421,7 +1459,7 @@ PROMPT;
             'KIA-R3' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND (word_count = 0 OR has_central_entity = FALSE OR h1_matches_title = FALSE) AND is_noindex = FALSE LIMIT 15",
             'KIA-R4' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE g.impressions > 5000 AND g.position > 10 AND (g.query LIKE '%horse trailer%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%z-frame%' OR g.query LIKE '%safetack%') GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
             'KIA-R5' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%2 horse%' OR g.query LIKE '%3 horse%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%safetack%') AND g.impressions > 100 AND g.position > 30 GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
-            'KIA-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} LIMIT 15",
+            'KIA-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE AND is_utility = FALSE AND h1 IS NOT NULL AND h1 <> '' AND title_tag IS NOT NULL AND title_tag <> '' AND body_text_snippet IS NOT NULL AND body_text_snippet <> '' {$relevanceFilter} LIMIT 15",
             'KIA-R7' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%benefits%' OR g.query LIKE '%vs%' OR g.query LIKE '%safetack%') AND g.impressions > 500 AND g.position > 20 GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
             'KIA-R8' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND internal_link_count > 3 AND is_noindex = FALSE ORDER BY internal_link_count DESC LIMIT 15",
 
@@ -1442,7 +1480,7 @@ PROMPT;
 
             // Internal Link Architecture
             'ILA-004' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE AND url_depth > 3 ORDER BY url_depth DESC LIMIT 15",
-            'ILA-005' => "SELECT {$cols} FROM page_crawl_snapshots WHERE internal_link_count > 3 AND page_type IN ('core', 'outer') AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} ORDER BY internal_link_count DESC LIMIT 15",
+            'ILA-005' => "SELECT {$cols} FROM page_crawl_snapshots WHERE body_link_extraction_confident = TRUE AND body_internal_link_count > 3 AND page_type IN ('core', 'outer') AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} ORDER BY body_internal_link_count DESC LIMIT 15",
             'ILA-006' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE AND has_core_link = FALSE LIMIT 15",
             'ILA-007' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND is_noindex = FALSE AND url_depth > 3 ORDER BY url_depth DESC LIMIT 15",
 
