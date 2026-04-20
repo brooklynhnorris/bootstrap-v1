@@ -1433,10 +1433,6 @@
                 <div class="dash-empty" style="grid-column:1/-1;">Loading results…</div>
             </div>
 
-            <!-- Rule Proposals (shown on dashboard) -->
-            <div class="dash-section-title" id="dash-proposals-title" style="display:none;">Rule Evolution Proposals <span class="dash-badge" id="dash-proposals-badge">0 pending</span></div>
-            <div id="dash-proposals-list"></div>
-
             <!-- ═══ RESULTS VIEW (shown when Results tab active) ═══ -->
             <div id="results-view-content" style="display:none;">
                 <div class="results-summary-bar" id="results-summary-bar">
@@ -4056,7 +4052,7 @@
                 return b.total - a.total;
             });
 
-            renderRulesCards(allRulesData);
+            filterRulesView(currentRulesFilter);
         } catch(e) {
             container.innerHTML = '<div class="dash-empty">Could not load rules data.</div>';
         }
@@ -4072,8 +4068,9 @@
             );
         });
         let filtered = allRulesData;
-        if (filter === 'pending') filtered = allRulesData.filter(r => r.has_pending);
-        else if (filter === 'updated') filtered = allRulesData.filter(r => r.recently_updated || r.pass > 0 || r.fail > 0);
+        if (filter === 'all') filtered = allRulesData.filter(r => !r.has_pending);
+        else if (filter === 'pending') filtered = allRulesData.filter(r => r.has_pending);
+        else if (filter === 'updated') filtered = allRulesData.filter(r => !r.has_pending && (r.recently_updated || r.pass > 0 || r.fail > 0));
         renderRulesCards(filtered);
     }
 

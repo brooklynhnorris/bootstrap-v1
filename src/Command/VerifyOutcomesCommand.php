@@ -224,20 +224,7 @@ class VerifyOutcomesCommand extends Command
             // Calculate changes
             $changes  = $this->calculateChanges($before, $after);
             $verdict  = $this->determineVerdict($ruleId, $changes);
-
-            // Override verdict to FAIL if schema errors exist on a schema-related task
-            if (!empty($schemaErrors)) {
-                $verdict['status'] = 'FAIL';
-                $verdict['reason'] = 'Schema validation failed: ' . implode('; ', array_slice($schemaErrors, 0, 3));
-                $verdict['next_action'] = 'Fix the schema errors listed above. Validate with Google Rich Results Test before marking complete. Errors: ' . implode(', ', $schemaErrors);
-            }
-
-            // Override verdict to FAIL if content diff shows fix was not deployed
-            if ($fixNotDeployed) {
-                $verdict['status'] = 'FAIL';
-                $verdict['reason'] = 'Fix not deployed: ' . implode('; ', $contentDiff);
-                $verdict['next_action'] = 'The fix was marked complete but the content change was NOT detected on the live page. Verify the change is published and re-crawl before rechecking GSC metrics.';
-            }
+            $verdict  = $this->applyVerificationGuards($review, $changes, $verdict, $daysAgo, $fixNotDeployed, $contentDiff, $schemaErrors);
 
             $icon     = match($verdict['status']) {
                 'PASS'    => '[PASS]',
@@ -264,6 +251,8 @@ class VerifyOutcomesCommand extends Command
             $assignee = $review['assigned_to'] ?? 'Team';
             // Attach schema errors to review so LLM can see them
             $review['schema_errors'] = $schemaErrors;
+            $review['gsc_before'] = $before;
+            $review['gsc_after'] = $after;
             $feedback = $this->generateLearningFeedback($review, $changes, $verdict, $output);
 
             if ($feedback) {
@@ -542,13 +531,7 @@ class VerifyOutcomesCommand extends Command
     private function determineVerdict(string $ruleId, array $changes): array
     {
         // Match threshold by rule ID prefix
-        $threshold = self::THRESHOLDS['DEFAULT'];
-        foreach (self::THRESHOLDS as $prefix => $t) {
-            if ($prefix !== 'DEFAULT' && str_starts_with($ruleId, $prefix)) {
-                $threshold = $t;
-                break;
-            }
-        }
+        $threshold = $this->getThresholdForRule($ruleId);
         $metric    = $threshold['metric'];
         $passThreshold    = $threshold['pass'];
         $partialThreshold = $threshold['partial'];
@@ -563,12 +546,12 @@ class VerifyOutcomesCommand extends Command
                 $status     = 'PASS';
                 $reason     = "Fix succeeded: page emerged in search results (position 0 → {$changes['position']['after']}).";
                 $nextAction = "Close task. Schedule 30-day stability check.";
-                return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => 100];
+                return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => 100, 'classification' => 'verified'];
             }
             $status     = 'PASS';
             $reason     = "Fix succeeded: {$metric} went from 0 to {$changes[$metric]['after']} (page was previously not ranking).";
             $nextAction = "Close task. Schedule 30-day stability check.";
-            return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => 100];
+            return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => 100, 'classification' => 'verified'];
         }
 
         // Also check: if impressions emerged from zero
@@ -577,7 +560,7 @@ class VerifyOutcomesCommand extends Command
             $status     = 'PASS';
             $reason     = "Fix succeeded: page emerged in search (impressions 0 → {$changes['impressions']['after']}).";
             $nextAction = "Close task. Schedule 30-day stability check.";
-            return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => 'impressions', 'improvement_pct' => 100];
+            return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => 'impressions', 'improvement_pct' => 100, 'classification' => 'verified'];
         }
 
         // ── POSITION-TIER AWARE LOGIC ──
@@ -596,6 +579,7 @@ class VerifyOutcomesCommand extends Command
                     'next_action' => "Close task. Page needs to reach position ≤20 before CTR becomes meaningful. Schedule 30-day stability check.",
                     'metric' => 'position',
                     'improvement_pct' => round(abs($posDelta / max($posBefore, 1)) * 100, 1),
+                    'classification' => 'verified',
                 ];
             } elseif ($posDelta <= -1) {
                 return [
@@ -604,6 +588,7 @@ class VerifyOutcomesCommand extends Command
                     'next_action' => "Strengthen content and internal link signals. Re-verify in 14 days. Target: position ≤20.",
                     'metric' => 'position',
                     'improvement_pct' => round(abs($posDelta / max($posBefore, 1)) * 100, 1),
+                    'classification' => 'verified',
                 ];
             }
             // No position improvement either — genuine fail
@@ -624,6 +609,7 @@ class VerifyOutcomesCommand extends Command
                     'next_action' => "Continue monitoring. The ranking improvement suggests the fix is being processed. Re-verify in 14 days.",
                     'metric' => $metric,
                     'improvement_pct' => $improvPct,
+                    'classification' => 'verified',
                 ];
             }
         }
@@ -646,7 +632,81 @@ class VerifyOutcomesCommand extends Command
             $nextAction = "Re-run app:evaluate-rule for this rule. Check if fix is live via app:crawl-pages --url={url}. Consider stronger intervention.";
         }
 
-        return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => $improvPct];
+        return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => $improvPct, 'classification' => $status === 'FAIL' ? 'rule_failed' : 'verified'];
+    }
+
+    private function applyVerificationGuards(
+        array $review,
+        array $changes,
+        array $verdict,
+        int $daysAfterFix,
+        bool $fixNotDeployed,
+        array $contentDiff,
+        array $schemaErrors
+    ): array {
+        if ($fixNotDeployed) {
+            $verdict['status'] = 'PARTIAL';
+            $verdict['classification'] = 'deployment_blocked';
+            $verdict['reason'] = 'Verification blocked: the live crawl does not show the claimed change yet. ' . implode('; ', $contentDiff);
+            $verdict['next_action'] = 'Publish or confirm the change, run a fresh crawl for this URL, then re-check outcomes. Do not treat this as a failed rule theory yet.';
+
+            return $verdict;
+        }
+
+        if (!empty($schemaErrors)) {
+            $verdict['status'] = 'PARTIAL';
+            $verdict['classification'] = 'deployment_blocked';
+            $verdict['reason'] = 'Verification blocked: schema deployment still has errors. ' . implode('; ', array_slice($schemaErrors, 0, 3));
+            $verdict['next_action'] = 'Fix the schema errors first, validate with Google Rich Results Test, then re-run verification after the corrected markup is live.';
+
+            return $verdict;
+        }
+
+        if ($this->hasThinMeasurementSample($verdict['metric'] ?? 'impressions', $changes)) {
+            $verdict['status'] = 'PARTIAL';
+            $verdict['classification'] = 'measurement_thin';
+            $verdict['reason'] = 'Verification inconclusive: the traffic baseline is too thin to score this confidently yet.';
+            $verdict['next_action'] = 'Wait for more impressions/data before judging the rule. Re-verify after the next crawl/GSC refresh instead of revising the rule now.';
+
+            return $verdict;
+        }
+
+        $windowDays = $this->getThresholdForRule($review['rule_id'] ?? '')['window'] ?? 28;
+        if (($verdict['status'] ?? '') === 'FAIL' && $daysAfterFix < $windowDays) {
+            $verdict['status'] = 'PARTIAL';
+            $verdict['classification'] = 'measurement_early';
+            $verdict['reason'] = "Early read only: this fix is {$daysAfterFix} days old and the normal measurement window for {$review['rule_id']} is {$windowDays} days.";
+            $verdict['next_action'] = "Leave the task in monitoring mode and re-verify after day {$windowDays} unless the live page/crawl still shows a deployment issue.";
+
+            return $verdict;
+        }
+
+        return $verdict;
+    }
+
+    private function getThresholdForRule(string $ruleId): array
+    {
+        foreach (self::THRESHOLDS as $prefix => $threshold) {
+            if ($prefix !== 'DEFAULT' && str_starts_with($ruleId, $prefix)) {
+                return $threshold;
+            }
+        }
+
+        return self::THRESHOLDS['DEFAULT'];
+    }
+
+    private function hasThinMeasurementSample(string $metric, array $changes): bool
+    {
+        $impressionsBefore = (int) ($changes['impressions']['before'] ?? 0);
+        $impressionsAfter = (int) ($changes['impressions']['after'] ?? 0);
+        $clicksBefore = (int) ($changes['clicks']['before'] ?? 0);
+        $clicksAfter = (int) ($changes['clicks']['after'] ?? 0);
+
+        return match ($metric) {
+            'ctr' => max($impressionsBefore, $impressionsAfter) < 150 || max($clicksBefore, $clicksAfter) < 3,
+            'position' => max($impressionsBefore, $impressionsAfter) < 40,
+            default => max($impressionsBefore, $impressionsAfter) < 30,
+        };
     }
 
     // ─────────────────────────────────────────────
@@ -800,9 +860,15 @@ class VerifyOutcomesCommand extends Command
                 $whatDidntWork = null;
                 $proposedChange = null;
                 $changeType = 'none';
+                $classification = $verdict['classification'] ?? 'verified';
 
                 if ($verdict['status'] === 'PASS') {
                     $whatWorked = "Fix for {$review['rule_id']} on {$review['url']} improved {$verdict['metric']} by {$verdict['improvement_pct']}%. Rule validated — keep as-is.";
+                    $changeType = 'none';
+                } elseif (in_array($classification, ['deployment_blocked', 'measurement_early', 'measurement_thin'], true)) {
+                    $whatWorked = 'No reliable rule learning yet because verification was blocked or inconclusive.';
+                    $whatDidntWork = $verdict['reason'];
+                    $proposedChange = null;
                     $changeType = 'none';
                 } elseif ($verdict['status'] === 'PARTIAL') {
                     $whatWorked = "{$verdict['metric']} showed some improvement ({$verdict['improvement_pct']}%) but below the pass threshold.";
@@ -933,6 +999,7 @@ class VerifyOutcomesCommand extends Command
         $taskTitle = $review['title'] ?? '';
         $taskDesc  = substr($review['description'] ?? '', 0, 500);
         $status    = $verdict['status'];
+        $classification = $verdict['classification'] ?? 'verified';
 
         $gscSummary = "";
         foreach ($changes as $metric => $c) {
@@ -985,6 +1052,7 @@ URL: {$url}
 TASK: {$taskTitle}
 BRIEF: {$taskDesc}
 OUTCOME: {$status}
+VERIFICATION CLASSIFICATION: {$classification}
 {$crawlContext}
 {$schemaContext}
 {$contentDiffContext}
@@ -1007,6 +1075,7 @@ RULES:
 - If position > 30: CTR commentary is irrelevant. Don't mention CTR.
 - If the task was about adding video schema but has_main_content_video = NO: the rule fired incorrectly. Say that.
 - If target_query is NONE: say the page has no GSC query assignment and may not be worth optimizing.
+- If VERIFICATION CLASSIFICATION is deployment_blocked, measurement_early, or measurement_thin: do NOT propose a rule change. Explain that the verdict is not a theory failure yet.
 - Keep everything under 50 words per field.
 PROMPT;
 
