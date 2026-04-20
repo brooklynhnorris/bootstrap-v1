@@ -148,6 +148,7 @@ class EvaluateRuleCommand extends Command
             // ══════════════════════════════════════════
             $outputConsensus = null;
             $tasksCreated    = 0;
+            $tasksSuppressed = 0;
 
             if (!$skipOutput) {
                 $output->writeln('');
@@ -169,6 +170,12 @@ class EvaluateRuleCommand extends Command
 
                     // Skip meta-commentary briefs (LLM explaining its process instead of an actual task)
                     if (str_contains(strtolower($title), 'maintaining my response') || str_contains(strtolower($title), 'peer summaries')) continue;
+
+                    if ($this->shouldSuppressBriefFromBoard($brief, $outputConsensus, $finalConsensus)) {
+                        $tasksSuppressed++;
+                        $output->writeln("     [suppressed] {$title} — held back from board due to low confidence / review-only status");
+                        continue;
+                    }
 
                     // Check for duplicate — don't create if same rule+url task already exists and is not done
                     $existing = $this->db->fetchAssociative(
@@ -298,6 +305,9 @@ class EvaluateRuleCommand extends Command
 
                 if ($tasksCreated > 0) {
                     $output->writeln("  >> {$tasksCreated} task(s) added to Playbook Board");
+                }
+                if ($tasksSuppressed > 0) {
+                    $output->writeln("  >> {$tasksSuppressed} low-confidence/review brief(s) suppressed from the board");
                 }
             }
 
@@ -899,6 +909,51 @@ PROMPT;
             );
         }
 
+        if ($this->hasVaguePlacementInstruction($yourMove) && !$this->containsQuotedPlacementAnchor($yourMove)) {
+            return $this->convertBriefToReview(
+                $brief,
+                $page,
+                'Review vague placement instructions before implementation',
+                'The brief does not quote the exact paragraph, heading, or sentence to replace or insert around. Regenerate it with a precise placement anchor.'
+            );
+        }
+
+        if ($this->isMultiActionImplementationBrief($brief)) {
+            return $this->convertBriefToReview(
+                $brief,
+                $page,
+                'Split multi-action play before implementation',
+                'The brief bundles multiple implementation actions into one task. Split it into separate plays so each task has one clear change and one verification target.'
+            );
+        }
+
+        if ($this->hasFeatureCompatibilityMismatch($combined, $page)) {
+            return $this->convertBriefToReview(
+                $brief,
+                $page,
+                'Review feature-to-page mismatch before implementation',
+                'The brief introduces feature language that does not match the current product/page context. Regenerate the play using only compatible features already supported by this page.'
+            );
+        }
+
+        if ($this->violatesPageTypePolicy($combined, $brief, $page)) {
+            return $this->convertBriefToReview(
+                $brief,
+                $page,
+                'Review page-type policy before implementation',
+                $this->buildPageTypePolicyCaveat($combined, $page)
+            );
+        }
+
+        if ($this->hasInvalidSuccessCriteria($brief, $page)) {
+            return $this->convertBriefToReview(
+                $brief,
+                $page,
+                'Review success criteria before implementation',
+                $this->buildSuccessCriteriaCaveat($brief, $page)
+            );
+        }
+
         return $brief;
     }
 
@@ -991,6 +1046,405 @@ PROMPT;
             || str_contains($text, "Replace it with exactly this:\n")
             || str_contains($text, "Insert this copy:\n")
             || str_contains($text, "```");
+    }
+
+    private function hasVaguePlacementInstruction(string $text): bool
+    {
+        $lower = strtolower($text);
+
+        return str_contains($lower, 'find the generic')
+            || str_contains($lower, 'find the paragraph')
+            || str_contains($lower, 'find the first paragraph')
+            || str_contains($lower, 'replace the existing h2')
+            || str_contains($lower, 'replace the existing heading')
+            || str_contains($lower, 'insert before the configurator')
+            || str_contains($lower, 'insert near the top')
+            || str_contains($lower, 'inside body copy')
+            || str_contains($lower, 'in the body copy')
+            || str_contains($lower, 'under both h2s');
+    }
+
+    private function containsQuotedPlacementAnchor(string $text): bool
+    {
+        $lower = strtolower($text);
+
+        if (
+            str_contains($lower, 'replace this paragraph:')
+            || str_contains($lower, 'replace the paragraph that begins')
+            || str_contains($lower, 'insert after the sentence that begins')
+            || str_contains($lower, 'replace this heading:')
+            || str_contains($lower, 'replace the paragraph beginning')
+        ) {
+            return true;
+        }
+
+        return preg_match('/["\'][^"\']{20,}["\']/', $text) === 1;
+    }
+
+    private function isMultiActionImplementationBrief(array $brief): bool
+    {
+        $text = strtolower(trim(($brief['title'] ?? '') . "\n" . ($brief['your_move'] ?? '') . "\n" . ($brief['done_when'] ?? '')));
+        $actionTypes = 0;
+
+        $actionPatterns = [
+            '/\btitle\b|\btitle tag\b|\bmeta\b/',
+            '/\bh1\b|\bh2\b|\bheading\b/',
+            '/\bparagraph\b|\bbody copy\b|\bopening copy\b|\bword count\b|\badd \d+\+? words\b/',
+            '/\bschema\b|\bjson-ld\b|\bfaqpage\b|\bvideoobject\b|\borganization\b|\bitemlist\b|\bproduct schema\b/',
+            '/\binternal link\b|\blinks?\b/',
+            '/\bcwv\b|\bcore web vitals\b|\brich results test\b/'
+        ];
+
+        foreach ($actionPatterns as $pattern) {
+            if (preg_match($pattern, $text) === 1) {
+                $actionTypes++;
+            }
+        }
+
+        return $actionTypes >= 4;
+    }
+
+    private function hasFeatureCompatibilityMismatch(string $combined, array $page): bool
+    {
+        $pageText = strtolower(
+            trim(
+                implode("\n", array_filter([
+                    (string) ($page['url'] ?? ''),
+                    (string) ($page['title_tag'] ?? ''),
+                    (string) ($page['h1'] ?? ''),
+                    (string) ($page['body_text_snippet'] ?? ''),
+                ]))
+            )
+        );
+
+        if (str_contains($combined, 'safetack reverse') && !str_contains($pageText, 'safetack reverse') && !str_contains($pageText, 'reverse load')) {
+            return true;
+        }
+
+        if (str_contains($combined, 'videoobject') && !str_contains($pageText, 'video') && trim((string) ($page['video_urls'] ?? '')) === '') {
+            return true;
+        }
+
+        if (str_contains($combined, 'faqpage') && !$this->looksLikeFaqCandidate($pageText)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function looksLikeFaqCandidate(string $pageText): bool
+    {
+        return str_contains($pageText, 'frequently asked questions')
+            || str_contains($pageText, 'faq')
+            || substr_count($pageText, '?') >= 3;
+    }
+
+    private function violatesPageTypePolicy(string $combined, array $brief, array $page): bool
+    {
+        $policy = $this->classifyPagePolicy($page);
+        $text = $combined . "\n" . strtolower((string) ($brief['current_state'] ?? ''));
+
+        if ($policy === 'core_hub') {
+            if (
+                preg_match('/\b<=\s*500\b/', $text) === 1
+                || str_contains($text, 'cut living quarters core page')
+                || str_contains($text, 'offload everything else')
+                || str_contains($text, 'mse takes over')
+                || str_contains($text, 'one intro sentence')
+            ) {
+                return true;
+            }
+        }
+
+        if ($policy === 'testimonial_review') {
+            if (
+                str_contains($text, '1000+ words')
+                || preg_match('/\badd\s+5\d{2}\+?\s+words\b/', $text) === 1
+                || preg_match('/\badd\s+\d{3,}\+?\s+words\b/', $text) === 1
+                || str_contains($text, 'expand body to 1,000+ words')
+                || str_contains($text, 'editorial context around the video')
+                || str_contains($text, 'merge or expand')
+            ) {
+                return true;
+            }
+        }
+
+        if ($policy === 'informational_article') {
+            if (
+                str_contains($text, 'safe trailer solutions')
+                || str_contains($text, 'bridge content to ddt products')
+                || str_contains($text, 'bridge to ddt products')
+                || str_contains($text, 'product-bridge')
+                || str_contains($text, 'factory-direct from')
+            ) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function buildPageTypePolicyCaveat(string $combined, array $page): string
+    {
+        return match ($this->classifyPagePolicy($page)) {
+            'core_hub' => 'This URL behaves like a core hub/category page. Do not compress it to product-page length or offload core differentiator content just to satisfy a word-cap rule.',
+            'testimonial_review' => 'This URL behaves like a testimonial/review page. Do not inflate it into an article-length page; prefer authenticity-preserving edits or a merge/redirect decision.',
+            'informational_article' => 'This URL behaves like an informational article. Do not force aggressive product-bridge messaging unless the page is already clearly commercial-adjacent.',
+            default => 'This brief conflicts with the page-type policy for this URL. Regenerate it with a strategy that matches the page’s actual role on the site.',
+        };
+    }
+
+    private function classifyPagePolicy(array $page): string
+    {
+        $url = strtolower((string) ($page['url'] ?? ''));
+        $pageType = strtolower((string) ($page['page_type'] ?? ''));
+        $title = strtolower((string) ($page['title_tag'] ?? ''));
+        $h1 = strtolower((string) ($page['h1'] ?? ''));
+        $body = strtolower((string) ($page['body_text_snippet'] ?? ''));
+        $wordCount = (int) ($page['word_count'] ?? 0);
+
+        $haystack = implode("\n", [$url, $pageType, $title, $h1, $body]);
+
+        if (
+            str_contains($haystack, 'review posted')
+            || str_contains($haystack, 'customer review')
+            || str_contains($haystack, 'double d trailer review')
+            || str_contains($haystack, 'would you recommend double d trailers')
+            || preg_match('#/(horse-trailer-reviews|reviews?)/#', $url) === 1
+        ) {
+            return 'testimonial_review';
+        }
+
+        if (
+            $pageType === 'core'
+            || preg_match('#^/(horse-trailers|gooseneck-horse-trailers|bumper-pull-horse-trailers|living-quarters-horse-trailers)/?$#', $url) === 1
+            || (str_contains($haystack, 'for sale') && $wordCount > 1000)
+        ) {
+            return 'core_hub';
+        }
+
+        if (
+            $pageType === 'outer'
+            || str_contains($url, '/articles/')
+            || str_contains($url, '/resources/')
+            || str_contains($haystack, 'what sets our customer service apart')
+            || str_contains($haystack, 'horse jockeys')
+        ) {
+            return 'informational_article';
+        }
+
+        return 'default';
+    }
+
+    private function hasInvalidSuccessCriteria(array $brief, array $page): bool
+    {
+        $doneWhen = strtolower(trim((string) ($brief['done_when'] ?? '')));
+        $yourMove = strtolower(trim((string) ($brief['your_move'] ?? '')));
+
+        if ($doneWhen === '') {
+            return false;
+        }
+
+        if ($this->isOutcomeOnlySuccessCriteria($doneWhen)) {
+            return true;
+        }
+
+        if ($this->hasContradictoryHeadingSuccessCriteria($doneWhen, $yourMove)) {
+            return true;
+        }
+
+        if ($this->hasEditMismatchSuccessCriteria($doneWhen, $yourMove, $page)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function isOutcomeOnlySuccessCriteria(string $doneWhen): bool
+    {
+        $implementationAnchors = [
+            'crawl returns',
+            'rich results test',
+            'detected',
+            'visible in body text',
+            'word count',
+            'title matches',
+            'meta description',
+            'schema',
+            'internal links',
+            'h1_matches_title',
+            'contains ',
+        ];
+
+        $hasImplementationAnchor = false;
+        foreach ($implementationAnchors as $anchor) {
+            if (str_contains($doneWhen, $anchor)) {
+                $hasImplementationAnchor = true;
+                break;
+            }
+        }
+
+        if ($hasImplementationAnchor) {
+            return false;
+        }
+
+        return str_contains($doneWhen, 'ctr')
+            || str_contains($doneWhen, 'bounce rate')
+            || str_contains($doneWhen, 'position')
+            || str_contains($doneWhen, 'rank')
+            || str_contains($doneWhen, 'ranking')
+            || str_contains($doneWhen, 'clicks')
+            || str_contains($doneWhen, 'impressions');
+    }
+
+    private function hasContradictoryHeadingSuccessCriteria(string $doneWhen, string $yourMove): bool
+    {
+        $mentionsH1Match = str_contains($doneWhen, 'h1_matches_title')
+            || (str_contains($doneWhen, 'h1') && str_contains($doneWhen, 'title') && str_contains($doneWhen, 'match'));
+
+        if (!$mentionsH1Match) {
+            return false;
+        }
+
+        $titleValue = $this->extractQuotedAfterLabel($yourMove, 'title');
+        $h1Value = $this->extractQuotedAfterLabel($yourMove, 'h1');
+
+        if ($titleValue === '' || $h1Value === '') {
+            return false;
+        }
+
+        return trim($titleValue) !== trim($h1Value);
+    }
+
+    private function hasEditMismatchSuccessCriteria(string $doneWhen, string $yourMove, array $page): bool
+    {
+        $hasTitleEdit = str_contains($yourMove, 'title');
+        $hasH1Edit = preg_match('/\bh1\b/', $yourMove) === 1;
+        $hasSchemaEdit = str_contains($yourMove, 'schema') || str_contains($yourMove, 'json-ld');
+        $hasBodyEdit = str_contains($yourMove, 'paragraph')
+            || str_contains($yourMove, 'body copy')
+            || str_contains($yourMove, 'opening copy')
+            || str_contains($yourMove, 'insert ')
+            || str_contains($yourMove, 'replace ');
+
+        if (!$hasTitleEdit && str_contains($doneWhen, 'title')) {
+            return true;
+        }
+
+        if (!$hasH1Edit && (str_contains($doneWhen, 'h1_matches_title') || preg_match('/\bh1\b/', $doneWhen) === 1)) {
+            return true;
+        }
+
+        if (!$hasSchemaEdit && str_contains($doneWhen, 'rich results test')) {
+            return true;
+        }
+
+        if (!$hasBodyEdit && str_contains($doneWhen, 'body contains')) {
+            return true;
+        }
+
+        if (
+            str_contains($doneWhen, '<= 500')
+            && $this->classifyPagePolicy($page) === 'core_hub'
+        ) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function extractQuotedAfterLabel(string $text, string $label): string
+    {
+        if (preg_match('/' . preg_quote($label, '/') . '\s*[:\-]\s*["\']([^"\']+)["\']/i', $text, $m)) {
+            return trim($m[1]);
+        }
+
+        return '';
+    }
+
+    private function buildSuccessCriteriaCaveat(array $brief, array $page): string
+    {
+        $doneWhen = strtolower(trim((string) ($brief['done_when'] ?? '')));
+        $yourMove = strtolower(trim((string) ($brief['your_move'] ?? '')));
+
+        if ($this->isOutcomeOnlySuccessCriteria($doneWhen)) {
+            return 'The done-state relies on outcome metrics like CTR, impressions, or rankings without a concrete implementation verification step. Regenerate it with crawl-verifiable completion criteria first.';
+        }
+
+        if ($this->hasContradictoryHeadingSuccessCriteria($doneWhen, $yourMove)) {
+            return 'The done-state says the H1 and title should match, but the brief proposes different H1 and title values. Regenerate the play with consistent heading instructions and success criteria.';
+        }
+
+        if ($this->hasEditMismatchSuccessCriteria($doneWhen, $yourMove, $page)) {
+            return 'The done-state does not line up with the actual edit being requested. Regenerate the play so the completion checks directly verify the implementation work in the brief.';
+        }
+
+        return 'The completion criteria are not reliable for this play. Regenerate it with implementation-level checks instead of ambiguous or mismatched outcomes.';
+    }
+
+    private function shouldSuppressBriefFromBoard(array $brief, ?array $outputConsensus, array $stage1Consensus): bool
+    {
+        $score = $this->computeBriefBoardConfidence($brief, $outputConsensus, $stage1Consensus);
+
+        if ($score < 0.55) {
+            return true;
+        }
+
+        $title = strtolower(trim((string) ($brief['title'] ?? '')));
+        $caveat = strtolower(trim((string) ($brief['caveat'] ?? '')));
+
+        if (
+            str_contains($title, 'review ')
+            || str_contains($title, 'skip ')
+            || str_contains($caveat, 'false positive')
+            || str_contains($caveat, 'do not execute')
+            || str_contains($caveat, 'regenerate')
+        ) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function computeBriefBoardConfidence(array $brief, ?array $outputConsensus, array $stage1Consensus): float
+    {
+        $score = 1.0;
+
+        $avgConf = isset($outputConsensus['avg_conf']) ? (float) $outputConsensus['avg_conf'] : 10.0;
+        $stage1Avg = isset($stage1Consensus['avg_conf']) ? (float) $stage1Consensus['avg_conf'] : 10.0;
+
+        $score *= max(0.4, min(1.0, $avgConf / 10));
+        $score *= max(0.5, min(1.0, $stage1Avg / 10));
+
+        $title = strtolower(trim((string) ($brief['title'] ?? '')));
+        $caveat = strtolower(trim((string) ($brief['caveat'] ?? '')));
+        $yourMove = strtolower(trim((string) ($brief['your_move'] ?? '')));
+
+        if ($caveat !== '' && $caveat !== 'none') {
+            $score -= 0.25;
+        }
+
+        if (
+            str_contains($title, 'review ')
+            || str_contains($title, 'skip ')
+            || str_contains($caveat, 'do not execute')
+            || str_contains($caveat, 'regenerate')
+            || str_contains($yourMove, 'do not execute this implementation task yet')
+        ) {
+            $score -= 0.35;
+        }
+
+        if (
+            str_contains($caveat, 'false positive')
+            || str_contains($caveat, 'missing payload')
+            || str_contains($caveat, 'vague placement')
+            || str_contains($caveat, 'page-type policy')
+            || str_contains($caveat, 'success criteria')
+        ) {
+            $score -= 0.2;
+        }
+
+        return max(0.0, min(1.0, $score));
     }
 
     private function convertBriefToReview(array $brief, array $page, string $title, string $caveat): array
