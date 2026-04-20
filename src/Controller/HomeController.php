@@ -1209,10 +1209,8 @@ class HomeController extends AbstractController
     public function approveRuleProposal(int $id, Request $request): JsonResponse
     {
         try {
-            $body = json_decode($request->getContent(), true);
-            $session = $this->requestStack->getSession();
-            $persona = $session->get('active_persona', null);
-            $approvedBy = $persona ? $persona['name'] : ($body['approved_by'] ?? 'Unknown');
+            $body = json_decode($request->getContent(), true) ?: [];
+            $approvedBy = $this->getCurrentActorName();
 
             // Fetch the full proposal
             $proposal = $this->db->fetchAssociative('SELECT * FROM rule_change_proposals WHERE id = ?', [$id]);
@@ -1349,11 +1347,12 @@ class HomeController extends AbstractController
     public function rejectRuleProposal(int $id, Request $request): JsonResponse
     {
         try {
-            $body = json_decode($request->getContent(), true);
+            $body = json_decode($request->getContent(), true) ?: [];
             $feedback = $body['feedback'] ?? null;
+            $approvedBy = $this->getCurrentActorName();
             $this->db->update('rule_change_proposals', [
                 'status'      => 'rejected',
-                'approved_by' => $body['approved_by'] ?? 'Unknown',
+                'approved_by' => $approvedBy,
                 'approved_at' => date('Y-m-d H:i:s'),
             ], ['id' => $id]);
 
@@ -1362,7 +1361,7 @@ class HomeController extends AbstractController
                 $proposal = $this->db->fetchAssociative('SELECT rule_id FROM rule_change_proposals WHERE id = ?', [$id]);
                 if ($proposal) {
                     $this->logActivity(
-                        $body['approved_by'] ?? 'Unknown',
+                        $approvedBy,
                         'rejected_rule_change',
                         'rule',
                         $id,

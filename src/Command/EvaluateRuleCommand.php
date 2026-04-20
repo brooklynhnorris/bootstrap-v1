@@ -151,7 +151,7 @@ class EvaluateRuleCommand extends Command
 
                 $outputPrompt  = $this->buildOutputPrompt($rule, $firingPages, $finalConsensus, $finalVerdicts);
                 $stage2Result  = $this->runDeliberation($outputPrompt, $output, $verboseLlm, 'S2', 8000, 1);
-                $outputConsensus = $this->synthesiseOutput($stage2Result['verdicts'], $stage2Result['consensus'], $rule);
+                $outputConsensus = $this->synthesiseOutput($stage2Result['verdicts'], $stage2Result['consensus'], $rule, $firingPages);
                 $outputConsensus['rounds_run'] = $stage2Result['rounds_run'];
 
                 $this->displayOutputConsensus($output, $outputConsensus, $stage2Result['consensus']);
@@ -633,6 +633,10 @@ CRITICAL RULES FOR OUTPUT:
 - Product pages: body text must NOT exceed 500 words. MSE elements carry the page.
 - Outer pages: minimum 1000 words. Below that = thin content.
 - Max 3 internal links per page. Zero external links.
+- Never claim crawl data is unavailable if page fields are present above. Use the provided fields as ground truth.
+- Do not create contradictory instructions. Never say both "do not change H1" and "update H1" in the same brief.
+- Do not create generic schema prerequisite steps unless the actual page data shows the prerequisite is failing.
+- For DDT-SD-002 specifically: if the page is not the homepage and has word_count < 400 or target_query_position > 30, do not generate a direct Organization schema deployment Play. Generate a prerequisite readiness review instead.
 
 FORMAT (repeat for each page, per action):
 
@@ -661,7 +665,7 @@ PROMPT;
     //  Merges 3 LLM outputs into a single agreed output
     // ─────────────────────────────────────────────
 
-    private function synthesiseOutput(array $verdicts, array $consensus, array $rule): array
+    private function synthesiseOutput(array $verdicts, array $consensus, array $rule, array $firingPages): array
     {
         // Use the highest-confidence LLM's output as the base
         $best     = null;
@@ -690,6 +694,8 @@ PROMPT;
                 if (!empty($briefs)) { $raw = $v['raw']; break; }
             }
         }
+
+        $briefs = $this->sanitizePlayBriefs($briefs, $rule, $firingPages);
 
         // Merge caveats from all LLMs
         $allCaveats = [];
@@ -768,6 +774,139 @@ PROMPT;
         }
 
         return $briefs;
+    }
+
+    private function sanitizePlayBriefs(array $briefs, array $rule, array $firingPages): array
+    {
+        $pageMap = [];
+        foreach ($firingPages as $page) {
+            if (!empty($page['url'])) {
+                $pageMap[$this->normalizeUrl((string) $page['url'])] = $page;
+            }
+        }
+
+        $sanitized = [];
+        foreach ($briefs as $brief) {
+            $url = $this->normalizeUrl((string) ($brief['url'] ?? ''));
+            $page = $pageMap[$url] ?? null;
+
+            if ($page) {
+                $brief = $this->repairMissingCrawlBoilerplate($brief, $page);
+                $brief = $this->removeContradictoryInstructions($brief, $page);
+            }
+
+            if (($rule['id'] ?? '') === 'DDT-SD-002' && $page) {
+                $brief = $this->applyOrganizationSchemaGate($brief, $page);
+            }
+
+            $sanitized[] = $brief;
+        }
+
+        return $sanitized;
+    }
+
+    private function repairMissingCrawlBoilerplate(array $brief, array $page): array
+    {
+        $combined = strtolower(($brief['current_state'] ?? '') . "\n" . ($brief['your_move'] ?? ''));
+        if (!str_contains($combined, 'no crawl data is available')) {
+            return $brief;
+        }
+
+        $brief['current_state'] = $this->buildCurrentStateFromPage($page);
+
+        $yourMove = preg_replace('/.*no crawl data is available.*(?:\r?\n)?/i', '', (string) ($brief['your_move'] ?? ''));
+        $yourMove = preg_replace('/.*run php bin\/console app:crawl-pages.*(?:\r?\n)?/i', '', (string) $yourMove);
+        $brief['your_move'] = trim((string) $yourMove);
+
+        if ($brief['your_move'] === '') {
+            $brief['your_move'] = '1. Use the current crawl data already present for this URL. 2. Perform the schema or content fix required by the rule. 3. Re-crawl the page after publishing to verify the target fields changed.';
+        }
+
+        return $brief;
+    }
+
+    private function removeContradictoryInstructions(array $brief, array $page): array
+    {
+        $yourMove = (string) ($brief['your_move'] ?? '');
+        $lines = preg_split('/\r\n|\r|\n/', $yourMove) ?: [];
+        $filtered = [];
+
+        $h1Aligned = $this->toBool($page['h1_matches_title'] ?? false);
+        $canonicalUrl = (string) ($page['canonical_url'] ?? '');
+        $selfCanonical = $canonicalUrl !== '' && rtrim($canonicalUrl, '/') === rtrim('https://www.doubledtrailers.com' . $this->normalizeUrl((string) ($page['url'] ?? '')), '/');
+
+        foreach ($lines as $line) {
+            $lineLower = strtolower(trim($line));
+            if ($h1Aligned && str_contains($lineLower, 'update h1')) {
+                continue;
+            }
+            if ($selfCanonical && (str_contains($lineLower, 'confirm canonical') || str_contains($lineLower, 'canonical integrity before any schema'))) {
+                continue;
+            }
+            $filtered[] = $line;
+        }
+
+        $brief['your_move'] = trim(implode("\n", $filtered));
+
+        if ($h1Aligned && str_contains(strtolower((string) ($brief['done_when'] ?? '')), 'h1') && str_contains(strtolower((string) ($brief['done_when'] ?? '')), 'change')) {
+            $brief['done_when'] = preg_replace('/\s*\+\s*.*h1.*$/i', '', (string) $brief['done_when']) ?: $brief['done_when'];
+        }
+
+        return $brief;
+    }
+
+    private function applyOrganizationSchemaGate(array $brief, array $page): array
+    {
+        $url = $this->normalizeUrl((string) ($page['url'] ?? ''));
+        $wordCount = (int) ($page['word_count'] ?? 0);
+        $position = isset($page['target_query_position']) ? (float) $page['target_query_position'] : null;
+        $isWeakPage = $url !== '/' && $wordCount < 400 && ($position === null || $position > 30);
+
+        if (!$isWeakPage) {
+            return $brief;
+        }
+
+        $brief['title'] = 'Review page readiness before Organization schema — ' . $url;
+        $brief['assigned'] = 'Jeanne';
+        $brief['priority'] = 'High';
+        $brief['current_state'] = $this->buildCurrentStateFromPage($page);
+        $brief['your_move'] = "1. Do not deploy Organization schema on this page yet.\n2. Decide whether this page should first receive a stronger page-quality or content-depth Play.\n3. Only approve Organization schema after the page is competitive enough for entity-layer markup to be a marginal gain.";
+        $brief['done_when'] = 'A decision is recorded: either approve Organization schema for this URL or route the page to a prerequisite content/page-quality Play first.';
+        $brief['recheck'] = '14';
+        $brief['caveat'] = 'Organization schema is gated here because the page is still weak for this intervention: low content depth and/or ranking beyond position 30.';
+
+        return $brief;
+    }
+
+    private function buildCurrentStateFromPage(array $page): string
+    {
+        $schemaTypes = (string) ($page['schema_types'] ?? '[]');
+        $canonicalUrl = (string) ($page['canonical_url'] ?? 'unknown');
+
+        $lines = [
+            '- page_type: ' . ($page['page_type'] ?? 'unknown'),
+            '- word_count: ' . (int) ($page['word_count'] ?? 0),
+            '- target_query: ' . ($page['target_query'] ?? 'NONE'),
+            '- target_query_impressions: ' . (int) ($page['target_query_impressions'] ?? 0),
+            '- target_query_position: ' . ($page['target_query_position'] ?? 'unknown'),
+            '- schema_types: ' . $schemaTypes,
+            '- canonical_url: ' . $canonicalUrl,
+            '- h1_matches_title: ' . ($this->toBool($page['h1_matches_title'] ?? false) ? 'TRUE' : 'FALSE'),
+            '- is_noindex: ' . ($this->toBool($page['is_noindex'] ?? false) ? 'TRUE' : 'FALSE'),
+        ];
+
+        return implode("\n", $lines);
+    }
+
+    private function normalizeUrl(string $url): string
+    {
+        $normalized = '/' . trim($url, '/');
+        return $normalized === '/' ? '/' : $normalized . '/';
+    }
+
+    private function toBool(mixed $value): bool
+    {
+        return $value === true || $value === 1 || $value === '1' || $value === 't' || $value === 'true';
     }
 
     // ─────────────────────────────────────────────
