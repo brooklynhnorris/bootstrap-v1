@@ -1260,7 +1260,7 @@ PROMPT;
                 );
                 $simplifiedQuery = $this->applyLatestSnapshotScope($simplifiedQuery);
                 try {
-                    $results = $this->db->fetchAllAssociative($simplifiedQuery);
+                    $results = $this->filterAssetLikeRows($this->db->fetchAllAssociative($simplifiedQuery));
                     if (!empty($results)) return $results;
                 } catch (\Exception $e) {
                     // Simplified query failed — fall through to trigger_sql
@@ -1276,7 +1276,7 @@ PROMPT;
                 }
                 $sql = $this->applyLatestSnapshotScope($sql);
                 try {
-                    $results = $this->db->fetchAllAssociative($sql);
+                    $results = $this->filterAssetLikeRows($this->db->fetchAllAssociative($sql));
                     if (!empty($results)) return $results;
                 } catch (\Exception $e) {
                     // SQL failed (missing columns/tables) — fall through to legacy
@@ -1302,7 +1302,7 @@ PROMPT;
             };
 
             if ($query) {
-                return $this->db->fetchAllAssociative($this->applyLatestSnapshotScope($query));
+                return $this->filterAssetLikeRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope($query)));
             }
 
             // If no SQL and no legacy match, the trigger_condition is likely a bare WHERE clause
@@ -1321,7 +1321,7 @@ PROMPT;
 
                 if ($needsJoin) {
                     // JOIN query for rules that need GSC data
-                    return $this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
+                    return $this->filterAssetLikeRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
                         "SELECT p.url, p.page_type, p.word_count, p.h1, p.title_tag, p.has_central_entity,
                                 p.central_entity_count, p.schema_types, p.h1_matches_title, p.h2s,
                                 p.has_core_link, p.canonical_url, p.is_noindex,
@@ -1330,18 +1330,18 @@ PROMPT;
                          LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url)
                          WHERE {$where}
                          LIMIT 15"
-                    ));
+                    )));
                 }
 
                 // Default: page_crawl_snapshots only
-                return $this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
+                return $this->filterAssetLikeRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
                     "SELECT url, page_type, word_count, h1, title_tag, has_central_entity,
                             central_entity_count, schema_types, h1_matches_title, h2s,
                             has_core_link, canonical_url, is_noindex
                      FROM page_crawl_snapshots
                      WHERE {$where}
                      LIMIT 15"
-                ));
+                )));
             }
 
             return [];
@@ -1395,6 +1395,32 @@ PROMPT;
                     WHERE rn = 1
                 )
                 {$scopedSql}";
+    }
+
+    private function filterAssetLikeRows(array $rows): array
+    {
+        return array_values(array_filter($rows, function (array $row): bool {
+            foreach (['url', 'page'] as $key) {
+                $candidate = $row[$key] ?? null;
+                if (is_string($candidate) && $candidate !== '' && $this->isAssetLikeUrl($candidate)) {
+                    return false;
+                }
+            }
+
+            return true;
+        }));
+    }
+
+    private function isAssetLikeUrl(string $url): bool
+    {
+        $path = parse_url($url, PHP_URL_PATH) ?: $url;
+        $path = strtolower($path);
+
+        if (str_contains($path, '/wp-content/uploads/')) {
+            return true;
+        }
+
+        return (bool) preg_match('/\.(png|jpe?g|gif|svg|webp|avif|pdf|docx?|xlsx?|zip|mp4|mov|avi|wmv|webm)$/i', $path);
     }
 
     // ─────────────────────────────────────────────
