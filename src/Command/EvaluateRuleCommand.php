@@ -1260,7 +1260,7 @@ PROMPT;
                 );
                 $simplifiedQuery = $this->applyLatestSnapshotScope($simplifiedQuery);
                 try {
-                    $results = $this->filterAssetLikeRows($this->db->fetchAllAssociative($simplifiedQuery));
+                    $results = $this->filterNonActionableRows($this->db->fetchAllAssociative($simplifiedQuery));
                     if (!empty($results)) return $results;
                 } catch (\Exception $e) {
                     // Simplified query failed — fall through to trigger_sql
@@ -1276,7 +1276,7 @@ PROMPT;
                 }
                 $sql = $this->applyLatestSnapshotScope($sql);
                 try {
-                    $results = $this->filterAssetLikeRows($this->db->fetchAllAssociative($sql));
+                    $results = $this->filterNonActionableRows($this->db->fetchAllAssociative($sql));
                     if (!empty($results)) return $results;
                 } catch (\Exception $e) {
                     // SQL failed (missing columns/tables) — fall through to legacy
@@ -1302,7 +1302,7 @@ PROMPT;
             };
 
             if ($query) {
-                return $this->filterAssetLikeRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope($query)));
+                return $this->filterNonActionableRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope($query)));
             }
 
             // If no SQL and no legacy match, the trigger_condition is likely a bare WHERE clause
@@ -1321,7 +1321,7 @@ PROMPT;
 
                 if ($needsJoin) {
                     // JOIN query for rules that need GSC data
-                    return $this->filterAssetLikeRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
+                    return $this->filterNonActionableRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
                         "SELECT p.url, p.page_type, p.word_count, p.h1, p.title_tag, p.has_central_entity,
                                 p.central_entity_count, p.schema_types, p.h1_matches_title, p.h2s,
                                 p.has_core_link, p.canonical_url, p.is_noindex,
@@ -1334,7 +1334,7 @@ PROMPT;
                 }
 
                 // Default: page_crawl_snapshots only
-                return $this->filterAssetLikeRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
+                return $this->filterNonActionableRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
                     "SELECT url, page_type, word_count, h1, title_tag, has_central_entity,
                             central_entity_count, schema_types, h1_matches_title, h2s,
                             has_core_link, canonical_url, is_noindex
@@ -1397,17 +1397,20 @@ PROMPT;
                 {$scopedSql}";
     }
 
-    private function filterAssetLikeRows(array $rows): array
+    private function filterNonActionableRows(array $rows): array
     {
         return array_values(array_filter($rows, function (array $row): bool {
+            $candidateUrl = null;
             foreach (['url', 'page'] as $key) {
-                $candidate = $row[$key] ?? null;
-                if (is_string($candidate) && $candidate !== '' && $this->isAssetLikeUrl($candidate)) {
-                    return false;
+                if (!empty($row[$key]) && is_string($row[$key])) {
+                    $candidateUrl = $row[$key];
+                    if ($this->isAssetLikeUrl($candidateUrl)) {
+                        return false;
+                    }
                 }
             }
 
-            return true;
+            return $this->isDdtTopicallyRelevantRow($row, $candidateUrl);
         }));
     }
 
@@ -1421,6 +1424,77 @@ PROMPT;
         }
 
         return (bool) preg_match('/\.(png|jpe?g|gif|svg|webp|avif|pdf|docx?|xlsx?|zip|mp4|mov|avi|wmv|webm)$/i', $path);
+    }
+
+    private function isDdtTopicallyRelevantRow(array $row, ?string $candidateUrl): bool
+    {
+        $pageType = strtolower((string) ($row['page_type'] ?? ''));
+        if ($pageType === 'utility') {
+            return false;
+        }
+
+        $urlPath = strtolower((string) (parse_url($candidateUrl ?? '', PHP_URL_PATH) ?: ($candidateUrl ?? '')));
+        if ($urlPath === '/' || str_contains($urlPath, '/horse-') || str_contains($urlPath, '/trailer') || str_contains($urlPath, '/gooseneck') || str_contains($urlPath, '/bumper-pull') || str_contains($urlPath, '/living-quarters') || str_contains($urlPath, '/dealer') || str_contains($urlPath, '/review') || str_contains($urlPath, '/testimonial') || str_contains($urlPath, '/about') || str_contains($urlPath, '/contact')) {
+            return true;
+        }
+
+        if ($pageType === 'core') {
+            return true;
+        }
+
+        $haystack = strtolower(implode(' ', array_filter([
+            $urlPath,
+            (string) ($row['title_tag'] ?? ''),
+            (string) ($row['h1'] ?? ''),
+            (string) ($row['target_query'] ?? ''),
+            (string) ($row['body_text_snippet'] ?? ''),
+        ])));
+
+        $positiveTerms = [
+            'horse trailer',
+            'horse trailers',
+            'gooseneck',
+            'bumper pull',
+            'living quarters',
+            'slant load',
+            'straight load',
+            'safetack',
+            'safe tack',
+            'safebump',
+            'safebump',
+            'safekick',
+            'safekick',
+            'z-frame',
+            'z frame',
+            'zframe',
+            'box stall',
+            'reverse load',
+            'horse owner',
+            'equine',
+            'tack room',
+            'trailer safety',
+        ];
+
+        foreach ($positiveTerms as $term) {
+            if (str_contains($haystack, $term)) {
+                return true;
+            }
+        }
+
+        $negativeTerms = [
+            '3d printing',
+            'additive manufacturing',
+            'manufacturing process',
+            'rapid prototyping',
+        ];
+
+        foreach ($negativeTerms as $term) {
+            if (str_contains($haystack, $term)) {
+                return false;
+            }
+        }
+
+        return false;
     }
 
     // ─────────────────────────────────────────────
@@ -1500,7 +1574,7 @@ PROMPT;
             // Media & Asset Optimization
             'MAO-R1' => "SELECT {$cols}, images_without_alt FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND images_without_alt > 0 AND is_noindex = FALSE ORDER BY images_without_alt DESC LIMIT 15",
             'MAO-R2' => "SELECT {$cols}, images_without_alt FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count >= 1000 AND images_without_alt > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} ORDER BY images_without_alt DESC LIMIT 15",
-            'MAO-R4' => "SELECT {$cols}, has_main_content_video, video_metadata_valid, video_topic_aligned FROM page_crawl_snapshots WHERE has_main_content_video = TRUE AND video_metadata_valid = TRUE AND video_topic_aligned = TRUE AND schema_types NOT LIKE '%VideoObject%' AND is_noindex = FALSE AND is_utility = FALSE LIMIT 15",
+            'MAO-R4' => "SELECT {$cols}, has_main_content_video, video_metadata_valid, video_topic_aligned, video_urls, video_title FROM page_crawl_snapshots WHERE has_main_content_video = TRUE AND video_metadata_valid = TRUE AND video_topic_aligned = TRUE AND video_urls IS NOT NULL AND video_urls <> '' AND video_title IS NOT NULL AND video_title <> '' AND schema_types NOT LIKE '%VideoObject%' AND is_noindex = FALSE AND is_utility = FALSE LIMIT 15",
             'MAO-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url LIKE '%.pdf' LIMIT 15",
             'MAO-R7' => "SELECT {$cols}, images_with_generic_alt FROM page_crawl_snapshots WHERE page_type IN ('core', 'outer') AND images_with_generic_alt > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} ORDER BY images_with_generic_alt DESC LIMIT 15",
 

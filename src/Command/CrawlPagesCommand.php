@@ -1142,43 +1142,42 @@ class CrawlPagesCommand extends Command
         }
         $videoDetectionXpath = new \DOMXPath($videoDetectionDom); // Re-create after DOM mutation
 
-        // GATE 1: Check for video embeds specifically in main content area
-        $mainContentVideoSelectors = [
-            '//main//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
-            '//article//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
-            '//*[contains(@class,"entry-content") or contains(@class,"post-content") or contains(@class,"page-content") or contains(@class,"content-area") or contains(@id,"content")]//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
-            '//main//video/@src',
-            '//article//video/@src',
-        ];
-        // Also check anywhere on page (excluding scripts) for has_video_embed general flag
-        $anyVideoSelectors = [
-            '//iframe[contains(@src,"youtube") or contains(@src,"vimeo") or contains(@src,"wistia")]/@src',
-            '//video/@src',
-        ];
-
-        // Check main content first
-        foreach ($mainContentVideoSelectors as $sel) {
-            $vidNodes = @$videoDetectionXpath->query($sel);
-            if ($vidNodes && $vidNodes->length > 0) {
-                $hasMainContentVideo = true;
-                $hasVideoEmbed = true;
-                foreach ($vidNodes as $v) {
-                    $videoUrls[] = $v->nodeValue;
-                }
-            }
-        }
-        // Fallback: check anywhere (on cleaned DOM, scripts already removed)
-        if (!$hasVideoEmbed) {
-            foreach ($anyVideoSelectors as $sel) {
-                $vidNodes = @$videoDetectionXpath->query($sel);
-                if ($vidNodes && $vidNodes->length > 0) {
-                    $hasVideoEmbed = true;
-                    foreach ($vidNodes as $v) {
-                        $videoUrls[] = $v->nodeValue;
+        // GATE 1: Check for video embeds in the primary content root only.
+        // This is intentionally stricter than "anything under #content/content-area" because
+        // sidebars/widgets/template fragments were causing false positives on non-video pages.
+        $primaryContentRoot = $this->findPrimaryContentRoot($videoDetectionXpath);
+        if ($primaryContentRoot) {
+            $mainVideoNodes = $videoDetectionXpath->query('.//iframe[@src] | .//video[@src]', $primaryContentRoot);
+            if ($mainVideoNodes) {
+                foreach ($mainVideoNodes as $node) {
+                    if ($this->isValidMainContentVideoNode($node)) {
+                        $src = trim((string) $node->getAttribute('src'));
+                        if ($src !== '') {
+                            $hasMainContentVideo = true;
+                            $hasVideoEmbed = true;
+                            $videoUrls[] = $src;
+                        }
                     }
                 }
             }
         }
+
+        // Fallback: detect whether the page has any video embed anywhere, but do not treat that
+        // as a main-content video. This supports generic video presence signals without firing MAO-R4.
+        if (!$hasVideoEmbed) {
+            $anyVideoNodes = $videoDetectionXpath->query('//iframe[@src] | //video[@src]');
+            if ($anyVideoNodes) {
+                foreach ($anyVideoNodes as $node) {
+                    $src = trim((string) $node->getAttribute('src'));
+                    if ($this->isVideoProviderUrl($src)) {
+                        $hasVideoEmbed = true;
+                        $videoUrls[] = $src;
+                    }
+                }
+            }
+        }
+
+        $videoUrls = array_values(array_unique($videoUrls));
 
         // GATE 2: YouTube oEmbed API pre-flight (only for main content videos)
         if ($hasMainContentVideo && !empty($videoUrls)) {
@@ -1782,6 +1781,95 @@ class CrawlPagesCommand extends Command
             return (int) $m[1];
         }
         return null;
+    }
+
+    private function findPrimaryContentRoot(\DOMXPath $xpath): ?\DOMNode
+    {
+        $selectors = [
+            '//main',
+            '//article',
+            '//*[contains(@class,"entry-content")]',
+            '//*[contains(@class,"post-content")]',
+            '//*[contains(@class,"page-content")]',
+            '//*[contains(@class,"main-content")]',
+            '//*[contains(@class,"article-content")]',
+            '//*[@role="main"]',
+            '//*[@id="main"]',
+            '//*[@id="content"]',
+        ];
+
+        $bestNode = null;
+        $bestScore = 0;
+
+        foreach ($selectors as $selector) {
+            $nodes = @$xpath->query($selector);
+            if (!$nodes) {
+                continue;
+            }
+
+            foreach ($nodes as $node) {
+                $text = trim(preg_replace('/\s+/', ' ', $node->textContent ?? ''));
+                $score = strlen($text);
+                if ($score > $bestScore) {
+                    $bestScore = $score;
+                    $bestNode = $node;
+                }
+            }
+        }
+
+        return $bestScore >= 150 ? $bestNode : null;
+    }
+
+    private function isValidMainContentVideoNode(\DOMNode $node): bool
+    {
+        if (!$node instanceof \DOMElement) {
+            return false;
+        }
+
+        $src = trim((string) $node->getAttribute('src'));
+        if (!$this->isVideoProviderUrl($src)) {
+            return false;
+        }
+
+        $current = $node;
+        while ($current instanceof \DOMNode) {
+            if ($current instanceof \DOMElement) {
+                $classAttr = strtolower((string) $current->getAttribute('class'));
+                $idAttr = strtolower((string) $current->getAttribute('id'));
+                $styleAttr = strtolower((string) $current->getAttribute('style'));
+                $combined = $classAttr . ' ' . $idAttr . ' ' . $styleAttr;
+
+                foreach (['sidebar', 'widget', 'footer', 'header', 'nav', 'menu', 'related', 'comment', 'share', 'popup', 'modal', 'lightbox', 'hidden'] as $blocked) {
+                    if (str_contains($combined, $blocked)) {
+                        return false;
+                    }
+                }
+
+                if (str_contains($styleAttr, 'display:none') || str_contains($styleAttr, 'visibility:hidden')) {
+                    return false;
+                }
+            }
+
+            $current = $current->parentNode;
+        }
+
+        return true;
+    }
+
+    private function isVideoProviderUrl(?string $src): bool
+    {
+        if (!$src) {
+            return false;
+        }
+
+        $src = strtolower($src);
+
+        return str_contains($src, 'youtube.com/embed/')
+            || str_contains($src, 'youtu.be/')
+            || str_contains($src, 'player.vimeo.com/video/')
+            || str_contains($src, 'fast.wistia.net/embed/')
+            || str_contains($src, 'wistia.com/medias/')
+            || preg_match('/\.(mp4|webm|mov)$/i', $src) === 1;
     }
 
     private function ensureSchema(): void
