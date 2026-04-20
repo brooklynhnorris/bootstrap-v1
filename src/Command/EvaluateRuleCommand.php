@@ -630,6 +630,10 @@ CRITICAL RULES FOR OUTPUT:
 - Do NOT split by team role. One unified brief per page per action.
 - Include actual code snippets where relevant (JSON-LD, meta tags, HTML).
 - Include actual copy rewrites where relevant (before/after with exact existing text quoted).
+- If the brief says to add schema, include the FULL schema block ready to paste. Never say "from the play brief", "exactly as written", or "use the block below" unless the block is actually included in YOUR_MOVE.
+- If the brief says to insert exact copy, include the FULL replacement copy in YOUR_MOVE. Never require the user to reconstruct, infer, or request the missing text.
+- Do not ask the user to confirm crawl facts that are already present above (word count, H1, title, schema types, internal link count, canonical, video presence, target URL existence, GSC fields). Use the provided data as ground truth.
+- If a required payload is missing (schema block, exact copy, verified video metadata, etc.), do NOT create an executable implementation task. Convert it into a readiness-review brief with a clear CAVEAT explaining what data is missing.
 - Reference the EXACT data values from the crawl data above.
 - When suggesting Core page link targets, use ONLY URLs from the REAL CORE PAGES list above. Do not invent URLs.
 - Keep each brief under 200 words.
@@ -797,6 +801,7 @@ PROMPT;
             if ($page) {
                 $brief = $this->repairMissingCrawlBoilerplate($brief, $page);
                 $brief = $this->removeContradictoryInstructions($brief, $page);
+                $brief = $this->enforceSelfContainedBrief($brief, $page);
             }
 
             if (($rule['id'] ?? '') === 'DDT-SD-002' && $page) {
@@ -855,6 +860,151 @@ PROMPT;
         if ($h1Aligned && str_contains(strtolower((string) ($brief['done_when'] ?? '')), 'h1') && str_contains(strtolower((string) ($brief['done_when'] ?? '')), 'change')) {
             $brief['done_when'] = preg_replace('/\s*\+\s*.*h1.*$/i', '', (string) $brief['done_when']) ?: $brief['done_when'];
         }
+
+        return $brief;
+    }
+
+    private function enforceSelfContainedBrief(array $brief, array $page): array
+    {
+        $yourMove = (string) ($brief['your_move'] ?? '');
+        $combined = strtolower(trim(($brief['title'] ?? '') . "\n" . $yourMove . "\n" . ($brief['done_when'] ?? '')));
+        $hasVideo = trim((string) ($page['video_urls'] ?? '')) !== '' || trim((string) ($page['video_title'] ?? '')) !== '';
+
+        $brief['your_move'] = $this->stripRedundantValidationSteps($yourMove, $page);
+
+        if ($this->requiresVideoPayload($combined) && !$hasVideo) {
+            return $this->convertBriefToReview(
+                $brief,
+                $page,
+                'Skip video/schema implementation for this page',
+                'The current crawl data does not show a main-content video on this URL, so a VideoObject task is not executable and should not be assigned.'
+            );
+        }
+
+        if ($this->requiresSchemaPayload($combined) && !$this->containsSchemaPayload($yourMove)) {
+            return $this->convertBriefToReview(
+                $brief,
+                $page,
+                'Review schema prerequisites before implementation',
+                'The brief requests schema deployment but does not include a paste-ready JSON-LD block. Generate the schema payload first or skip this task.'
+            );
+        }
+
+        if ($this->requiresExactCopyPayload($combined) && !$this->containsExactCopyPayload($yourMove)) {
+            return $this->convertBriefToReview(
+                $brief,
+                $page,
+                'Review missing copy payload before implementation',
+                'The brief tells the user to insert exact or verbatim copy, but the actual replacement text is missing. Generate the copy first or skip this task.'
+            );
+        }
+
+        return $brief;
+    }
+
+    private function stripRedundantValidationSteps(string $yourMove, array $page): string
+    {
+        $lines = preg_split('/\r\n|\r|\n/', $yourMove) ?: [];
+        $filtered = [];
+
+        foreach ($lines as $line) {
+            $lineLower = strtolower(trim($line));
+
+            if ($lineLower === '') {
+                continue;
+            }
+
+            if (
+                str_contains($lineLower, 'run php bin/console app:crawl-pages')
+                || str_contains($lineLower, 'run the crawl')
+                || str_contains($lineLower, 'pull live canonical data')
+                || str_contains($lineLower, 'confirm current word count')
+                || str_contains($lineLower, 'verify current word count')
+                || str_contains($lineLower, 'confirm the target url exists in crawl data')
+                || str_contains($lineLower, 'pull gsc average position')
+                || str_contains($lineLower, 'confirm current in-body link count')
+            ) {
+                continue;
+            }
+
+            if (($page['canonical_url'] ?? '') !== '' && str_contains($lineLower, 'confirm canonical')) {
+                continue;
+            }
+
+            $filtered[] = $line;
+        }
+
+        $result = trim(implode("\n", $filtered));
+
+        return $result !== '' ? $result : $yourMove;
+    }
+
+    private function requiresVideoPayload(string $combined): bool
+    {
+        return str_contains($combined, 'videoobject')
+            || str_contains($combined, 'youtube video')
+            || str_contains($combined, 'video id')
+            || str_contains($combined, 'thumbnail url')
+            || str_contains($combined, 'upload date');
+    }
+
+    private function requiresSchemaPayload(string $combined): bool
+    {
+        return str_contains($combined, 'json-ld')
+            || str_contains($combined, 'schema block')
+            || str_contains($combined, 'organization schema')
+            || str_contains($combined, 'videoobject schema')
+            || str_contains($combined, 'product schema')
+            || str_contains($combined, 'itemlist schema')
+            || str_contains($combined, 'faqpage')
+            || str_contains($combined, 'schema');
+    }
+
+    private function containsSchemaPayload(string $text): bool
+    {
+        $lower = strtolower($text);
+
+        return str_contains($lower, '<script type="application/ld+json">')
+            || str_contains($lower, '"@context"')
+            || str_contains($lower, "'@context'")
+            || str_contains($lower, '{')
+            && (
+                str_contains($lower, '"@type"')
+                || str_contains($lower, "'@type'")
+            );
+    }
+
+    private function requiresExactCopyPayload(string $combined): bool
+    {
+        return str_contains($combined, 'verbatim')
+            || str_contains($combined, 'exactly as written')
+            || str_contains($combined, 'exactly this')
+            || str_contains($combined, 'from the play brief')
+            || str_contains($combined, 'replace it with exactly this')
+            || str_contains($combined, 'insert the passage');
+    }
+
+    private function containsExactCopyPayload(string $text): bool
+    {
+        return preg_match('/["\'].{80,}["\']/s', $text) === 1
+            || str_contains($text, 'Replace it with exactly this:')
+            || str_contains($text, "Replace it with exactly this:\n")
+            || str_contains($text, "Insert this copy:\n")
+            || str_contains($text, "```");
+    }
+
+    private function convertBriefToReview(array $brief, array $page, string $title, string $caveat): array
+    {
+        $url = $this->normalizeUrl((string) ($page['url'] ?? ($brief['url'] ?? '/')));
+
+        $brief['title'] = $title . ' — ' . $url;
+        $brief['assigned'] = 'Jeanne';
+        $brief['priority'] = $brief['priority'] ?: 'High';
+        $brief['current_state'] = $this->buildCurrentStateFromPage($page);
+        $brief['your_move'] = "1. Do not execute this implementation task yet.\n2. Regenerate the Play only after the missing payload is available in the brief itself.\n3. If the page is a false positive, close it instead of assigning work.";
+        $brief['done_when'] = 'The Play either includes the missing payload directly or is closed as a false positive.';
+        $brief['recheck'] = preg_replace('/\D+/', '', (string) ($brief['recheck'] ?? '14')) ?: '14';
+        $brief['caveat'] = $caveat;
 
         return $brief;
     }
