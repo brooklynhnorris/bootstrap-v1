@@ -814,15 +814,11 @@ PROMPT;
             $url = $this->normalizeUrl((string) ($brief['url'] ?? ''));
             $page = $pageMap[$url] ?? null;
 
-<<<<<<< HEAD
-            if ($page) {
-=======
             $brief['rule_id'] = (string) ($rule['id'] ?? ($brief['rule_id'] ?? ''));
 
             if ($page) {
                 $brief['url'] = $url;
                 $brief['page_type'] = (string) ($page['page_type'] ?? ($brief['page_type'] ?? ''));
->>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
                 $brief = $this->repairMissingCrawlBoilerplate($brief, $page);
                 $brief = $this->removeContradictoryInstructions($brief, $page);
                 $brief = $this->enforceSelfContainedBrief($brief, $page);
@@ -1398,13 +1394,9 @@ PROMPT;
 
     private function shouldSuppressBriefFromBoard(array $brief, ?array $outputConsensus, array $stage1Consensus): bool
     {
-<<<<<<< HEAD
-=======
         if ($this->matchesStructuredRejectionGuardrail($brief)) {
             return true;
         }
-
->>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
         $score = $this->computeBriefBoardConfidence($brief, $outputConsensus, $stage1Consensus);
 
         if ($score < 0.55) {
@@ -1464,14 +1456,9 @@ PROMPT;
         ) {
             $score -= 0.2;
         }
-
-<<<<<<< HEAD
-=======
         if ($this->matchesStructuredRejectionGuardrail($brief)) {
             $score -= 0.45;
         }
-
->>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
         return max(0.0, min(1.0, $score));
     }
 
