@@ -93,6 +93,13 @@
             transition: all 0.2s;
             display: flex; align-items: center; gap: 14px;
             min-width: 200px;
+            appearance: none;
+            -webkit-appearance: none;
+            text-align: left;
+            width: 100%;
+            max-width: 240px;
+            font-family: var(--font-body);
+            color: inherit;
         }
         .persona-card:hover {
             border-color: var(--accent-blue);
@@ -1312,13 +1319,19 @@
     </div>
     <div class="persona-grid">
         {% for member in teamMembers %}
-        <div class="persona-card" onclick="selectPersona('{{ member.name }}', '{{ member.role }}')">
+        <button
+            type="button"
+            class="persona-card"
+            data-persona-name="{{ member.name }}"
+            data-persona-role="{{ member.role }}"
+            aria-label="Select {{ member.name }} profile"
+        >
             <div class="persona-avatar" style="background: {{ member.color }};">{{ member.avatar }}</div>
             <div class="persona-info">
                 <div class="persona-name">{{ member.name }}</div>
                 <div class="persona-role">{{ member.role }}</div>
             </div>
-        </div>
+        </button>
         {% endfor %}
     </div>
 </div>
@@ -1842,6 +1855,15 @@
         overlay.style.opacity = '1';
         overlay.style.pointerEvents = 'auto';
     }
+
+    window.selectPersona = selectPersona;
+    window.showPersonaPicker = showPersonaPicker;
+
+    document.querySelectorAll('.persona-card[data-persona-name]').forEach(card => {
+        card.addEventListener('click', () => {
+            selectPersona(card.dataset.personaName, card.dataset.personaRole);
+        });
+    });
 
     let messages         = [];
     let conversationId   = null;
