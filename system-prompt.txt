@@ -645,17 +645,26 @@ Trigger Condition: ```sql
 SELECT query, COUNT(DISTINCT page) AS page_count, SUM(impressions), SUM(clicks), AVG(position)
 FROM gsc_snapshots
 WHERE position <= 20
+  AND query NOT LIKE '%double d%'
+  AND query NOT LIKE '%doubledtrailers%'
 GROUP BY query
-HAVING COUNT(DISTINCT page) > 1 AND SUM(impressions) > 100
+HAVING COUNT(DISTINCT page) BETWEEN 2 AND 4
+   AND SUM(impressions) > 500
+   AND AVG(position) > 5
 ORDER BY SUM(impressions) DESC;
 ```
-Threshold:
+Threshold: Multiple pages ranking for the same non-branded query is only a cannibalization candidate when 2-4 URLs are involved, aggregate impressions are meaningful, and the average position is worse than 5. If the site is already winning the query with an average position better than 5, treat multi-page coverage as healthy unless intent overlap is proven.
 Data Fields:
-Needs New Data:
+Needs New Data: Recommended but not required: query-to-intent clustering and landing-page classification to distinguish healthy multi-page coverage from true cannibalization.
 Investigation Steps:
 
-Diagnosis:
-Action Output:
+Diagnosis: More than one page ranking for a query is not automatically cannibalization. The real problem is unresolved intent overlap where similar pages compete for the same query family and none has clearly emerged as the primary landing page. If the site is already winning the query, this rule should stay quiet.
+Action Output: Generate a diagnostic/research play first, not a merge play:
+- Identify the exact overlapping URLs
+- Classify whether they serve the same intent or healthy adjacent intents
+- Confirm whether one page should be the preferred primary landing page
+- Only after overlap is proven may a follow-up play suggest consolidation, title/H1 differentiation, or internal-link biasing
+- Do not force content merging, arbitrary internal links, or schema deployment from this rule alone
 Priority:      Critical
 Assigned:
 AI Search Relevance: Consolidates authority to one definitive page per query (e.g., [Product Model Name] with Z-Frame/SafeTack), enabling AI models like Perplexity to cite Double D as the singular expert source over fragmented signals.[1][3]
@@ -683,7 +692,7 @@ Investigation Steps:
 
 Diagnosis: A transactional model/detail page is sending mixed signals when its central entity is missing, the H1/title diverge, or its headings read like an educational guide instead of a product page. This rule applies to Tier 3 model/detail pages only, not Tier 1/Tier 2 category hubs.
 Action Output: Generate a single corrective play per URL. Prioritize the strongest mismatch first:
-- If `h1_matches_title = FALSE`, align H1/title to the same model/entity before touching copy.
+- If `h1_matches_title = FALSE`, align H1/title to the same model/entity before touching copy. Preserve the stronger model-specific heading when possible; prefer adjusting the weaker title/meta element instead of flattening a more descriptive H1 into brand-generic wording.
 - If `has_central_entity = FALSE`, add or restore the actual trailer/model entity in the opening paragraph and primary heading.
 - If guide-style H2s are present, replace only the mismatched heading(s) with transactional/product-specific headings that match the model.
 - Do not apply this rule to homepage/category hubs or use it to force hub pages under 500 words.
@@ -1922,10 +1931,23 @@ WHERE
   AND g.position < 10
   AND g.ctr < (g.ctr_benchmark * 0.85)
   AND g.date_range = 'last_28_days'
-  AND p.page_type IN ('core', 'outer')
+  AND (
+    p.page_type = 'core'
+    OR (
+      p.page_type = 'outer'
+      AND (
+        g.query LIKE '%horse trailer%'
+        OR g.query LIKE '%gooseneck%'
+        OR g.query LIKE '%bumper pull%'
+        OR g.query LIKE '%living quarters%'
+        OR g.query LIKE '%z-frame%'
+        OR g.query LIKE '%safetack%'
+      )
+    )
+  )
 ORDER BY g.impressions DESC, ctr_deficit DESC;
 ```
-Threshold: CTR is >15% below the position-adjusted benchmark (`ctr_benchmark`) on any page with >5000 impressions at position <10 in 28 days
+Threshold: CTR is >15% below the position-adjusted benchmark (`ctr_benchmark`) on a high-impression page at position <10 in 28 days. For outer pages, this rule should only apply when the query is clearly horse-trailer-relevant; broad informational pages should not be commercially rewritten from CTR alone.
 Data Fields: `query`, `page`, `position`, `impressions`, `clicks`, `ctr`, `ctr_benchmark`, `ctr_deficit`, `page_type`, `title_tag`, `meta_description`, `h1_text`
 Needs New Data: `ctr_benchmark` column populated by position-adjusted CTR curve (industry-standard curve: position 1     28   35%, position 3     10   15%, position 5     6   9%, etc.)     can be stored as a static lookup table joined on position value; competitor SERP feature occupation (rich results, sitelinks, Shopping ads) as context for structural CTR suppression
 Investigation Steps:
@@ -1934,6 +1956,7 @@ Diagnosis: A high-impression page is earning fewer clicks than expected for its 
 Action Output: Generate one snippet-focused play first:
 - Rewrite title tag and/or meta description to better match the query intent and value proposition
 - Only propose structured-data improvements if the page already qualifies for that schema and the crawl data shows the markup is missing
+- For broad informational outer pages, do not force product-bridge messaging from CTR alone. Keep the page aligned to its existing informational intent unless another rule independently proves a topic/intent gap.
 - Do not make CTR a task completion criterion; use crawl-verifiable title/meta/schema changes as the done-state and let CTR be measured in recheck
 - Do not ask the user to manually count words or verify page facts already in the system
 Priority: Critical
