@@ -538,6 +538,12 @@ PROMPT;
             $outcomeSection = "\n{$outcomeFeedback}\nUSE THIS TO IMPROVE YOUR RECOMMENDATIONS. If past fixes for this rule failed, propose a different approach. If they succeeded, replicate the winning pattern.\n";
         }
 
+        $structuredRejections = $this->getStructuredRejectionContext((string) ($rule['id'] ?? ''), $firingPages);
+        $structuredRejectionSection = '';
+        if ($structuredRejections) {
+            $structuredRejectionSection = "\n{$structuredRejections}\nUSE THIS TO AVOID REPEATING REJECTED TASK PATTERNS. If a rejection says the task is irrelevant, missing prerequisites, or misclassified, do not generate the same type of task again for similar pages.\n";
+        }
+
         // Competitor SERP context — what top-ranking competitors look like for each page's target query
         $competitorContext = '';
         try {
@@ -613,7 +619,7 @@ Full rule context:
 
 VALIDATION: {$ruleNote}
 LLM assessments:{$s1Summary}
-{$feedbackSection}{$outcomeSection}
+{$feedbackSection}{$outcomeSection}{$structuredRejectionSection}
 REAL CORE PAGES ON THIS SITE (use ONLY these URLs when suggesting Core link targets):
 {$coreList}
 {$competitorContext}
@@ -808,7 +814,15 @@ PROMPT;
             $url = $this->normalizeUrl((string) ($brief['url'] ?? ''));
             $page = $pageMap[$url] ?? null;
 
+<<<<<<< HEAD
             if ($page) {
+=======
+            $brief['rule_id'] = (string) ($rule['id'] ?? ($brief['rule_id'] ?? ''));
+
+            if ($page) {
+                $brief['url'] = $url;
+                $brief['page_type'] = (string) ($page['page_type'] ?? ($brief['page_type'] ?? ''));
+>>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
                 $brief = $this->repairMissingCrawlBoilerplate($brief, $page);
                 $brief = $this->removeContradictoryInstructions($brief, $page);
                 $brief = $this->enforceSelfContainedBrief($brief, $page);
@@ -1384,6 +1398,13 @@ PROMPT;
 
     private function shouldSuppressBriefFromBoard(array $brief, ?array $outputConsensus, array $stage1Consensus): bool
     {
+<<<<<<< HEAD
+=======
+        if ($this->matchesStructuredRejectionGuardrail($brief)) {
+            return true;
+        }
+
+>>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
         $score = $this->computeBriefBoardConfidence($brief, $outputConsensus, $stage1Consensus);
 
         if ($score < 0.55) {
@@ -1444,6 +1465,13 @@ PROMPT;
             $score -= 0.2;
         }
 
+<<<<<<< HEAD
+=======
+        if ($this->matchesStructuredRejectionGuardrail($brief)) {
+            $score -= 0.45;
+        }
+
+>>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
         return max(0.0, min(1.0, $score));
     }
 
@@ -2286,6 +2314,263 @@ PROMPT;
     // ─────────────────────────────────────────────
     //  BRAND GLOSSARY (prevents hallucination in LLM output)
     // ─────────────────────────────────────────────
+
+    private function getStructuredRejectionContext(string $ruleId, array $firingPages): string
+    {
+        if ($ruleId === '') {
+            return '';
+        }
+
+        try {
+            $urls = [];
+            $pageTypes = [];
+            foreach ($firingPages as $page) {
+                $url = $this->normalizeUrl((string) ($page['url'] ?? ''));
+                if ($url !== '') {
+                    $urls[] = $url;
+                }
+
+                $pageType = trim((string) ($page['page_type'] ?? ''));
+                if ($pageType !== '') {
+                    $pageTypes[] = $pageType;
+                }
+            }
+
+            $params = ['rule_id' => $ruleId];
+            $types = [];
+            $scopeClauses = ['rule_id = :rule_id'];
+
+            if (!empty($urls)) {
+                $params['urls'] = array_values(array_unique($urls));
+                $types['urls'] = \Doctrine\DBAL\ArrayParameterType::STRING;
+                $scopeClauses[] = 'url IN (:urls)';
+            }
+
+            if (!empty($pageTypes)) {
+                $params['page_types'] = array_values(array_unique($pageTypes));
+                $types['page_types'] = \Doctrine\DBAL\ArrayParameterType::STRING;
+                $scopeClauses[] = 'page_type IN (:page_types)';
+            }
+
+            $rows = $this->db->executeQuery(
+                "SELECT url, page_type, reason_code, guardrail_code, scope, reason_text, created_at
+                 FROM task_rejections
+                 WHERE (" . implode(' OR ', $scopeClauses) . ")
+                 ORDER BY created_at DESC
+                 LIMIT 8",
+                $params,
+                $types
+            )->fetchAllAssociative();
+
+            if (empty($rows)) {
+                return '';
+            }
+
+            $lines = ['RECENT STRUCTURED TASK REJECTIONS:'];
+            foreach ($rows as $row) {
+                $date = !empty($row['created_at']) ? substr((string) $row['created_at'], 0, 10) : 'unknown';
+                $subject = $row['url'] ?: (($row['page_type'] ?? '') !== '' ? $row['page_type'] . ' pages' : 'unknown scope');
+                $lines[] = sprintf(
+                    '- [%s] %s/%s on %s (%s): %s',
+                    $date,
+                    $row['reason_code'] ?? 'rejected',
+                    $this->deriveGuardrailCodeFromRow($row),
+                    $subject,
+                    $row['scope'] ?? 'task_only',
+                    trim((string) ($row['reason_text'] ?? 'No reason provided'))
+                );
+            }
+
+            return implode("\n", $lines);
+        } catch (\Exception $e) {
+            return '';
+        }
+    }
+
+    private function matchesStructuredRejectionGuardrail(array $brief): bool
+    {
+        $ruleId = trim((string) ($brief['rule_id'] ?? ''));
+        $url = $this->normalizeUrl((string) ($brief['url'] ?? ''));
+        $pageType = trim((string) ($brief['page_type'] ?? ''));
+
+        if ($ruleId === '') {
+            return false;
+        }
+
+        try {
+            $rows = $this->fetchStructuredRejectionRows($ruleId, $url, $pageType);
+            if (empty($rows)) {
+                return false;
+            }
+
+            $pageTypeMatches = 0;
+            $globalMatches = 0;
+
+            foreach ($rows as $row) {
+                if (!$this->structuredRejectionMatchesBrief($row, $brief)) {
+                    continue;
+                }
+
+                $scope = (string) ($row['scope'] ?? 'task_only');
+                if ($scope === 'url_only' && $url !== '' && (string) ($row['url'] ?? '') === $url) {
+                    return true;
+                }
+
+                if ($scope === 'rule_page_type') {
+                    $pageTypeMatches++;
+                }
+
+                if ($scope === 'rule_global') {
+                    $globalMatches++;
+                }
+            }
+
+            if ($pageTypeMatches >= 2 || $globalMatches >= 2) {
+                return true;
+            }
+
+            return false;
+        } catch (\Exception $e) {
+            return false;
+        }
+    }
+
+    private function fetchStructuredRejectionRows(string $ruleId, string $url, string $pageType): array
+    {
+        $params = ['rule_id' => $ruleId];
+        $types = [];
+        $scopeClauses = ['rule_id = :rule_id'];
+
+        if ($url !== '') {
+            $params['urls'] = [$url];
+            $types['urls'] = \Doctrine\DBAL\ArrayParameterType::STRING;
+            $scopeClauses[] = 'url IN (:urls)';
+        }
+
+        if ($pageType !== '') {
+            $params['page_types'] = [$pageType];
+            $types['page_types'] = \Doctrine\DBAL\ArrayParameterType::STRING;
+            $scopeClauses[] = 'page_type IN (:page_types)';
+        }
+
+        return $this->db->executeQuery(
+            "SELECT url, page_type, reason_code, guardrail_code, scope, reason_text, created_at
+             FROM task_rejections
+             WHERE (" . implode(' OR ', $scopeClauses) . ")
+               AND created_at >= NOW() - INTERVAL '45 days'
+             ORDER BY created_at DESC
+             LIMIT 25",
+            $params,
+            $types
+        )->fetchAllAssociative();
+    }
+
+    private function structuredRejectionMatchesBrief(array $row, array $brief): bool
+    {
+        $guardrailCode = $this->deriveGuardrailCodeFromRow($row);
+        $yourMove = (string) ($brief['your_move'] ?? '');
+        $combined = strtolower(trim(($brief['title'] ?? '') . "\n" . $yourMove . "\n" . ($brief['done_when'] ?? '') . "\n" . ($brief['current_state'] ?? '')));
+
+        return match ($guardrailCode) {
+            'no_video_on_page' => $this->requiresVideoPayload($combined),
+            'missing_payload' => ($this->requiresSchemaPayload($combined) && !$this->containsSchemaPayload($yourMove))
+                || ($this->requiresExactCopyPayload($combined) && !$this->containsExactCopyPayload($yourMove)),
+            'vague_placement' => $this->hasVaguePlacementInstruction($yourMove) && !$this->containsQuotedPlacementAnchor($yourMove),
+            'manual_serp_check' => $this->requiresManualSerpCheck($combined),
+            'asset_or_bad_url' => $this->targetsAssetLikeUrl($brief),
+            'page_type_mismatch', 'rule_scope_mismatch' => $this->briefViolatesStoredPagePolicy($brief, (string) ($row['page_type'] ?? '')),
+            'duplicate_task' => trim((string) ($row['url'] ?? '')) !== '' && trim((string) ($row['url'] ?? '')) === trim((string) ($brief['url'] ?? '')),
+            'rule_false_positive' => $this->targetsAssetLikeUrl($brief)
+                || $this->requiresVideoPayload($combined)
+                || $this->requiresManualSerpCheck($combined)
+                || $this->briefViolatesStoredPagePolicy($brief, (string) ($row['page_type'] ?? '')),
+            'crawl_data_mismatch', 'general_rejection' => false,
+            default => false,
+        };
+    }
+
+    private function deriveGuardrailCodeFromRow(array $row): string
+    {
+        $stored = trim((string) ($row['guardrail_code'] ?? ''));
+        if ($stored !== '') {
+            return $stored;
+        }
+
+        $reason = strtolower(trim((string) ($row['reason_text'] ?? '')));
+        $reasonCode = strtolower(trim((string) ($row['reason_code'] ?? '')));
+
+        if (str_contains($reason, 'no video') || str_contains($reason, 'no embed')) {
+            return 'no_video_on_page';
+        }
+
+        if (str_contains($reason, 'play brief') || str_contains($reason, 'verbatim') || str_contains($reason, 'schema')) {
+            return 'missing_payload';
+        }
+
+        if (str_contains($reason, 'generic') || str_contains($reason, 'specific')) {
+            return 'vague_placement';
+        }
+
+        if (str_contains($reason, 'incognito') || str_contains($reason, 'featured snippet') || str_contains($reason, 'ai overview')) {
+            return 'manual_serp_check';
+        }
+
+        if (str_contains($reason, '/wp-content/') || str_contains($reason, '.jpg') || str_contains($reason, '.png') || str_contains($reason, '.pdf')) {
+            return 'asset_or_bad_url';
+        }
+
+        if (str_contains($reason, 'review') || str_contains($reason, '3d printing') || str_contains($reason, 'horse jockeys') || str_contains($reason, 'irrelevant')) {
+            return 'page_type_mismatch';
+        }
+
+        if (str_contains($reason, 'crawl data') || str_contains($reason, 'fresh crawl') || str_contains($reason, 'stale data')) {
+            return 'crawl_data_mismatch';
+        }
+
+        return match ($reasonCode) {
+            'duplicate' => 'duplicate_task',
+            'false_positive' => 'rule_false_positive',
+            'invalid', 'not_applicable' => 'rule_scope_mismatch',
+            default => 'general_rejection',
+        };
+    }
+
+    private function requiresManualSerpCheck(string $combined): bool
+    {
+        return str_contains($combined, 'search incognito')
+            || str_contains($combined, 'report back what you see')
+            || str_contains($combined, 'featured snippet')
+            || str_contains($combined, 'ai overview')
+            || str_contains($combined, 'identify exactly who owns')
+            || str_contains($combined, 'name the competitor');
+    }
+
+    private function targetsAssetLikeUrl(array $brief): bool
+    {
+        $url = strtolower(trim((string) ($brief['url'] ?? '')));
+        if ($url === '') {
+            return false;
+        }
+
+        return str_contains($url, '/wp-content/')
+            || preg_match('/\.(jpg|jpeg|png|gif|webp|pdf)$/', $url) === 1;
+    }
+
+    private function briefViolatesStoredPagePolicy(array $brief, string $pageType): bool
+    {
+        $page = [
+            'url' => $this->normalizeUrl((string) ($brief['url'] ?? '')),
+            'page_type' => $pageType !== '' ? $pageType : (string) ($brief['page_type'] ?? ''),
+            'title_tag' => (string) ($brief['title'] ?? ''),
+            'h1' => '',
+            'body_text_snippet' => trim((string) (($brief['current_state'] ?? '') . "\n" . ($brief['your_move'] ?? ''))),
+            'word_count' => (int) ($brief['word_count'] ?? 0),
+        ];
+
+        $combined = strtolower(trim(($brief['title'] ?? '') . "\n" . ($brief['your_move'] ?? '') . "\n" . ($brief['done_when'] ?? '') . "\n" . ($brief['current_state'] ?? '')));
+
+        return $this->violatesPageTypePolicy($combined, $brief, $page);
+    }
 
     private function getBrandGlossary(): string
     {

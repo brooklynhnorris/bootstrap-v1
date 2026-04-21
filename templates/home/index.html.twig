@@ -1243,6 +1243,59 @@
         .rules-card-meta {
             display: flex; gap: 12px; font-size: 11px; color: var(--text-muted);
         }
+        .rules-signal-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            margin-bottom: 16px;
+        }
+        .rules-signal-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 10px;
+            margin-top: 12px;
+        }
+        .rules-signal-item {
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 10px 12px;
+            background: var(--bg-primary);
+        }
+        .rules-signal-top {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        .rules-signal-rule {
+            font-size: 12px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            color: var(--text-primary);
+        }
+        .rules-signal-badge {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: #fef3c7;
+            color: #92400e;
+            white-space: nowrap;
+        }
+        .rules-signal-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 6px;
+        }
+        .rules-signal-text {
+            font-size: 12px;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
@@ -1475,6 +1528,9 @@
                     <button class="results-filter-btn" onclick="filterRulesView('pending')">Change Pending</button>
                     <button class="results-filter-btn" onclick="filterRulesView('updated')">Recently Updated</button>
                 </div>
+                <div id="rules-signals-container" class="rules-signal-panel">
+                    <div class="dash-empty">Loading recent rejection signals...</div>
+                </div>
                 <div id="rules-cards-container">
                     <div class="dash-empty">Loading rules…</div>
                 </div>
@@ -1516,6 +1572,15 @@
             <h3 style="margin:0 0 16px;font-size:16px;">Close Task</h3>
             <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">This task will be closed and won't enter the recheck cycle. Your feedback is stored so the rule learns from it.</p>
             <input type="hidden" id="dismiss-task-id">
+            <div style="margin-bottom:12px;">
+                <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">How broadly should Logiri learn from this?</label>
+                <select id="dismiss-scope" style="width:100%;padding:8px;border:1px solid var(--border-subtle);border-radius:6px;font-size:13px;box-sizing:border-box;">
+                    <option value="task_only">This task only - close it without broad suppression</option>
+                    <option value="url_only">This URL + rule combo - don't regenerate the same thing here</option>
+                    <option value="rule_page_type">This rule on this page type - apply to similar pages</option>
+                    <option value="rule_global">This rule pattern broadly - treat this as a stronger guardrail</option>
+                </select>
+            </div>
             <div style="margin-bottom:12px;">
                 <label style="font-size:12px;font-weight:600;display:block;margin-bottom:4px;">Why are you closing this?</label>
                 <select id="dismiss-type" style="width:100%;padding:8px;border:1px solid var(--border-subtle);border-radius:6px;font-size:13px;box-sizing:border-box;">
@@ -2275,6 +2340,9 @@
         if (!taskId) return;
         document.getElementById('dismiss-task-id').value = taskId;
         document.getElementById('dismiss-type').value = 'invalid';
+        if (document.getElementById('dismiss-scope')) {
+            document.getElementById('dismiss-scope').value = 'url_only';
+        }
         document.getElementById('dismiss-reason').value = '';
         document.getElementById('dismiss-task-modal').style.display = 'flex';
     }
@@ -2282,6 +2350,7 @@
     async function confirmDismiss() {
         const taskId = parseInt(document.getElementById('dismiss-task-id').value);
         const type   = document.getElementById('dismiss-type').value;
+        const scope  = document.getElementById('dismiss-scope') ? document.getElementById('dismiss-scope').value : 'task_only';
         const reason = document.getElementById('dismiss-reason').value.trim();
         document.getElementById('dismiss-task-modal').style.display = 'none';
 
@@ -2289,7 +2358,7 @@
             const res = await fetch('/api/tasks/' + taskId + '/dismiss', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ type, reason: reason || type })
+                body: JSON.stringify({ type, scope, reason: reason || type })
             });
             const data = await res.json();
 
@@ -3859,6 +3928,7 @@
     // ── RULES VIEW ───────────────────────────────────
     let allRulesData = [];
     let currentRulesFilter = 'all';
+    let recentRuleSignals = [];
 
     // ── Memory View ──────────────────────────────────────
     async function loadMemoryView() {
@@ -3988,14 +4058,17 @@
 
     async function loadRulesView() {
         const container = document.getElementById('rules-cards-container');
+        const signalsContainer = document.getElementById('rules-signals-container');
         try {
             // Fetch proposals — include resolved ones for "Recently Updated" tab
-            const [propRes, tasksRes] = await Promise.all([
+            const [propRes, tasksRes, rejectionRes] = await Promise.all([
                 fetch('/api/rule-proposals?include_resolved=1'),
-                fetch('/api/tasks')
+                fetch('/api/tasks'),
+                fetch('/api/task-rejections?limit=24')
             ]);
             const proposals = propRes.ok ? await propRes.json() : [];
             const tasks = await tasksRes.json();
+            recentRuleSignals = rejectionRes.ok ? await rejectionRes.json() : [];
             if (!Array.isArray(tasks)) return;
 
             const pendingByRule = {};
@@ -4053,8 +4126,15 @@
             });
 
             filterRulesView(currentRulesFilter);
+<<<<<<< HEAD
+=======
+            renderRuleSignals(recentRuleSignals);
+>>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
         } catch(e) {
             container.innerHTML = '<div class="dash-empty">Could not load rules data.</div>';
+            if (signalsContainer) {
+                signalsContainer.innerHTML = '<div class="dash-empty">Could not load rejection signals.</div>';
+            }
         }
     }
 
@@ -4146,6 +4226,55 @@
                 proposalHtml +
             '</div>';
         }).join('');
+    }
+
+    function renderRuleSignals(rows) {
+        const container = document.getElementById('rules-signals-container');
+        if (!container) return;
+
+        if (!Array.isArray(rows) || rows.length === 0) {
+            container.innerHTML = '<div class="dash-empty">No structured rejection signals yet. Rejecting noisy tasks will surface patterns here.</div>';
+            return;
+        }
+
+        const grouped = {};
+        rows.forEach(row => {
+            const ruleId = row.rule_id || 'NO-RULE';
+            if (!grouped[ruleId]) grouped[ruleId] = [];
+            grouped[ruleId].push(row);
+        });
+
+        const cards = Object.entries(grouped)
+            .map(([ruleId, items]) => {
+                const latest = items[0];
+                const count = items.length;
+                const badge = (latest.guardrail_code || latest.reason_code || 'signal').replace(/_/g, ' ');
+                const subject = latest.url || (latest.page_type ? latest.page_type + ' pages' : 'mixed targets');
+                const scope = latest.scope || 'task_only';
+                const date = latest.created_at ? String(latest.created_at).substring(0, 10) : 'unknown';
+                const text = latest.reason_text || 'No details recorded.';
+
+                return '<div class="rules-signal-item">' +
+                    '<div class="rules-signal-top">' +
+                        '<div class="rules-signal-rule">' + escapeHtml(ruleId) + '</div>' +
+                        '<span class="rules-signal-badge">' + escapeHtml(badge) + '</span>' +
+                    '</div>' +
+                    '<div class="rules-signal-meta">' + count + ' recent rejection' + (count === 1 ? '' : 's') + ' · ' + escapeHtml(scope) + ' · ' + escapeHtml(date) + '</div>' +
+                    '<div class="rules-signal-meta">' + escapeHtml(subject) + '</div>' +
+                    '<div class="rules-signal-text">' + escapeHtml(text.substring(0, 180)) + (text.length > 180 ? '…' : '') + '</div>' +
+                '</div>';
+            })
+            .join('');
+
+        container.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">' +
+                '<div>' +
+                    '<div style="font-size:13px;font-weight:700;color:var(--text-primary);">Recent Rejection Signals</div>' +
+                    '<div style="font-size:12px;color:var(--text-muted);margin-top:2px;">Latest structured task rejections by rule and guardrail. Use this to spot patterns before approving new changes.</div>' +
+                '</div>' +
+                '<div style="font-size:11px;color:var(--text-muted);">' + rows.length + ' signals loaded</div>' +
+            '</div>' +
+            '<div class="rules-signal-grid">' + cards + '</div>';
     }
 
     function toggleRuleText(id) {

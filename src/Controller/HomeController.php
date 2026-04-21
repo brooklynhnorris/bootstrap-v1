@@ -2,6 +2,10 @@
 
 namespace App\Controller;
 
+<<<<<<< HEAD
+=======
+use App\Service\TaskRejectionGuardrailClassifier;
+>>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
 use App\Service\ActionRequestService;
 use App\Service\ClaudeChatService;
 use App\Service\ConversationService;
@@ -17,6 +21,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\RequestStack;
 use Symfony\Component\Routing\Annotation\Route;
 use Doctrine\DBAL\Connection;
+use Doctrine\DBAL\ParameterType;
 
 class HomeController extends AbstractController
 {
@@ -884,6 +889,11 @@ class HomeController extends AbstractController
             $body = json_decode($request->getContent(), true) ?: [];
             $reason = $body['reason'] ?? 'Marked as invalid';
             $dismissType = $body['type'] ?? 'invalid'; // invalid, not_applicable, false_positive, duplicate
+            $dismissScope = $body['scope'] ?? 'task_only';
+            $allowedScopes = ['task_only', 'url_only', 'rule_page_type', 'rule_global'];
+            if (!in_array($dismissScope, $allowedScopes, true)) {
+                $dismissScope = 'task_only';
+            }
 
             // Mark as closed — NOT done. This prevents recheck cycle.
             $this->db->update('tasks', [
@@ -899,16 +909,43 @@ class HomeController extends AbstractController
             // Store feedback so the learning loop knows why this was dismissed
             try {
                 $ruleId = $task['rule_id'] ?? '';
+<<<<<<< HEAD
                 // Extract URL from task title for suppression
                 $taskUrl = '';
                 if (preg_match('|(/[a-z0-9][a-z0-9_-]+(?:/[a-z0-9_-]+)*/)|i', $task['title'] ?? '', $urlMatch)) {
                     $taskUrl = $urlMatch[1];
                 }
+=======
+                $taskUrl = $this->extractTaskUrl($task);
+                $pageContext = $taskUrl ? $this->fetchLatestPageContext($taskUrl) : [];
+                $actor = $this->getCurrentActorName();
+                $guardrailCode = $this->categorizeTaskRejection($dismissType, $dismissScope, $reason, $task, $pageContext);
+
+                $this->db->insert('task_rejections', [
+                    'task_id'      => $id,
+                    'rule_id'      => $ruleId ?: null,
+                    'url'          => $taskUrl ?: null,
+                    'page_type'    => $pageContext['page_type'] ?? null,
+                    'target_query' => $pageContext['target_query'] ?? null,
+                    'reason_code'  => $dismissType,
+                    'reason_text'  => $reason,
+                    'guardrail_code' => $guardrailCode,
+                    'scope'        => $dismissScope,
+                    'created_by'   => $actor,
+                    'created_at'   => date('Y-m-d H:i:s'),
+                ]);
+>>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
 
                 // ── URL SUPPRESSION: Prevent regeneration of dismissed tasks ──
                 // When a task is dismissed as false_positive or not_applicable,
                 // suppress that URL+rule combo so it never generates a new task.
-                if ($taskUrl && $ruleId && in_array($dismissType, ['false_positive', 'not_applicable', 'invalid'])) {
+                if (
+                    $dismissScope !== 'task_only'
+                    && $taskUrl
+                    && $ruleId
+                    && $this->shouldCreateSuppressionRecord($guardrailCode, $dismissType)
+                    && in_array($dismissType, ['false_positive', 'not_applicable', 'invalid'], true)
+                ) {
                     try {
                         // Create suppression table if it doesn't exist
                         // Insert suppression (ignore if already exists)
@@ -934,10 +971,11 @@ class HomeController extends AbstractController
                     $this->db->insert('rule_feedback', [
                         'rule_id'          => $ruleId,
                         'task_id'          => $id,
-                        'url'              => '',
+                        'url'              => $taskUrl,
                         'feedback_type'    => 'dismissed',
+                        'outcome_status'   => 'dismissed',
                         'what_worked'      => null,
-                        'what_didnt'       => "Task dismissed as {$dismissType}: {$reason}",
+                        'what_didnt_work'  => "Task dismissed as {$dismissType} ({$dismissScope}): {$reason}",
                         'proposed_change'  => $dismissType === 'false_positive' ? "Rule {$ruleId} generated a false positive. Consider tightening the trigger condition." : null,
                         'change_type'      => $dismissType === 'false_positive' ? 'refine_threshold' : 'none',
                         'created_at'       => date('Y-m-d H:i:s'),
@@ -946,11 +984,16 @@ class HomeController extends AbstractController
 
                 // Also store as an immediate chat learning so Logiri remembers this NOW
                 if ($reason && strlen($reason) > 10) {
+<<<<<<< HEAD
                     $taskUrl = '';
                     if (preg_match('|(/[a-z0-9][a-z0-9_-]+(?:/[a-z0-9_-]+)*/)|i', $task['title'] ?? '', $urlMatch)) {
                         $taskUrl = " on {$urlMatch[1]}";
                     }
                     $learning = "Rule {$ruleId} task dismissed ({$dismissType}){$taskUrl}: {$reason}";
+=======
+                    $taskUrlLabel = $taskUrl ? " on {$taskUrl}" : '';
+                    $learning = "Rule {$ruleId} task dismissed ({$dismissType}, {$dismissScope}){$taskUrlLabel}: {$reason}";
+>>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
                     $existingLearning = $this->db->fetchOne(
                         "SELECT COUNT(*) FROM chat_learnings WHERE learning ILIKE ? AND is_active = TRUE",
                         ['%' . substr($reason, 0, 50) . '%']
@@ -972,15 +1015,15 @@ class HomeController extends AbstractController
 
             // Log activity
             try {
-                $session = $this->requestStack->getSession();
-                $actor   = $session->get('persona_name', 'Unknown');
-                $this->logActivity($actor, 'dismissed_task', 'task', $id, $task['title'] ?? '', "{$dismissType}: {$reason}");
+                $actor = $this->getCurrentActorName();
+                $this->logActivity($actor, 'dismissed_task', 'task', $id, $task['title'] ?? '', "{$dismissType} ({$dismissScope}): {$reason}");
             } catch (\Exception $e) {}
 
             return new JsonResponse([
                 'ok'     => true,
                 'status' => 'closed',
                 'type'   => $dismissType,
+                'scope'  => $dismissScope,
                 'reason' => $reason,
             ]);
         } catch (\Exception $e) {
@@ -1694,6 +1737,27 @@ class HomeController extends AbstractController
         }
     }
 
+    #[Route('/api/task-rejections', name: 'api_task_rejections_list', methods: ['GET'])]
+    public function listTaskRejections(Request $request): JsonResponse
+    {
+        try {
+            $limit = min(100, max(10, (int) $request->query->get('limit', 30)));
+
+            $rows = $this->db->fetchAllAssociative(
+                "SELECT id, task_id, rule_id, url, page_type, target_query, reason_code, reason_text, guardrail_code, scope, created_by, created_at
+                 FROM task_rejections
+                 ORDER BY created_at DESC
+                 LIMIT :limit",
+                ['limit' => $limit],
+                ['limit' => ParameterType::INTEGER]
+            );
+
+            return new JsonResponse($rows);
+        } catch (\Exception $e) {
+            return new JsonResponse([]);
+        }
+    }
+
     #[Route('/api/learnings', name: 'api_learnings_create', methods: ['POST'])]
     public function createLearning(Request $request): JsonResponse
     {
@@ -1749,6 +1813,22 @@ class HomeController extends AbstractController
     private function findOwnedConversation(int $conversationId, ?int $userId): ?array
     {
         return $this->conversationService->findOwnedConversation($conversationId, $userId);
+<<<<<<< HEAD
+    }
+
+    private function getCurrentUserId(): ?int
+    {
+        $user = $this->getUser();
+        return $user ? $user->getId() : null;
+    }
+
+    private function getCurrentActorName(): string
+    {
+        $session = $this->requestStack->getSession();
+        $activePersona = $session->get('active_persona', null);
+        if (is_array($activePersona) && !empty($activePersona['name'])) {
+            return (string) $activePersona['name'];
+=======
     }
 
     private function getCurrentUserId(): ?int
@@ -1771,6 +1851,78 @@ class HomeController extends AbstractController
         }
 
         return 'Unknown';
+    }
+
+    private function extractTaskUrl(array $task): string
+    {
+        if (!empty($task['url'])) {
+            return $this->normalizeTaskUrl((string) $task['url']);
+        }
+
+        if (preg_match('|(/[a-z0-9][a-z0-9_/-]*/)|i', (string) ($task['title'] ?? ''), $urlMatch)) {
+            return $this->normalizeTaskUrl((string) $urlMatch[1]);
+        }
+
+        return '';
+    }
+
+    private function normalizeTaskUrl(string $url): string
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return '';
+        }
+
+        if (str_starts_with($url, 'http://') || str_starts_with($url, 'https://')) {
+            $path = parse_url($url, PHP_URL_PATH);
+            $url = is_string($path) ? $path : $url;
+        }
+
+        if ($url === '') {
+            return '';
+        }
+
+        if (!str_starts_with($url, '/')) {
+            $url = '/' . $url;
+        }
+
+        return $url === '/' ? '/' : rtrim($url, '/') . '/';
+    }
+
+    private function fetchLatestPageContext(string $url): array
+    {
+        try {
+            return $this->db->fetchAssociative(
+                "SELECT page_type, target_query
+                 FROM page_crawl_snapshots
+                 WHERE url = :url
+                 ORDER BY crawled_at DESC NULLS LAST, id DESC
+                 LIMIT 1",
+                ['url' => $url]
+            ) ?: [];
+        } catch (\Exception $e) {
+            return [];
+>>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
+        }
+    }
+
+<<<<<<< HEAD
+        $user = $this->getUser();
+        if ($user && method_exists($user, 'getName') && $user->getName()) {
+            return (string) $user->getName();
+        }
+
+        return 'Unknown';
+=======
+    private function categorizeTaskRejection(string $dismissType, string $dismissScope, string $reason, array $task, array $pageContext): string
+    {
+        return TaskRejectionGuardrailClassifier::classify($dismissType, $dismissScope, $reason, $task, $pageContext);
+    }
+
+    private function shouldCreateSuppressionRecord(string $guardrailCode, string $dismissType): bool
+    {
+        return TaskRejectionGuardrailClassifier::shouldCreateSuppressionRecord($guardrailCode, $dismissType);
+>>>>>>> 7e194f8 (Add rejection-learning backfill and rule signal visibility)
     }
 
     private function llmActionsEnabled(): bool
