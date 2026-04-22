@@ -440,7 +440,7 @@ class HomeController extends AbstractController
 
         // If actions were requested, append an accurate status note.
         if (!empty($actionNotices)) {
-            $text .= "\n\n---\n**✓ Actions executed:**\n";
+            $text .= "\n\n---\n**Queued action requests:**\n";
             foreach ($actionNotices as $ae) {
                 $text .= "- {$ae}\n";
             }
@@ -760,7 +760,13 @@ class HomeController extends AbstractController
         // Lightweight GSC impressions lookup — batch query, not per-task join
         try {
             $gscPages = $this->db->fetchAllAssociative(
-                "SELECT page, MAX(impressions) AS impressions FROM gsc_snapshots WHERE date_range = '28d' AND query = '__PAGE_AGGREGATE__' GROUP BY page ORDER BY impressions DESC LIMIT 100"
+                "SELECT page, MAX(impressions) AS impressions
+                 FROM gsc_snapshots
+                 WHERE date_range IN ('28d', '28d_page')
+                   AND query = '__PAGE_AGGREGATE__'
+                 GROUP BY page
+                 ORDER BY impressions DESC
+                 LIMIT 100"
             );
             $gscMap = [];
             foreach ($gscPages as $g) {

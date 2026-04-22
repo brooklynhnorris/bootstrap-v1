@@ -28,7 +28,6 @@ class FetchGscCommand extends Command
             return Command::FAILURE;
         }
 
-        // Get access token
         $output->writeln('Getting Google access token...');
         $tokenUrl = 'https://oauth2.googleapis.com/token';
         $tokenBody = http_build_query([
@@ -37,6 +36,7 @@ class FetchGscCommand extends Command
             'refresh_token' => $refreshToken,
             'grant_type'    => 'refresh_token',
         ]);
+
         $tokenResponse = file_get_contents($tokenUrl, false, stream_context_create([
             'http' => [
                 'method' => 'POST',
@@ -67,98 +67,76 @@ class FetchGscCommand extends Command
         $accessToken = $tokenData['access_token'];
         $output->writeln('Got access token.');
 
-        // Ensure expanded table schema
         $this->ensureSchema();
 
-        // Preserve historical data — keep last 4 fetch batches for before/after comparison
-        // Tag each batch with a snapshot_id so we can compare across fetches
         $snapshotId = date('Y-m-d_H-i');
         try {
-            // Delete snapshots older than 4 batches to prevent unbounded growth
             $batches = $this->db->fetchFirstColumn(
-                "SELECT DISTINCT snapshot_id FROM gsc_snapshots ORDER BY snapshot_id DESC"
+                "SELECT DISTINCT snapshot_id FROM gsc_snapshots WHERE snapshot_id IS NOT NULL ORDER BY snapshot_id DESC"
             );
             if (count($batches) >= 4) {
-                $keepBatches = array_slice($batches, 0, 3); // keep 3 most recent + the new one = 4
+                $keepBatches = array_slice($batches, 0, 3);
                 $placeholders = implode(',', array_fill(0, count($keepBatches), '?'));
                 $this->db->executeStatement(
-                    "DELETE FROM gsc_snapshots WHERE snapshot_id NOT IN ({$placeholders})",
+                    "DELETE FROM gsc_snapshots WHERE snapshot_id IS NOT NULL AND snapshot_id NOT IN ({$placeholders})",
                     $keepBatches
                 );
                 $output->writeln('Pruned old GSC snapshots (keeping last 4 batches).');
             }
         } catch (\Exception $e) {
-            // snapshot_id column may not exist yet on first run — fall back to clear all
             $this->db->executeStatement("DELETE FROM gsc_snapshots");
             $output->writeln('Cleared old GSC data (first run with history tracking).');
         }
 
         $totalRows = 0;
 
-        // ── Fetch 1: Full query+page data (28 days) - up to 25K rows ──
-        $output->writeln('Fetching 28-day query+page data (up to 25K rows)...');
-        $rows28d = $this->fetchGscData($accessToken, $siteUrl, 28, 'query', 25000, $output, '28d query+page');
-        foreach ($rows28d as $row) {
-            $this->db->insert('gsc_snapshots', [
-                'query'       => $row['keys'][0] ?? '',
-                'page'        => $row['keys'][1] ?? '',
-                'clicks'      => $row['clicks'] ?? 0,
-                'impressions' => $row['impressions'] ?? 0,
-                'ctr'         => round($row['ctr'] ?? 0, 4),
-                'position'    => round($row['position'] ?? 0, 1),
-                'date_range'  => '28d',
-                'fetched_at'  => date('Y-m-d H:i:s'),
-                'snapshot_id' => $snapshotId,
-            ]);
-            $totalRows++;
-        }
-        $output->writeln("  Saved {$totalRows} rows (28d query+page).");
+        $totalRows += $this->storeQueryPageWindow($accessToken, $siteUrl, 28, 1, ['28d'], 25000, $output, $snapshotId);
+        $totalRows += $this->storeQueryPageWindow($accessToken, $siteUrl, 56, 29, ['28d_prior'], 25000, $output, $snapshotId);
+        $totalRows += $this->storeQueryPageWindow($accessToken, $siteUrl, 30, 1, ['last_30_days'], 25000, $output, $snapshotId);
+        $totalRows += $this->storeQueryPageWindow($accessToken, $siteUrl, 60, 31, ['prior_30_days'], 25000, $output, $snapshotId);
+        $totalRows += $this->storeQueryPageWindow($accessToken, $siteUrl, 90, 1, ['90d', 'last_90_days'], 25000, $output, $snapshotId);
+        $totalRows += $this->storeQueryPageWindow($accessToken, $siteUrl, 180, 91, ['prior_90_days'], 25000, $output, $snapshotId);
 
-        // ── Fetch 2: 90-day query+page data for trend comparison ──
-        $output->writeln('Fetching 90-day query+page data (up to 25K rows)...');
-        $rows90d = $this->fetchGscData($accessToken, $siteUrl, 90, 'query', 25000, $output, '90d query+page');
-        $count90 = 0;
-        foreach ($rows90d as $row) {
-            $this->db->insert('gsc_snapshots', [
-                'query'       => $row['keys'][0] ?? '',
-                'page'        => $row['keys'][1] ?? '',
-                'clicks'      => $row['clicks'] ?? 0,
-                'impressions' => $row['impressions'] ?? 0,
-                'ctr'         => round($row['ctr'] ?? 0, 4),
-                'position'    => round($row['position'] ?? 0, 1),
-                'date_range'  => '90d',
-                'fetched_at'  => date('Y-m-d H:i:s'),
-                'snapshot_id' => $snapshotId,
-            ]);
-            $count90++;
-            $totalRows++;
-        }
-        $output->writeln("  Saved {$count90} rows (90d query+page).");
-
-        // ── Fetch 3: Page-level metrics (no query dimension) for page performance ──
         $output->writeln('Fetching page-level aggregate data (28d)...');
-        $pageRows = $this->fetchGscPages($accessToken, $siteUrl, 28, 5000, $output);
+        $pageRows = $this->fetchGscWindow($accessToken, $siteUrl, 28, 1, ['page'], 5000, $output, '28d page aggregate');
         $countPages = 0;
         foreach ($pageRows as $row) {
-            $this->db->insert('gsc_snapshots', [
-                'query'       => '__PAGE_AGGREGATE__',
-                'page'        => $row['keys'][0] ?? '',
-                'clicks'      => $row['clicks'] ?? 0,
-                'impressions' => $row['impressions'] ?? 0,
-                'ctr'         => round($row['ctr'] ?? 0, 4),
-                'position'    => round($row['position'] ?? 0, 1),
-                'date_range'  => '28d_page',
-                'fetched_at'  => date('Y-m-d H:i:s'),
-                'snapshot_id' => $snapshotId,
-            ]);
-            $countPages++;
-            $totalRows++;
+            foreach (['28d', '28d_page'] as $rangeLabel) {
+                $this->db->insert('gsc_snapshots', [
+                    'query'       => '__PAGE_AGGREGATE__',
+                    'page'        => $row['keys'][0] ?? '',
+                    'clicks'      => $row['clicks'] ?? 0,
+                    'impressions' => $row['impressions'] ?? 0,
+                    'ctr'         => round($row['ctr'] ?? 0, 4),
+                    'position'    => round($row['position'] ?? 0, 1),
+                    'date_range'  => $rangeLabel,
+                    'fetched_at'  => date('Y-m-d H:i:s'),
+                    'snapshot_id' => $snapshotId,
+                ]);
+                $countPages++;
+                $totalRows++;
+            }
         }
-        $output->writeln("  Saved {$countPages} page-level rows.");
+        $output->writeln("  Saved {$countPages} page-level rows across 28d aliases.");
 
-        // ── Fetch 4: Branded queries (containing "double d") ──
         $output->writeln('Fetching branded query data...');
-        $brandedRows = $this->fetchGscBranded($accessToken, $siteUrl, 28, $output);
+        $brandedRows = $this->fetchGscWindow(
+            $accessToken,
+            $siteUrl,
+            28,
+            1,
+            ['query', 'page'],
+            5000,
+            $output,
+            '28d branded query+page',
+            [[
+                'filters' => [[
+                    'dimension'  => 'query',
+                    'operator'   => 'contains',
+                    'expression' => 'double d',
+                ]],
+            ]]
+        );
         $countBranded = 0;
         foreach ($brandedRows as $row) {
             $this->db->insert('gsc_snapshots', [
@@ -190,28 +168,79 @@ class FetchGscCommand extends Command
         if (isset($headers[0]) && preg_match('#HTTP/\d\.\d (\d{3})#', $headers[0], $m)) {
             return (int) $m[1];
         }
+
         return null;
     }
 
-    private function fetchGscData(string $token, string $siteUrl, int $days, string $type, int $limit, OutputInterface $output, string $label): array
-    {
-        $endDate   = date('Y-m-d', strtotime('-1 day'));
-        $startDate = date('Y-m-d', strtotime("-{$days} days"));
+    private function storeQueryPageWindow(
+        string $token,
+        string $siteUrl,
+        int $startDaysAgo,
+        int $endDaysAgo,
+        array $dateRanges,
+        int $limit,
+        OutputInterface $output,
+        string $snapshotId
+    ): int {
+        $label = implode(', ', $dateRanges) . ' query+page';
+        $output->writeln("Fetching {$label} data (up to {$limit} rows)...");
+        $rows = $this->fetchGscWindow($token, $siteUrl, $startDaysAgo, $endDaysAgo, ['query', 'page'], $limit, $output, $label);
+        $saved = 0;
+
+        foreach ($rows as $row) {
+            foreach ($dateRanges as $dateRange) {
+                $this->db->insert('gsc_snapshots', [
+                    'query'       => $row['keys'][0] ?? '',
+                    'page'        => $row['keys'][1] ?? '',
+                    'clicks'      => $row['clicks'] ?? 0,
+                    'impressions' => $row['impressions'] ?? 0,
+                    'ctr'         => round($row['ctr'] ?? 0, 4),
+                    'position'    => round($row['position'] ?? 0, 1),
+                    'date_range'  => $dateRange,
+                    'fetched_at'  => date('Y-m-d H:i:s'),
+                    'snapshot_id' => $snapshotId,
+                ]);
+                $saved++;
+            }
+        }
+
+        $output->writeln("  Saved {$saved} rows ({$label}).");
+
+        return $saved;
+    }
+
+    private function fetchGscWindow(
+        string $token,
+        string $siteUrl,
+        int $startDaysAgo,
+        int $endDaysAgo,
+        array $dimensions,
+        int $limit,
+        OutputInterface $output,
+        string $label,
+        ?array $dimensionFilterGroups = null
+    ): array {
+        $endDate   = date('Y-m-d', strtotime("-{$endDaysAgo} days"));
+        $startDate = date('Y-m-d', strtotime("-{$startDaysAgo} days"));
 
         $allRows = [];
         $startRow = 0;
-        $batchSize = 25000; // GSC API max per request
+        $batchSize = min(25000, max(1, $limit));
         $gscUrl = "https://www.googleapis.com/webmasters/v3/sites/" . urlencode($siteUrl) . "/searchAnalytics/query";
 
         do {
             $requestBody = [
-                'startDate'          => $startDate,
-                'endDate'            => $endDate,
-                'dimensions'         => ['query', 'page'],
-                'rowLimit'           => min($batchSize, $limit - $startRow),
-                'startRow'           => $startRow,
-                'dataState'          => 'final',
+                'startDate'  => $startDate,
+                'endDate'    => $endDate,
+                'dimensions' => $dimensions,
+                'rowLimit'   => min($batchSize, $limit - $startRow),
+                'startRow'   => $startRow,
+                'dataState'  => 'final',
             ];
+
+            if ($dimensionFilterGroups !== null) {
+                $requestBody['dimensionFilterGroups'] = $dimensionFilterGroups;
+            }
 
             $response = file_get_contents(
                 $gscUrl,
@@ -244,107 +273,9 @@ class FetchGscCommand extends Command
 
             $allRows = array_merge($allRows, $rows);
             $startRow += count($rows);
-
         } while (count($rows) === $batchSize && $startRow < $limit);
 
         return $allRows;
-    }
-
-    private function fetchGscPages(string $token, string $siteUrl, int $days, int $limit, OutputInterface $output): array
-    {
-        $endDate   = date('Y-m-d', strtotime('-1 day'));
-        $startDate = date('Y-m-d', strtotime("-{$days} days"));
-        $url = "https://www.googleapis.com/webmasters/v3/sites/" . urlencode($siteUrl) . "/searchAnalytics/query";
-        $requestBody = [
-            'startDate'  => $startDate,
-            'endDate'    => $endDate,
-            'dimensions' => ['page'],
-            'rowLimit'   => $limit,
-            'dataState'  => 'final',
-        ];
-
-        $response = file_get_contents(
-            $url,
-            false,
-            stream_context_create([
-                'http' => [
-                    'method'        => 'POST',
-                    'header'        => "Content-Type: application/json\r\nAuthorization: Bearer {$token}",
-                    'content'       => json_encode($requestBody),
-                    'ignore_errors' => true,
-                ],
-            ])
-        );
-
-        $httpStatus = $this->parseHttpStatus($http_response_header ?? []);
-        $data = json_decode($response !== false ? $response : '{}', true);
-        $rows = $data['rows'] ?? [];
-
-        if ($httpStatus !== null && $httpStatus >= 400) {
-            $output->writeln('[DEBUG] GSC [page-level] request failed with HTTP ' . $httpStatus);
-            $output->writeln('[DEBUG] GSC [page-level] request URL: ' . $url);
-            $output->writeln('[DEBUG] GSC [page-level] request body: ' . json_encode($requestBody));
-            $output->writeln('[DEBUG] GSC [page-level] raw response: ' . ($response !== false ? $response : '(empty/false)'));
-        } elseif (count($rows) === 0) {
-            $output->writeln('[DEBUG] GSC [page-level] returned 0 rows. Request URL: ' . $url);
-            $output->writeln('[DEBUG] GSC [page-level] request body: ' . json_encode($requestBody));
-            $output->writeln('[DEBUG] GSC [page-level] HTTP status: ' . ($httpStatus ?? 'unknown'));
-            $output->writeln('[DEBUG] GSC [page-level] raw response: ' . ($response !== false ? $response : '(empty/false)'));
-        }
-
-        return $rows;
-    }
-
-    private function fetchGscBranded(string $token, string $siteUrl, int $days, OutputInterface $output): array
-    {
-        $endDate   = date('Y-m-d', strtotime('-1 day'));
-        $startDate = date('Y-m-d', strtotime("-{$days} days"));
-        $url = "https://www.googleapis.com/webmasters/v3/sites/" . urlencode($siteUrl) . "/searchAnalytics/query";
-        $requestBody = [
-            'startDate'            => $startDate,
-            'endDate'              => $endDate,
-            'dimensions'           => ['query', 'page'],
-            'dimensionFilterGroups' => [[
-                'filters' => [[
-                    'dimension'  => 'query',
-                    'operator'   => 'contains',
-                    'expression' => 'double d',
-                ]],
-            ]],
-            'rowLimit'   => 5000,
-            'dataState'  => 'final',
-        ];
-
-        $response = file_get_contents(
-            $url,
-            false,
-            stream_context_create([
-                'http' => [
-                    'method'        => 'POST',
-                    'header'        => "Content-Type: application/json\r\nAuthorization: Bearer {$token}",
-                    'content'       => json_encode($requestBody),
-                    'ignore_errors' => true,
-                ],
-            ])
-        );
-
-        $httpStatus = $this->parseHttpStatus($http_response_header ?? []);
-        $data = json_decode($response !== false ? $response : '{}', true);
-        $rows = $data['rows'] ?? [];
-
-        if ($httpStatus !== null && $httpStatus >= 400) {
-            $output->writeln('[DEBUG] GSC [branded] request failed with HTTP ' . $httpStatus);
-            $output->writeln('[DEBUG] GSC [branded] request URL: ' . $url);
-            $output->writeln('[DEBUG] GSC [branded] request body: ' . json_encode($requestBody));
-            $output->writeln('[DEBUG] GSC [branded] raw response: ' . ($response !== false ? $response : '(empty/false)'));
-        } elseif (count($rows) === 0) {
-            $output->writeln('[DEBUG] GSC [branded] returned 0 rows. Request URL: ' . $url);
-            $output->writeln('[DEBUG] GSC [branded] request body: ' . json_encode($requestBody));
-            $output->writeln('[DEBUG] GSC [branded] HTTP status: ' . ($httpStatus ?? 'unknown'));
-            $output->writeln('[DEBUG] GSC [branded] raw response: ' . ($response !== false ? $response : '(empty/false)'));
-        }
-
-        return $rows;
     }
 
     private function ensureSchema(): void
@@ -352,14 +283,15 @@ class FetchGscCommand extends Command
         $cols = $this->db->fetchFirstColumn(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'gsc_snapshots'"
         );
-        if (!in_array('date_range', $cols)) {
-            $this->db->executeStatement("ALTER TABLE gsc_snapshots ADD COLUMN date_range VARCHAR(20) DEFAULT '28d'");
+        if (!in_array('date_range', $cols, true)) {
+            $this->db->executeStatement("ALTER TABLE gsc_snapshots ADD COLUMN date_range VARCHAR(50) DEFAULT '28d'");
         }
-        if (!in_array('snapshot_id', $cols)) {
+        if (!in_array('snapshot_id', $cols, true)) {
             $this->db->executeStatement("ALTER TABLE gsc_snapshots ADD COLUMN snapshot_id VARCHAR(20) DEFAULT NULL");
-            $this->db->executeStatement("CREATE INDEX IF NOT EXISTS idx_gsc_snapshot_id ON gsc_snapshots (snapshot_id)");
         }
+
+        $this->db->executeStatement("CREATE INDEX IF NOT EXISTS idx_gsc_snapshot_id ON gsc_snapshots (snapshot_id)");
+        $this->db->executeStatement("CREATE INDEX IF NOT EXISTS idx_gsc_date_query_page ON gsc_snapshots (date_range, query, page)");
+        $this->db->executeStatement("CREATE INDEX IF NOT EXISTS idx_gsc_date_page ON gsc_snapshots (date_range, page)");
     }
 }
-
-    
