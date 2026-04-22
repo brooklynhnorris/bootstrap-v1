@@ -71,16 +71,26 @@ try {
             nullableString($arguments['assignee'] ?? null),
             boundedInt($arguments['limit'] ?? 100, 1, 200),
         ),
-        'review_pending_tasks' => $reviewService->reviewPendingTasks(
-            nullableString($arguments['assignee'] ?? null),
-            boundedInt($arguments['limit'] ?? 50, 1, 200),
-            normalizeStatuses($arguments['statuses'] ?? ['pending']),
-        ),
-        'review_all_pending' => $reviewService->reviewPendingTasks(
-            nullableString($arguments['assignee'] ?? null),
-            boundedInt($arguments['limit'] ?? 100, 1, 500),
-            ['pending'],
-        ),
+        'review_pending_tasks' => [
+            'generated_at' => date('c'),
+            'assignee' => nullableString($arguments['assignee'] ?? null),
+            'statuses' => normalizeStatuses($arguments['statuses'] ?? ['pending']),
+            'tasks' => $reviewService->reviewPendingTasks(
+                nullableString($arguments['assignee'] ?? null),
+                boundedInt($arguments['limit'] ?? 50, 1, 200),
+                normalizeStatuses($arguments['statuses'] ?? ['pending']),
+            ),
+        ],
+        'review_all_pending' => [
+            'generated_at' => date('c'),
+            'assignee' => nullableString($arguments['assignee'] ?? null),
+            'statuses' => ['pending'],
+            'tasks' => $reviewService->reviewPendingTasks(
+                nullableString($arguments['assignee'] ?? null),
+                boundedInt($arguments['limit'] ?? 100, 1, 500),
+                ['pending'],
+            ),
+        ],
         'review_task' => reviewTask($reviewService, $arguments),
         default => throw new InvalidArgumentException('Unknown tool: ' . $tool),
     };

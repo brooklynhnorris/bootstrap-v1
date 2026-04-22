@@ -249,6 +249,24 @@ class TaskReviewService
             $ruleFollowup = $this->buildRuleFollowup($ruleId, 'guardrail_update', 'Suppress asset and upload URLs before tasks are generated.');
         }
 
+        if ($rawUrl !== null && $url !== null && $this->isMalformedTaskUrl($rawUrl, $url)) {
+            $verdict = 'reject';
+            $confidence = 0.98;
+            $reasonCodes[] = 'malformed_task_url';
+            $summaryParts[] = 'Task URL looks malformed or placeholder-like rather than a real board page slug.';
+            $recommendedAction = 'reject_and_learn';
+            $ruleFollowup = $this->buildRuleFollowup($ruleId, 'guardrail_update', 'Suppress malformed or placeholder URLs such as /Title/, leaked host paths, and root-leakage variants before task creation.');
+        }
+
+        if ($url !== null && $this->looksLikeNonPageUtilityUrl($url)) {
+            $verdict = 'reject';
+            $confidence = 0.98;
+            $reasonCodes[] = 'non_page_utility_url';
+            $summaryParts[] = 'Task targets a non-page utility or file endpoint rather than a crawlable content page.';
+            $recommendedAction = 'reject_and_learn';
+            $ruleFollowup = $this->buildRuleFollowup($ruleId, 'guardrail_update', 'Suppress non-page utility endpoints such as /scripts/*.html and similar file-style paths before task creation.');
+        }
+
         if ($page === null && $url !== null && $verdict === 'do') {
             $verdict = 'wait';
             $confidence = 0.88;
@@ -555,6 +573,45 @@ class TaskReviewService
 
         return str_contains($lower, '/wp-content/uploads/')
             || preg_match('/\.(jpg|jpeg|png|gif|webp|svg|pdf)$/', $lower) === 1;
+    }
+
+    private function looksLikeNonPageUtilityUrl(string $url): bool
+    {
+        $lower = strtolower($url);
+
+        return str_starts_with($lower, '/scripts/')
+            || str_starts_with($lower, '/wp-json/')
+            || str_starts_with($lower, '/wp-admin/')
+            || preg_match('/\.(html|json|xml|txt)$/', $lower) === 1;
+    }
+
+    private function isMalformedTaskUrl(string $rawUrl, string $normalizedUrl): bool
+    {
+        $rawUrl = trim($rawUrl);
+        $rawLower = strtolower($rawUrl);
+        $normalizedLower = strtolower($normalizedUrl);
+
+        if ($rawLower === '') {
+            return false;
+        }
+
+        if (preg_match('#^/(title|url|slug|page|placeholder)/?$#', $normalizedLower) === 1) {
+            return true;
+        }
+
+        if (preg_match('#(?:^|/)(?:www\.)?doubledtrailers\.com(?:/|$)#', $rawLower) === 1) {
+            return true;
+        }
+
+        if ($normalizedLower === '/' && !preg_match('#^(?:https?://)?(?:www\.)?doubledtrailers\.com/?$#', $rawLower)) {
+            return true;
+        }
+
+        if (preg_match('#^/[A-Z][A-Za-z0-9-]*/?$#', $rawUrl) === 1) {
+            return true;
+        }
+
+        return false;
     }
 
     private function containsManualDecisionGate(string $title, string $description): bool

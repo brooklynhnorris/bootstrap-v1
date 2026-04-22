@@ -374,10 +374,24 @@
             display: flex; justify-content: space-between;
             align-items: center;
         }
+        .board-card-top-left {
+            display: flex; align-items: center; gap: 6px;
+            min-width: 0;
+        }
         .board-card-hours {
             font-size: 11px; font-weight: 600;
             color: #5c5c66; background: #f0f0f3;
             padding: 1px 6px; border-radius: 4px;
+        }
+        .board-card-id {
+            font-size: 11px;
+            font-weight: 600;
+            color: #64748b;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            padding: 1px 6px;
+            font-family: 'JetBrains Mono', monospace;
         }
         .board-card-assignee {
             font-size: 11px; color: #9898a0;
@@ -3463,7 +3477,10 @@
 
         card.innerHTML =
             '<div class="board-card-top">' +
-                '<div class="board-card-hours">' + hours + 'h</div>' +
+                '<div class="board-card-top-left">' +
+                    '<div class="board-card-id">#' + task.id + '</div>' +
+                    '<div class="board-card-hours">' + hours + 'h</div>' +
+                '</div>' +
                 (task.assigned_to ? '<div class="board-card-assignee">' + escapeHtml(task.assigned_to) : '') +
             '</div>' +
             '<div class="board-card-title">' + escapeHtml(task.title || '') + '</div>' +

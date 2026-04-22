@@ -812,8 +812,13 @@ PROMPT;
 
         $sanitized = [];
         foreach ($briefs as $brief) {
-            $url = $this->normalizeUrl((string) ($brief['url'] ?? ''));
+            $rawUrl = trim((string) ($brief['url'] ?? ''));
+            $url = $this->normalizeUrl($rawUrl);
             $page = $pageMap[$url] ?? null;
+
+            if ($this->shouldDropBriefForUrl($rawUrl, $url, $page)) {
+                continue;
+            }
 
             $brief['rule_id'] = (string) ($rule['id'] ?? ($brief['rule_id'] ?? ''));
 
@@ -1395,6 +1400,13 @@ PROMPT;
 
     private function shouldSuppressBriefFromBoard(array $brief, ?array $outputConsensus, array $stage1Consensus): bool
     {
+        $rawUrl = trim((string) ($brief['url'] ?? ''));
+        $normalizedUrl = $this->normalizeUrl($rawUrl);
+
+        if ($this->shouldDropBriefForUrl($rawUrl, $normalizedUrl, null)) {
+            return true;
+        }
+
         if ($this->matchesStructuredRejectionGuardrail($brief)) {
             return true;
         }
@@ -1418,6 +1430,57 @@ PROMPT;
         }
 
         return false;
+    }
+
+    private function shouldDropBriefForUrl(string $rawUrl, string $normalizedUrl, ?array $page): bool
+    {
+        $rawUrl = trim($rawUrl);
+        $rawLower = strtolower($rawUrl);
+        $normalizedLower = strtolower($normalizedUrl);
+
+        if ($rawLower === '' || $normalizedLower === '') {
+            return false;
+        }
+
+        if ($this->looksLikeSuppressedAssetUrl($normalizedLower)) {
+            return true;
+        }
+
+        if ($this->looksLikeSuppressedUtilityUrl($normalizedLower)) {
+            return true;
+        }
+
+        if (preg_match('#^/(title|url|slug|page|placeholder)/?$#', $normalizedLower) === 1) {
+            return true;
+        }
+
+        if ($page === null && preg_match('#^/[A-Z][A-Za-z0-9-]*/?$#', $rawUrl) === 1) {
+            return true;
+        }
+
+        if ($page === null && preg_match('#(?:^|/)(?:www\.)?doubledtrailers\.com(?:/|$)#', $rawLower) === 1) {
+            return true;
+        }
+
+        if ($page === null && $normalizedLower === '/' && !preg_match('#^(?:https?://)?(?:www\.)?doubledtrailers\.com/?$#', $rawLower)) {
+            return true;
+        }
+
+        return false;
+    }
+
+    private function looksLikeSuppressedAssetUrl(string $normalizedLower): bool
+    {
+        return str_contains($normalizedLower, '/wp-content/uploads/')
+            || preg_match('/\.(jpg|jpeg|png|gif|webp|svg|pdf)$/', $normalizedLower) === 1;
+    }
+
+    private function looksLikeSuppressedUtilityUrl(string $normalizedLower): bool
+    {
+        return str_starts_with($normalizedLower, '/scripts/')
+            || str_starts_with($normalizedLower, '/wp-json/')
+            || str_starts_with($normalizedLower, '/wp-admin/')
+            || preg_match('/\.(html|json|xml|txt)$/', $normalizedLower) === 1;
     }
 
     private function computeBriefBoardConfidence(array $brief, ?array $outputConsensus, array $stage1Consensus): float
