@@ -8,7 +8,7 @@ const { StdioServerTransport } = require(`${sdkRoot}/server/stdio.js`);
 const { CallToolRequestSchema, ListToolsRequestSchema } = require(`${sdkRoot}/types.js`);
 
 const SERVER_NAME = 'logiri-reviewer';
-const SERVER_VERSION = '0.2.1';
+const SERVER_VERSION = '0.2.2';
 const PHP_PATH = 'C:/php84/php.exe';
 const TOOL_SCRIPT = 'C:/Users/Owner/Documents/New project/bootstrap-v1/bin/reviewer-tool.php';
 
@@ -114,6 +114,22 @@ const tools = [
         },
       },
       required: ['task_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'propose_rule_gaps',
+    description: 'Scan the active rule corpus plus current SEO/AI-readiness gaps and return net-new rule opportunities, strict proposal guidelines, success measures, and the exact prompt contract for future rule-gap reviews.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 20,
+          description: 'Maximum number of candidate rule gaps to return.',
+        },
+      },
       additionalProperties: false,
     },
   },

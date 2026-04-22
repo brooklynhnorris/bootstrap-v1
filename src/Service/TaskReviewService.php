@@ -213,6 +213,39 @@ class TaskReviewService
         ];
     }
 
+    public function proposeRuleGaps(int $limit = 8): array
+    {
+        $limit = max(1, min($limit, 20));
+        $ruleCorpusText = $this->loadRuleCorpusText();
+        $ruleInventory = $this->loadRuleInventory();
+        $signals = $this->loadRuleGapSignals();
+        $guidelines = $this->buildRuleProposalGuidelines();
+        $successMeasures = $this->buildRuleSuccessMeasures();
+        $candidates = array_slice($this->buildRuleGapCandidates($ruleCorpusText, $signals), 0, $limit);
+
+        return [
+            'generated_at' => date('c'),
+            'methodology' => [
+                'scope' => 'Scans the current rule corpus, recent board-review patterns, and available first-party SEO signals to identify net-new rule opportunities or rule-family gaps.',
+                'guardrails' => [
+                    'Do not propose a new rule when the issue is already covered by an existing rule family or by generator hygiene.',
+                    'Do not treat stale no_active_violation cards as proof of a bad rule.',
+                    'If a proposal depends on unsupported evidence, label it needs_new_data instead of pretending it is executable now.',
+                ],
+            ],
+            'current_rule_coverage' => [
+                'rule_count' => count($ruleInventory),
+                'categories' => $this->summarizeRuleInventory($ruleInventory),
+                'coverage_markers' => $this->buildCoverageMarkers($ruleCorpusText),
+            ],
+            'signals' => $signals,
+            'strict_guidelines' => $guidelines,
+            'success_measures' => $successMeasures,
+            'candidate_rules' => $candidates,
+            'proposal_prompt' => $this->buildRuleGapPrompt($guidelines, $successMeasures, $candidates),
+        ];
+    }
+
     private function loadTasks(?string $assignee, int $limit, array $statuses): array
     {
         $limit = max(1, min($limit, 200));
@@ -244,6 +277,477 @@ class TaskReviewService
         $types[] = ParameterType::INTEGER;
 
         return $this->db->fetchAllAssociative($sql, $params, $types);
+    }
+
+    private function loadRuleCorpusText(): string
+    {
+        $parts = [];
+
+        if ($this->tableExists('seo_rules')) {
+            try {
+                $rows = $this->db->fetchAllAssociative(
+                    "SELECT rule_id, name, full_text, diagnosis, action_output
+                     FROM seo_rules
+                     WHERE is_active = TRUE
+                     ORDER BY rule_id ASC"
+                );
+
+                foreach ($rows as $row) {
+                    $parts[] = implode("\n", array_filter([
+                        (string) ($row['rule_id'] ?? ''),
+                        (string) ($row['name'] ?? ''),
+                        (string) ($row['full_text'] ?? ''),
+                        (string) ($row['diagnosis'] ?? ''),
+                        (string) ($row['action_output'] ?? ''),
+                    ]));
+                }
+            } catch (\Throwable) {
+                // Fall back to system-prompt text below.
+            }
+        }
+
+        $systemPromptPath = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'system-prompt.txt';
+        if (is_file($systemPromptPath)) {
+            $content = @file_get_contents($systemPromptPath);
+            if (is_string($content) && trim($content) !== '') {
+                $parts[] = $content;
+            }
+        }
+
+        return strtolower(implode("\n", $parts));
+    }
+
+    private function loadRuleInventory(): array
+    {
+        if ($this->tableExists('seo_rules')) {
+            try {
+                return $this->db->fetchAllAssociative(
+                    "SELECT rule_id, name, category, priority
+                     FROM seo_rules
+                     WHERE is_active = TRUE
+                     ORDER BY category ASC, rule_id ASC"
+                );
+            } catch (\Throwable) {
+                // Fall through to parsing system prompt.
+            }
+        }
+
+        $systemPromptPath = dirname(__DIR__, 2) . DIRECTORY_SEPARATOR . 'system-prompt.txt';
+        if (!is_file($systemPromptPath)) {
+            return [];
+        }
+
+        $content = @file_get_contents($systemPromptPath);
+        if (!is_string($content) || trim($content) === '') {
+            return [];
+        }
+
+        preg_match_all('/^([A-Z][A-Z0-9-]+)\s+\|\s+(.+)$/m', $content, $matches, PREG_SET_ORDER);
+        $inventory = [];
+        foreach ($matches as $match) {
+            $inventory[] = [
+                'rule_id' => trim((string) ($match[1] ?? '')),
+                'name' => trim((string) ($match[2] ?? '')),
+                'category' => $this->ruleFamilyLabel((string) ($match[1] ?? '')),
+                'priority' => null,
+            ];
+        }
+
+        return $inventory;
+    }
+
+    private function summarizeRuleInventory(array $ruleInventory): array
+    {
+        $counts = [];
+        foreach ($ruleInventory as $rule) {
+            $category = trim((string) ($rule['category'] ?? 'UNKNOWN'));
+            if ($category === '') {
+                $category = 'UNKNOWN';
+            }
+            $counts[$category] = ($counts[$category] ?? 0) + 1;
+        }
+
+        arsort($counts);
+
+        $summary = [];
+        foreach ($counts as $category => $count) {
+            $summary[] = [
+                'category' => $category,
+                'count' => $count,
+            ];
+        }
+
+        return $summary;
+    }
+
+    private function buildCoverageMarkers(string $ruleCorpusText): array
+    {
+        $markers = [
+            'faqpage' => str_contains($ruleCorpusText, 'faqpage'),
+            'videoobject' => str_contains($ruleCorpusText, 'videoobject'),
+            'productgroup' => str_contains($ruleCorpusText, 'productgroup'),
+            'aggregate_rating' => str_contains($ruleCorpusText, 'aggregaterating'),
+            'author_date_article' => str_contains($ruleCorpusText, 'datepublished') || str_contains($ruleCorpusText, 'author'),
+            'watch_page_key_moments' => str_contains($ruleCorpusText, 'seektoaction') || str_contains($ruleCorpusText, 'clip'),
+            'answer_first_snippet' => str_contains($ruleCorpusText, 'answer-first') || str_contains($ruleCorpusText, 'featured snippet'),
+            'schema_property_level_audit' => str_contains($ruleCorpusText, 'offershippingdetails') || str_contains($ruleCorpusText, 'merchantreturnpolicy'),
+            'ai_overview_proxy_tracking' => str_contains($ruleCorpusText, 'ai overview') || str_contains($ruleCorpusText, 'citation share'),
+        ];
+
+        $present = [];
+        $missing = [];
+        foreach ($markers as $marker => $value) {
+            if ($value) {
+                $present[] = $marker;
+            } else {
+                $missing[] = $marker;
+            }
+        }
+
+        return [
+            'present' => $present,
+            'missing' => $missing,
+        ];
+    }
+
+    private function loadRuleGapSignals(): array
+    {
+        $signals = [
+            'high_impression_outer_pages' => 0,
+            'high_impression_outer_low_ctr_pages' => 0,
+            'core_pages' => 0,
+            'core_pages_with_schema' => 0,
+            'pending_rule_proposals' => 0,
+            'recent_rule_feedback_items' => 0,
+        ];
+
+        if ($this->tableExists('page_facts')) {
+            try {
+                $signals['high_impression_outer_pages'] = (int) $this->db->fetchOne(
+                    "SELECT COUNT(*) FROM page_facts
+                     WHERE page_type = 'outer'
+                       AND is_indexable = TRUE
+                       AND COALESCE(target_query_impressions, 0) >= 500"
+                );
+
+                $signals['high_impression_outer_low_ctr_pages'] = (int) $this->db->fetchOne(
+                    "SELECT COUNT(*) FROM page_facts
+                     WHERE page_type = 'outer'
+                       AND is_indexable = TRUE
+                       AND COALESCE(target_query_impressions, 0) >= 500
+                       AND COALESCE(target_query_position, 999) BETWEEN 4 AND 15
+                       AND (
+                         CASE
+                           WHEN COALESCE(target_query_impressions, 0) = 0 THEN 0
+                           ELSE COALESCE(target_query_clicks, 0)::numeric / NULLIF(target_query_impressions, 0)
+                         END
+                       ) < 0.015"
+                );
+
+                $signals['core_pages'] = (int) $this->db->fetchOne(
+                    "SELECT COUNT(*) FROM page_facts
+                     WHERE page_type = 'core'
+                       AND is_indexable = TRUE"
+                );
+
+                $signals['core_pages_with_schema'] = (int) $this->db->fetchOne(
+                    "SELECT COUNT(*) FROM page_facts
+                     WHERE page_type = 'core'
+                       AND is_indexable = TRUE
+                       AND schema_types IS NOT NULL
+                       AND schema_types::text <> '[]'"
+                );
+            } catch (\Throwable) {
+                // Keep defaults.
+            }
+        }
+
+        if ($this->tableExists('rule_change_proposals')) {
+            try {
+                $signals['pending_rule_proposals'] = (int) $this->db->fetchOne(
+                    "SELECT COUNT(*) FROM rule_change_proposals WHERE status = 'pending'"
+                );
+            } catch (\Throwable) {
+                // Keep defaults.
+            }
+        }
+
+        if ($this->tableExists('rule_feedback')) {
+            try {
+                $signals['recent_rule_feedback_items'] = (int) $this->db->fetchOne(
+                    "SELECT COUNT(*) FROM rule_feedback
+                     WHERE created_at >= NOW() - INTERVAL '30 days'"
+                );
+            } catch (\Throwable) {
+                // Keep defaults.
+            }
+        }
+
+        return $signals;
+    }
+
+    private function buildRuleProposalGuidelines(): array
+    {
+        return [
+            [
+                'rule' => 'Only propose net-new rules for gaps that are not already covered by an existing active rule family or by generator hygiene.',
+                'source' => 'Logiri reviewer contract',
+            ],
+            [
+                'rule' => 'Success gates must be measurable with first-party data already in the system, or explicitly marked needs_new_data.',
+                'source' => 'Logiri reviewer contract',
+            ],
+            [
+                'rule' => 'Do not ask the operator to manually verify crawl, word count, link counts, or schema types that the system already stores.',
+                'source' => 'Logiri reviewer contract',
+            ],
+            [
+                'rule' => 'FAQPage must not be treated as a primary Google rich-result KPI for DDT; Google limits FAQ rich results to well-known health or government sites.',
+                'source' => 'Google Search Central FAQPage docs',
+                'url' => 'https://developers.google.com/search/docs/appearance/structured-data/faqpage',
+            ],
+            [
+                'rule' => 'VideoObject should only be proposed on a true watch page where users can actually watch the video.',
+                'source' => 'Google Search Central Video structured data docs',
+                'url' => 'https://developers.google.com/search/docs/appearance/structured-data/video',
+            ],
+            [
+                'rule' => 'Structured data must match visible on-page content; a rule cannot propose markup that is absent from the rendered page.',
+                'source' => 'Google general structured data guidelines',
+                'url' => 'https://developers.google.com/search/docs/appearance/structured-data/sd-policies',
+            ],
+            [
+                'rule' => 'Product-group or merchant-listing rules should be scoped only when variant or offer data can be validated, not inferred.',
+                'source' => 'Google Product/ProductGroup docs',
+                'url' => 'https://developers.google.com/search/docs/appearance/structured-data/product-variants',
+            ],
+            [
+                'rule' => 'AI appearance metrics are mostly proxy metrics unless a platform explicitly reports the feature; do not claim direct AI citation wins from CTR or impressions alone.',
+                'source' => 'Logiri reviewer contract',
+            ],
+        ];
+    }
+
+    private function buildRuleSuccessMeasures(): array
+    {
+        return [
+            [
+                'measure' => 'Indexability and canonical integrity',
+                'minimum_gate' => '200 status, self-referencing canonical when appropriate, no conflicting noindex.',
+                'why_it_matters' => 'No SEO or AI-appearance rule matters if the page cannot be crawled or consolidated correctly.',
+            ],
+            [
+                'measure' => 'Query visibility',
+                'minimum_gate' => 'Track impressions, clicks, average position, and CTR on the exact canonical URL.',
+                'why_it_matters' => 'These are the closest first-party measures of whether the page is entering the right search conversations.',
+            ],
+            [
+                'measure' => 'Rich-result eligibility',
+                'minimum_gate' => 'Structured data validates cleanly, matches visible content, and uses a supported schema on an eligible page type.',
+                'why_it_matters' => 'Markup only helps when it is both valid and relevant to the rendered page.',
+            ],
+            [
+                'measure' => 'Opening-snippet answer quality',
+                'minimum_gate' => 'The first sentence or opening block states the page entity and answer plainly enough to be extracted.',
+                'why_it_matters' => 'Answer-first openings improve both snippet clarity and AI extraction readiness.',
+            ],
+            [
+                'measure' => 'Entity coherence',
+                'minimum_gate' => 'H1, title, opening body text, schema, and internal linking all reinforce the same subject.',
+                'why_it_matters' => 'AI systems and crawlers both struggle when entity signals conflict.',
+            ],
+            [
+                'measure' => 'Feature-specific eligibility',
+                'minimum_gate' => 'Video features require watch pages; product features require visible product data; FAQ should not be scored as a primary Google win for DDT.',
+                'why_it_matters' => 'Feature eligibility is not universal, and false assumptions create noisy tasks.',
+            ],
+        ];
+    }
+
+    private function buildRuleGapCandidates(string $ruleCorpusText, array $signals): array
+    {
+        $candidates = [];
+
+        if (!$this->corpusHasAny($ruleCorpusText, ['answer-first', 'featured snippet', 'snippet-ready', 'answer block'])) {
+            $candidates[] = [
+                'candidate_id' => 'AIS-010',
+                'name' => 'Answer-First Opening Block Governance for High-Impression Outer Pages',
+                'priority' => 'high',
+                'supported_now' => true,
+                'needs_new_data' => [],
+                'why_this_gap_exists' => 'The current rule set addresses snippets, CTR, and opening entity language in pieces, but it does not explicitly govern whether high-impression outer pages open with an extractable answer block.',
+                'evidence' => [
+                    'high_impression_outer_pages' => $signals['high_impression_outer_pages'] ?? 0,
+                    'high_impression_outer_low_ctr_pages' => $signals['high_impression_outer_low_ctr_pages'] ?? 0,
+                ],
+                'trigger_concept' => 'Outer pages with strong impressions and middling positions/CTR where the opening sentence does not clearly define or answer the target query.',
+                'strict_guidelines' => [
+                    'Only fire on outer pages with live impression evidence.',
+                    'Use first_sentence_text or opening snippet fields already in crawl data.',
+                    'Do not force FAQ schema or extra links as a substitute for weak opening copy.',
+                ],
+                'success_gate' => 'Opening sentence explicitly names the query entity and answer pattern; 28-day CTR lift on the same canonical URL is the business KPI.',
+            ];
+        }
+
+        if (!$this->corpusHasAny($ruleCorpusText, ['offershippingdetails', 'merchantreturnpolicy', 'productgroup'])) {
+            $candidates[] = [
+                'candidate_id' => 'DDT-SD-010',
+                'name' => 'Schema Property Completeness Audit for Product and Variant Pages',
+                'priority' => 'high',
+                'supported_now' => false,
+                'needs_new_data' => ['Schema property-level extraction beyond schema type names'],
+                'why_this_gap_exists' => 'The current rule set mostly checks schema type presence, not whether important supported properties are actually complete or visible.',
+                'evidence' => [
+                    'core_pages' => $signals['core_pages'] ?? 0,
+                    'core_pages_with_schema' => $signals['core_pages_with_schema'] ?? 0,
+                ],
+                'trigger_concept' => 'Core or variant-capable pages with Product/ProductGroup markup missing property-level completeness for supported commerce signals.',
+                'strict_guidelines' => [
+                    'Only propose property-level schema when the content is visible on the page.',
+                    'Do not infer return, shipping, or offer details that are not present in source content.',
+                    'Score success on validation plus supported-property completeness, not on rich-result appearance alone.',
+                ],
+                'success_gate' => 'Property-level schema completeness passes internal validation with zero unsupported or invisible fields.',
+            ];
+        }
+
+        if (!$this->corpusHasAny($ruleCorpusText, ['seektoaction', 'key moments', 'clip'])) {
+            $candidates[] = [
+                'candidate_id' => 'MAO-R8',
+                'name' => 'Video Watch-Page and Key-Moments Eligibility Governance',
+                'priority' => 'medium',
+                'supported_now' => false,
+                'needs_new_data' => ['Embedded video ID extraction', 'Deep-link/timestamp support on watch pages'],
+                'why_this_gap_exists' => 'Current video governance mostly stops at VideoObject presence. It does not distinguish true watch pages from generic embeds or evaluate key-moments eligibility.',
+                'evidence' => [
+                    'pending_rule_proposals' => $signals['pending_rule_proposals'] ?? 0,
+                ],
+                'trigger_concept' => 'Pages with valid embedded video content where users can watch the video and the page could support deeper video enhancements.',
+                'strict_guidelines' => [
+                    'Never fire on pages without a watchable video.',
+                    'Do not generate video-schema tasks for assets or decorative embeds.',
+                    'Treat VideoObject, Clip, and SeekToAction as separate capabilities with different requirements.',
+                ],
+                'success_gate' => 'Watch-page eligibility confirmed; video markup validates cleanly; key moments only proposed when deep links are technically supported.',
+            ];
+        }
+
+        if (!$this->corpusHasAny($ruleCorpusText, ['datepublished', 'datemodified', 'author'])) {
+            $candidates[] = [
+                'candidate_id' => 'DDT-EEAT-09',
+                'name' => 'Author, Date, and Editorial Freshness Governance for Outer Articles',
+                'priority' => 'medium',
+                'supported_now' => false,
+                'needs_new_data' => ['Author/byline extraction from rendered pages'],
+                'why_this_gap_exists' => 'The current EEAT rules cover testimonials, trust pages, and terminology, but not article-level authorship and freshness signals.',
+                'evidence' => [
+                    'high_impression_outer_pages' => $signals['high_impression_outer_pages'] ?? 0,
+                    'recent_rule_feedback_items' => $signals['recent_rule_feedback_items'] ?? 0,
+                ],
+                'trigger_concept' => 'Informational outer pages with durable search demand but weak editorial provenance signals.',
+                'strict_guidelines' => [
+                    'Only propose author/date schema or visible bylines when the site actually exposes that information.',
+                    'Use freshness as a relevance aid, not a license to churn content without purpose.',
+                    'Separate editorial provenance from generic schema inflation.',
+                ],
+                'success_gate' => 'Visible byline and publish/update dates align with any Article schema; freshness changes correlate with stable or improving query visibility.',
+            ];
+        }
+
+        if (!$this->corpusHasAny($ruleCorpusText, ['ai overview', 'citation share', 'serp feature owner'])) {
+            $candidates[] = [
+                'candidate_id' => 'AIS-011',
+                'name' => 'AI Overview and SERP Feature Proxy Watchlist',
+                'priority' => 'medium',
+                'supported_now' => false,
+                'needs_new_data' => ['SERP feature capture by query, including AI Overview presence or owner'],
+                'why_this_gap_exists' => 'The current system uses indirect SEO metrics well, but it does not explicitly track feature-level AI or SERP ownership changes on target queries.',
+                'evidence' => [
+                    'high_impression_outer_low_ctr_pages' => $signals['high_impression_outer_low_ctr_pages'] ?? 0,
+                ],
+                'trigger_concept' => 'Priority query families where DDT has impressions but feature ownership may be suppressing clicks above organic results.',
+                'strict_guidelines' => [
+                    'Use feature tracking as a measurement layer, not as proof of causality.',
+                    'Do not claim AI Overview wins without feature-level evidence.',
+                    'Tie any remediation play back to canonical pages and measurable query clusters.',
+                ],
+                'success_gate' => 'Feature ownership or feature presence is captured consistently enough to compare before/after query behavior.',
+            ];
+        }
+
+        return $candidates;
+    }
+
+    private function corpusHasAny(string $ruleCorpusText, array $needles): bool
+    {
+        foreach ($needles as $needle) {
+            if (str_contains($ruleCorpusText, strtolower($needle))) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function buildRuleGapPrompt(array $guidelines, array $successMeasures, array $candidates): string
+    {
+        $guidelineLines = [];
+        foreach ($guidelines as $guideline) {
+            $line = '- ' . ($guideline['rule'] ?? '');
+            if (!empty($guideline['source'])) {
+                $line .= ' [' . $guideline['source'] . ']';
+            }
+            $guidelineLines[] = $line;
+        }
+
+        $measureLines = [];
+        foreach ($successMeasures as $measure) {
+            $measureLines[] = sprintf(
+                '- %s: %s Success gate: %s',
+                (string) ($measure['measure'] ?? 'Measure'),
+                (string) ($measure['why_it_matters'] ?? ''),
+                (string) ($measure['minimum_gate'] ?? '')
+            );
+        }
+
+        $candidateLines = [];
+        foreach ($candidates as $candidate) {
+            $candidateLines[] = sprintf(
+                '- %s | %s | Priority: %s | Supported now: %s | Needs new data: %s | Gap: %s',
+                (string) ($candidate['candidate_id'] ?? 'CANDIDATE'),
+                (string) ($candidate['name'] ?? 'Unnamed'),
+                (string) ($candidate['priority'] ?? 'medium'),
+                !empty($candidate['supported_now']) ? 'yes' : 'no',
+                empty($candidate['needs_new_data']) ? 'none' : implode(', ', (array) $candidate['needs_new_data']),
+                (string) ($candidate['why_this_gap_exists'] ?? '')
+            );
+        }
+
+        return implode("\n", [
+            'You are Logiri\'s proposed-rule engine.',
+            '',
+            'Your task is to propose only net-new rules or genuine rule-family gap fills that are not already covered by the active rule corpus or by generator hygiene.',
+            '',
+            'STRICT GUIDELINES',
+            implode("\n", $guidelineLines),
+            '',
+            'SUCCESS MEASURES',
+            implode("\n", $measureLines),
+            '',
+            'CURRENT GAP CANDIDATES',
+            implode("\n", $candidateLines),
+            '',
+            'OUTPUT RULES',
+            '- Propose at most 5 rules.',
+            '- For each rule, state whether it is executable now or needs_new_data.',
+            '- Use only measurable triggers and explicit suppression conditions.',
+            '- Never use FAQ rich-result appearance as a primary KPI for Double D Trailers.',
+            '- Never propose schema that is unsupported, invisible on-page, or ineligible for the page type.',
+            '- If the proposal depends on AI-appearance tracking not present in first-party data, declare it as a measurement-layer rule and list the data source gap.',
+            '',
+            'Return JSON with: summary, candidate_rules, dropped_ideas, required_new_data, and why each proposal materially improves SEO or AI-appearance readiness.',
+        ]);
     }
 
     private function reviewTaskRow(array $task): array

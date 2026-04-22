@@ -91,6 +91,9 @@ try {
                 ['pending'],
             ),
         ],
+        'propose_rule_gaps' => $reviewService->proposeRuleGaps(
+            boundedInt($arguments['limit'] ?? 8, 1, 20),
+        ),
         'review_task' => reviewTask($reviewService, $arguments),
         default => throw new InvalidArgumentException('Unknown tool: ' . $tool),
     };
