@@ -15,6 +15,7 @@ class EvaluateRuleCommand extends Command
     private const MAX_ROUNDS   = 3;
     private const ASSET_FILTER = "url NOT LIKE '%.pdf' AND url NOT LIKE '%.doc' AND url NOT LIKE '%.docx' AND url NOT LIKE '%.xls' AND url NOT LIKE '%.xlsx' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.jpeg' AND url NOT LIKE '%.png' AND url NOT LIKE '%.zip'";
     private const TIER4_URLS   = "'/contact-us/','/get-quote/','/trailer-finder/','/book-a-video-call/','/join-our-mailing-list/','/freebook/','/horse-trailer-safety-webinars/','/virtual-horse-trailer-safety-inspection/'";
+    private ?array $knownCrawledUrls = null;
 
     // Team roster — used in output consensus prompts
     private const TEAM = [
@@ -828,6 +829,7 @@ PROMPT;
     private function sanitizePlayBriefs(array $briefs, array $rule, array $firingPages): array
     {
         $pageMap = [];
+        $knownUrls = $this->loadKnownCrawledUrls();
         foreach ($firingPages as $page) {
             if (!empty($page['url'])) {
                 $pageMap[$this->normalizeUrl((string) $page['url'])] = $page;
@@ -841,6 +843,10 @@ PROMPT;
             $page = $pageMap[$url] ?? null;
 
             if ($this->shouldDropBriefForUrl($rawUrl, $url, $page)) {
+                continue;
+            }
+
+            if ($url !== '' && $url !== '/' && !isset($knownUrls[$url])) {
                 continue;
             }
 
@@ -862,6 +868,53 @@ PROMPT;
         }
 
         return $sanitized;
+    }
+
+    private function loadKnownCrawledUrls(): array
+    {
+        if ($this->knownCrawledUrls !== null) {
+            return $this->knownCrawledUrls;
+        }
+
+        $known = [];
+
+        try {
+            $urls = $this->db->fetchFirstColumn(
+                "WITH latest_page_crawl_snapshots AS (
+                    SELECT *
+                    FROM (
+                        SELECT pcs.*,
+                               ROW_NUMBER() OVER (PARTITION BY pcs.url ORDER BY pcs.crawled_at DESC, pcs.id DESC) AS rn
+                        FROM page_crawl_snapshots pcs
+                    ) ranked
+                    WHERE rn = 1
+                )
+                SELECT url FROM latest_page_crawl_snapshots"
+            );
+
+            foreach ($urls as $url) {
+                if (is_string($url) && trim($url) !== '') {
+                    $known[$this->normalizeUrl($url)] = true;
+                }
+            }
+        } catch (\Throwable) {
+            // Ignore and fall back to other sources.
+        }
+
+        try {
+            $urls = $this->db->fetchFirstColumn('SELECT url FROM page_facts');
+            foreach ($urls as $url) {
+                if (is_string($url) && trim($url) !== '') {
+                    $known[$this->normalizeUrl($url)] = true;
+                }
+            }
+        } catch (\Throwable) {
+            // Ignore and return what we have.
+        }
+
+        $this->knownCrawledUrls = $known;
+
+        return $this->knownCrawledUrls;
     }
 
     private function repairMissingCrawlBoilerplate(array $brief, array $page): array
