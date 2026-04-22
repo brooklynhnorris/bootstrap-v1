@@ -165,8 +165,9 @@ class EvaluateRuleCommand extends Command
                 $briefs = $outputConsensus['briefs'] ?? [];
                 foreach ($briefs as $brief) {
                     $title = $brief['title'] ?? '';
-                    $url   = $brief['url'] ?? '';
+                    $url   = $this->normalizeUrl((string) ($brief['url'] ?? ''));
                     if (!$title || !$url) continue;
+                    $brief['url'] = $url;
 
                     // Skip meta-commentary briefs (LLM explaining its process instead of an actual task)
                     if (str_contains(strtolower($title), 'maintaining my response') || str_contains(strtolower($title), 'peer summaries')) continue;
@@ -1523,8 +1524,31 @@ PROMPT;
 
     private function normalizeUrl(string $url): string
     {
-        $normalized = '/' . trim($url, '/');
-        return $normalized === '/' ? '/' : $normalized . '/';
+        $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5));
+        if ($url === '') {
+            return '';
+        }
+
+        if (preg_match('#^[a-z][a-z0-9+.-]*://#i', $url) === 1) {
+            $parsedPath = parse_url($url, PHP_URL_PATH);
+            $url = is_string($parsedPath) && $parsedPath !== '' ? $parsedPath : '/';
+        }
+
+        $url = str_replace('\\', '/', $url);
+        $url = preg_replace('#[?#].*$#', '', $url) ?? $url;
+
+        if (preg_match('#^//[^/]+(?P<path>/.*)?$#', $url, $matches) === 1) {
+            $url = $matches['path'] ?? '/';
+        }
+
+        $url = ltrim($url, '/');
+        $url = preg_replace('#^(?:https?:/+)?(?:www\.)?doubledtrailers\.com/?#i', '', $url) ?? $url;
+        $url = preg_replace('#/+#', '/', $url) ?? $url;
+
+        $normalized = '/' . ltrim($url, '/');
+        $normalized = preg_replace('#/+#', '/', $normalized) ?? $normalized;
+
+        return $normalized === '/' ? '/' : rtrim($normalized, '/') . '/';
     }
 
     private function toBool(mixed $value): bool

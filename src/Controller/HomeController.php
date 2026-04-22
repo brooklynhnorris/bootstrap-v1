@@ -10,6 +10,7 @@ use App\Service\CrawlContextService;
 use App\Service\LearningExtractionService;
 use App\Service\PromptBuilderService;
 use App\Service\RuleContextService;
+use App\Service\TaskReviewService;
 use App\Service\TaskSuggestionService;
 use Symfony\Bundle\FrameworkBundle\Controller\AbstractController;
 use Symfony\Component\HttpFoundation\Request;
@@ -32,7 +33,8 @@ class HomeController extends AbstractController
         private LearningExtractionService $learningExtractionService,
         private PromptBuilderService $promptBuilderService,
         private RuleContextService $ruleContextService,
-        private TaskSuggestionService $taskSuggestionService
+        private TaskSuggestionService $taskSuggestionService,
+        private TaskReviewService $taskReviewService
     ) {
     }
 
@@ -1739,6 +1741,53 @@ class HomeController extends AbstractController
         }
     }
 
+    #[Route('/api/reviewer/tasks', name: 'api_reviewer_tasks', methods: ['GET'])]
+    public function reviewTasks(Request $request): JsonResponse
+    {
+        try {
+            $assignee = $request->query->get('assignee');
+            $limit = min(200, max(1, (int) $request->query->get('limit', 50)));
+            $statusFilter = trim((string) $request->query->get('statuses', 'pending'));
+            $statuses = array_values(array_filter(array_map('trim', explode(',', $statusFilter))));
+
+            return new JsonResponse(
+                $this->taskReviewService->reviewPendingTasks($assignee !== '' ? $assignee : null, $limit, $statuses)
+            );
+        } catch (\Throwable $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    #[Route('/api/reviewer/tasks/{id}', name: 'api_reviewer_task_single', methods: ['GET'])]
+    public function reviewTask(int $id): JsonResponse
+    {
+        try {
+            $review = $this->taskReviewService->reviewTaskById($id);
+            if ($review === null) {
+                return new JsonResponse(['error' => 'Task not found'], 404);
+            }
+
+            return new JsonResponse($review);
+        } catch (\Throwable $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    #[Route('/api/reviewer/daily-summary', name: 'api_reviewer_daily_summary', methods: ['GET'])]
+    public function reviewerDailySummary(Request $request): JsonResponse
+    {
+        try {
+            $assignee = $request->query->get('assignee');
+            $limit = min(200, max(1, (int) $request->query->get('limit', 100)));
+
+            return new JsonResponse(
+                $this->taskReviewService->buildDailySummary($assignee !== '' ? $assignee : null, $limit)
+            );
+        } catch (\Throwable $e) {
+            return new JsonResponse(['error' => $e->getMessage()], 500);
+        }
+    }
+
     #[Route('/api/learnings', name: 'api_learnings_create', methods: ['POST'])]
     public function createLearning(Request $request): JsonResponse
     {
@@ -1886,5 +1935,4 @@ class HomeController extends AbstractController
         return in_array($flag, ['1', 'true', 'yes', 'on'], true);
     }
 }
-
 
