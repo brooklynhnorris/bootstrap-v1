@@ -413,35 +413,35 @@ class HomeController extends AbstractController
         }
 
         // ── Execute actions from LLM response ──
-        $actionsExecuted = [];
+        $actionNotices = [];
         $llmActionsEnabled = $this->llmActionsEnabled();
         if (preg_match('/<!-- ACTIONS_JSON -->\s*(.*?)\s*<!-- \/ACTIONS_JSON -->/s', $text, $actionMatches)) {
             $actions = json_decode(trim($actionMatches[1]), true);
             if (is_array($actions)) {
                 $queuedActions = $this->actionRequestService->queueMany($actions, 'llm');
                 if (!empty($queuedActions)) {
-                    $actionsExecuted = array_merge($actionsExecuted, $queuedActions);
+                    $actionNotices = array_merge($actionNotices, $queuedActions);
                 }
 
                 if (empty($queuedActions)) {
-                    $actionsExecuted[] = 'LLM actions were proposed, but action request queueing is unavailable until migrations are run.';
+                    $actionNotices[] = 'LLM actions were proposed, but action request queueing is unavailable until migrations are run.';
                 } elseif ($llmActionsEnabled) {
-                    $actionsExecuted[] = 'LLM actions were queued for approval instead of executing immediately.';
+                    $actionNotices[] = 'LLM actions were queued for approval. No database changes were executed automatically in chat.';
                 } else {
-                    $actionsExecuted[] = 'LLM actions were queued for review; LOGIRI_ENABLE_LLM_ACTIONS is disabled so nothing executed automatically.';
+                    $actionNotices[] = 'LLM actions were queued for review. LOGIRI_ENABLE_LLM_ACTIONS is disabled, so nothing executed automatically.';
                 }
             }
             if (!is_array($actions)) {
-                $actionsExecuted[] = 'LLM actions were proposed but not executed because LOGIRI_ENABLE_LLM_ACTIONS is disabled.';
+                $actionNotices[] = 'LLM actions were proposed but could not be queued from this response.';
             }
             // Strip the actions block from the visible response
             $text = preg_replace('/<!-- ACTIONS_JSON -->.*?<!-- \/ACTIONS_JSON -->/s', '', $text);
         }
 
-        // If actions were executed, append a confirmation to the response
-        if (!empty($actionsExecuted)) {
+        // If actions were requested, append an accurate status note.
+        if (!empty($actionNotices)) {
             $text .= "\n\n---\n**✓ Actions executed:**\n";
-            foreach ($actionsExecuted as $ae) {
+            foreach ($actionNotices as $ae) {
                 $text .= "- {$ae}\n";
             }
         }
@@ -1793,6 +1793,107 @@ class HomeController extends AbstractController
             return $this->safeJson(
                 $this->taskReviewService->buildDailySummary($assignee !== '' ? $assignee : null, $limit)
             );
+        } catch (\Throwable $e) {
+            return $this->safeJson(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    #[Route('/api/reviewer/bulk-close-rejects', name: 'api_reviewer_bulk_close_rejects', methods: ['POST'])]
+    public function bulkCloseReviewerRejects(Request $request): JsonResponse
+    {
+        try {
+            $body = json_decode($request->getContent(), true) ?: [];
+            $assignee = isset($body['assignee']) ? trim((string) $body['assignee']) : null;
+            $limit = min(200, max(1, (int) ($body['limit'] ?? 100)));
+            $actor = $this->getCurrentActorName();
+            $now = date('Y-m-d H:i:s');
+
+            $rejectReviews = $this->taskReviewService->collectRejectableReviews($assignee !== '' ? $assignee : null, $limit);
+            if (empty($rejectReviews)) {
+                return $this->safeJson([
+                    'ok' => true,
+                    'closed' => 0,
+                    'task_ids' => [],
+                    'message' => 'No reviewer-rejected pending tasks to close.',
+                ]);
+            }
+
+            $closedIds = [];
+            $this->db->beginTransaction();
+            try {
+                foreach ($rejectReviews as $review) {
+                    $task = $review['task'] ?? [];
+                    $taskId = isset($task['id']) ? (int) $task['id'] : 0;
+                    if ($taskId <= 0) {
+                        continue;
+                    }
+
+                    $currentTask = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$taskId]);
+                    if (!$currentTask || ($currentTask['status'] ?? null) !== 'pending') {
+                        continue;
+                    }
+
+                    $reasonCodes = $review['reason_codes'] ?? [];
+                    $reasonText = 'Closed by reviewer bulk action';
+                    if (!empty($reasonCodes)) {
+                        $reasonText .= ': ' . implode(', ', $reasonCodes);
+                    }
+
+                    $this->db->update('tasks', [
+                        'status' => 'closed',
+                        'completed_at' => $now,
+                        'recheck_date' => null,
+                        'recheck_days' => null,
+                        'recheck_verified' => true,
+                        'recheck_result' => 'reviewer_reject',
+                        'recheck_criteria' => $reasonText,
+                    ], ['id' => $taskId]);
+
+                    $taskUrl = $this->extractTaskUrl($currentTask);
+                    $pageContext = $taskUrl ? $this->fetchLatestPageContext($taskUrl) : [];
+
+                    try {
+                        $this->db->insert('task_rejections', [
+                            'task_id' => $taskId,
+                            'rule_id' => $currentTask['rule_id'] ?? null,
+                            'url' => $taskUrl ?: null,
+                            'page_type' => $pageContext['page_type'] ?? null,
+                            'target_query' => $pageContext['target_query'] ?? null,
+                            'reason_code' => (string) ($reasonCodes[0] ?? 'reviewer_reject'),
+                            'reason_text' => $reasonText,
+                            'guardrail_code' => 'reviewer_bulk_close',
+                            'scope' => 'task_only',
+                            'created_by' => $actor,
+                            'created_at' => $now,
+                        ]);
+                    } catch (\Throwable $e) {
+                        // Non-fatal: closing the task is more important than writing audit memory.
+                    }
+
+                    $this->logActivity(
+                        $actor,
+                        'dismissed_task',
+                        'task',
+                        $taskId,
+                        $currentTask['title'] ?? '',
+                        $reasonText
+                    );
+
+                    $closedIds[] = $taskId;
+                }
+
+                $this->db->commit();
+            } catch (\Throwable $e) {
+                $this->db->rollBack();
+                throw $e;
+            }
+
+            return $this->safeJson([
+                'ok' => true,
+                'closed' => count($closedIds),
+                'task_ids' => $closedIds,
+                'message' => sprintf('Closed %d reviewer-rejected pending task(s).', count($closedIds)),
+            ]);
         } catch (\Throwable $e) {
             return $this->safeJson(['error' => $e->getMessage()], 500);
         }

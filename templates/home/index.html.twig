@@ -3594,6 +3594,7 @@
         const bestWork = Array.isArray(summary.best_work_now) ? summary.best_work_now : [];
         const cleanup = Array.isArray(summary.cleanup_queue) ? summary.cleanup_queue : [];
         const generatedAt = summary.generated_at ? new Date(summary.generated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'just now';
+        const rejectCount = Number(health.reject || 0);
 
         container.innerHTML =
             '<div class="reviewer-header">' +
@@ -3601,7 +3602,12 @@
                     '<div class="reviewer-title">Daily Review Pass</div>' +
                     '<div class="reviewer-subtitle">Structured QA across pending tasks using live rule, crawl, and rejection evidence. Updated ' + escapeHtml(generatedAt) + '.</div>' +
                 '</div>' +
-                '<button class="reviewer-refresh" onclick="loadReviewerSummary()">Refresh</button>' +
+                '<div style="display:flex;gap:8px;align-items:center;">' +
+                    (rejectCount > 0
+                        ? '<button class="reviewer-refresh" onclick="bulkCloseReviewerRejects()" title="Close the tasks currently marked reject by the reviewer">Close ' + rejectCount + ' Rejects</button>'
+                        : '') +
+                    '<button class="reviewer-refresh" onclick="loadReviewerSummary()">Refresh</button>' +
+                '</div>' +
             '</div>' +
             '<div class="reviewer-health">' +
                 renderReviewerHealthCard(health.pending_reviewed || 0, 'Reviewed', '') +
@@ -3643,8 +3649,9 @@
         return '<div class="reviewer-list">' + items.slice(0, 5).map(item => {
             const verdict = includeVerdict && item.verdict ? '<span class="reviewer-chip ' + escapeHtml(item.verdict) + '">' + escapeHtml(item.verdict) + '</span>' : '';
             const reasons = Array.isArray(item.reason_codes) && item.reason_codes.length ? item.reason_codes.join(', ') : '';
+            const taskId = item.task_id ? '<span style="font-family:var(--font-mono);color:var(--text-muted);margin-right:6px;">#' + escapeHtml(String(item.task_id)) + '</span>' : '';
             return '<div class="reviewer-list-item">' +
-                '<div class="reviewer-item-title">' + escapeHtml(item.title || '') + '</div>' +
+                '<div class="reviewer-item-title">' + taskId + escapeHtml(item.title || '') + '</div>' +
                 '<div class="reviewer-item-meta">' +
                     (item.rule_id ? escapeHtml(item.rule_id) + ' · ' : '') +
                     (item.url ? escapeHtml(item.url) + ' · ' : '') +
@@ -3674,12 +3681,48 @@
         }
     }
 
+    async function bulkCloseReviewerRejects() {
+        const assignee = USER_NAME || '';
+        if (!confirm('Close all tasks currently marked reject by the reviewer for ' + assignee + '? This will move them out of pending.')) {
+            return;
+        }
+
+        try {
+            const res = await fetch('/api/reviewer/bulk-close-rejects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ assignee: assignee, limit: 200 })
+            });
+            const data = await res.json();
+            if (!res.ok || data.error) {
+                throw new Error(data.error || 'Bulk close failed');
+            }
+
+            showNotification(data.message || ('Closed ' + (data.closed || 0) + ' tasks'), 'green');
+            await loadReviewerSummary();
+            await loadDashboardData();
+            if (typeof refreshBoard === 'function') {
+                await refreshBoard();
+            }
+        } catch (e) {
+            console.error('Bulk close reviewer rejects failed:', e);
+            showNotification('Could not close reviewer rejects: ' + e.message, 'red');
+        }
+    }
+
     async function loadDashboardData() {
         try {
             loadReviewerSummary();
 
-            // Fetch tasks for stats + focus cards
-            const tasksRes = await fetch('/api/tasks');
+            // Fetch persona-scoped tasks for dashboard stats + focus cards.
+            // The top-bar counters rendered by Twig are assignee-specific, so
+            // the dashboard must use the same scope or the UI shows conflicting
+            // numbers like "82 pending" in the header and "177 Active Plays"
+            // in the dashboard cards.
+            const tasksUrl = USER_NAME
+                ? '/api/tasks?assignee=' + encodeURIComponent(USER_NAME)
+                : '/api/tasks';
+            const tasksRes = await fetch(tasksUrl);
             const tasksText = await tasksRes.text();
             let tasks = [];
             try { tasks = JSON.parse(tasksText); } catch(e) { tasks = []; }

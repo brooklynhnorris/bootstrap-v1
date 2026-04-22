@@ -43,6 +43,35 @@ class TaskReviewService
         return $this->buildDailySummaryFromReviews($reviews, $assignee);
     }
 
+    public function collectRejectableTaskIds(?string $assignee = null, int $limit = 100): array
+    {
+        $reviews = $this->reviewPendingTasks($assignee, $limit, ['pending']);
+        $ids = [];
+
+        foreach ($reviews as $review) {
+            if (($review['verdict'] ?? null) !== 'reject') {
+                continue;
+            }
+
+            $taskId = $review['task']['id'] ?? null;
+            if (is_numeric($taskId)) {
+                $ids[] = (int) $taskId;
+            }
+        }
+
+        return array_values(array_unique($ids));
+    }
+
+    public function collectRejectableReviews(?string $assignee = null, int $limit = 100): array
+    {
+        $reviews = $this->reviewPendingTasks($assignee, $limit, ['pending']);
+
+        return array_values(array_filter(
+            $reviews,
+            fn (array $review) => ($review['verdict'] ?? null) === 'reject'
+        ));
+    }
+
     private function buildDailySummaryFromReviews(array $reviews, ?string $assignee): array
     {
         $verdictCounts = [

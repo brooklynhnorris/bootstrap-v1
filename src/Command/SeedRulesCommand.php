@@ -94,7 +94,7 @@ class SeedRulesCommand extends Command
             $tier             = 'A';
             $category         = '';
 
-            if (preg_match('/Trigger Source:\s*([^\n]+)/', $ruleText, $m)) $triggerSource = trim($m[1]);
+            if (preg_match('/^Trigger Source:\h*(.*?)\h*$/m', $ruleText, $m)) $triggerSource = trim($m[1]);
             if (preg_match('/Trigger Condition:\s*(.*?)(?=\nThreshold:|$)/s', $ruleText, $m)) {
                 $triggerCondition = trim($m[1]);
                 $triggerSql = preg_replace('/```sql\s*/', '', $triggerCondition);
@@ -104,10 +104,17 @@ class SeedRulesCommand extends Command
             if (preg_match('/Threshold:\s*(.*?)(?=\nDiagnosis:|$)/s', $ruleText, $m)) $threshold = trim($m[1]);
             if (preg_match('/Diagnosis:\s*(.*?)(?=\nAction Output:|$)/s', $ruleText, $m)) $diagnosis = trim($m[1]);
             if (preg_match('/Action Output:\s*(.*?)(?=\nPriority:|$)/s', $ruleText, $m)) $actionOutput = trim($m[1]);
-            if (preg_match('/Priority:\s*([^\n]+)/', $ruleText, $m)) $priority = trim($m[1]);
-            if (preg_match('/Assigned:\s*([^\n]+)/', $ruleText, $m)) $assigned = trim($m[1]);
+            if (preg_match('/^Priority:\h*(.*?)\h*$/m', $ruleText, $m)) $priority = trim($m[1]);
+            if (preg_match('/^Assigned:\h*(.*?)\h*$/m', $ruleText, $m)) $assigned = trim($m[1]);
             if (preg_match('/AI Search Relevance:\s*(.*?)(?=\nData Needed:|Tier:|$)/s', $ruleText, $m)) $aiRelevance = trim($m[1]);
-            if (preg_match('/Tier:\s*([^\n]+)/', $ruleText, $m)) $tier = trim($m[1]);
+            if (preg_match('/^Tier:\h*(.*?)\h*$/m', $ruleText, $m)) $tier = trim($m[1]);
+
+            if ($priority === '') {
+                $priority = 'Medium';
+            }
+            if ($assigned === '') {
+                $assigned = 'Brook';
+            }
 
             // Infer category from rule ID prefix
             $category = match(true) {
