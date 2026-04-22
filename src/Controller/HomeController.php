@@ -42,6 +42,16 @@ class HomeController extends AbstractController
     {
     }
 
+    private function safeJson(mixed $data, int $status = 200): JsonResponse
+    {
+        $response = new JsonResponse();
+        $response->setEncodingOptions(JsonResponse::DEFAULT_ENCODING_OPTIONS | JSON_INVALID_UTF8_SUBSTITUTE);
+        $response->setStatusCode($status);
+        $response->setData($data);
+
+        return $response;
+    }
+
     #[Route('/api/admin/clear-slate', name: 'clear_slate', methods: ['POST'])]
     public function clearSlate(): JsonResponse
     {
@@ -1750,11 +1760,11 @@ class HomeController extends AbstractController
             $statusFilter = trim((string) $request->query->get('statuses', 'pending'));
             $statuses = array_values(array_filter(array_map('trim', explode(',', $statusFilter))));
 
-            return new JsonResponse(
+            return $this->safeJson(
                 $this->taskReviewService->reviewPendingTasks($assignee !== '' ? $assignee : null, $limit, $statuses)
             );
         } catch (\Throwable $e) {
-            return new JsonResponse(['error' => $e->getMessage()], 500);
+            return $this->safeJson(['error' => $e->getMessage()], 500);
         }
     }
 
@@ -1764,12 +1774,12 @@ class HomeController extends AbstractController
         try {
             $review = $this->taskReviewService->reviewTaskById($id);
             if ($review === null) {
-                return new JsonResponse(['error' => 'Task not found'], 404);
+                return $this->safeJson(['error' => 'Task not found'], 404);
             }
 
-            return new JsonResponse($review);
+            return $this->safeJson($review);
         } catch (\Throwable $e) {
-            return new JsonResponse(['error' => $e->getMessage()], 500);
+            return $this->safeJson(['error' => $e->getMessage()], 500);
         }
     }
 
@@ -1780,11 +1790,11 @@ class HomeController extends AbstractController
             $assignee = $request->query->get('assignee');
             $limit = min(200, max(1, (int) $request->query->get('limit', 100)));
 
-            return new JsonResponse(
+            return $this->safeJson(
                 $this->taskReviewService->buildDailySummary($assignee !== '' ? $assignee : null, $limit)
             );
         } catch (\Throwable $e) {
-            return new JsonResponse(['error' => $e->getMessage()], 500);
+            return $this->safeJson(['error' => $e->getMessage()], 500);
         }
     }
 
@@ -1935,4 +1945,3 @@ class HomeController extends AbstractController
         return in_array($flag, ['1', 'true', 'yes', 'on'], true);
     }
 }
-
