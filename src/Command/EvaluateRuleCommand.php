@@ -224,9 +224,11 @@ class EvaluateRuleCommand extends Command
                             ['url' => '%' . $url . '%', 'rule' => $rule['id']]
                         );
                         if ($crossDup) {
-                            // Check if the existing task covers the same action type
                             $existingTitle = strtolower($crossDup['title'] ?? '');
-                            $overlap = match($actionType) {
+                            $existingFamily = $this->inferActionFamily($existingTitle);
+                            $overlap = $strictActionFamily !== null && $existingFamily === $strictActionFamily;
+                            if (!$overlap) {
+                                $overlap = match($actionType) {
                                 'proprietary_terms' => str_contains($existingTitle, 'proprietary') || str_contains($existingTitle, 'z-frame') || str_contains($existingTitle, 'brand'),
                                 'internal_links' => str_contains($existingTitle, 'link'),
                                 'schema' => str_contains($existingTitle, 'schema') || str_contains($existingTitle, 'json-ld'),
@@ -235,7 +237,8 @@ class EvaluateRuleCommand extends Command
                                 'content_length' => str_contains($existingTitle, 'word count') || str_contains($existingTitle, 'thin') || str_contains($existingTitle, 'expand'),
                                 'meta_description' => str_contains($existingTitle, 'meta description'),
                                 default => false,
-                            };
+                                };
+                            }
                             if ($overlap) {
                                 $output->writeln("     ⚡ CROSS-RULE DEDUP: Skipping {$rule['id']} task for {$url} — overlaps with {$crossDup['rule_id']} task #{$crossDup['id']}");
                                 continue;
@@ -2010,6 +2013,10 @@ PROMPT;
         try {
             $af = self::ASSET_FILTER;
             $utilExclude = "AND is_utility IS NOT TRUE AND url NOT LIKE '%thank-you%' AND url NOT LIKE '%thank_you%' AND url NOT LIKE '%thanks%' AND url NOT LIKE '%-submit%' AND url NOT LIKE '%-confirmation%' AND url NOT LIKE '%prize-wheel%' AND url NOT LIKE '%payment-failed%' AND url NOT LIKE '%payment-success%' AND url NOT LIKE '%terms-of-use%' AND url NOT LIKE '%privacy-policy%'";
+
+            if (($rule['id'] ?? '') === 'MAO-R6') {
+                return [];
+            }
 
             // Try to extract executable SQL from the rule's trigger condition
             $sql = $rule['trigger_sql'] ?? '';
