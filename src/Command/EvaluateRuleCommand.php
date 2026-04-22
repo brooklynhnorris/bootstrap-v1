@@ -163,11 +163,23 @@ class EvaluateRuleCommand extends Command
 
                 // ── CREATE TASKS FROM PLAY BRIEFS ──
                 $briefs = $outputConsensus['briefs'] ?? [];
+                $firingPageMap = [];
+                foreach ($firingPages as $firingPage) {
+                    if (!empty($firingPage['url'])) {
+                        $firingPageMap[$this->normalizeUrl((string) $firingPage['url'])] = $firingPage;
+                    }
+                }
                 foreach ($briefs as $brief) {
                     $title = $brief['title'] ?? '';
                     $url   = $this->normalizeUrl((string) ($brief['url'] ?? ''));
                     if (!$title || !$url) continue;
                     $brief['url'] = $url;
+
+                    if (!isset($firingPageMap[$url])) {
+                        $tasksSuppressed++;
+                        $output->writeln("     [suppressed] {$title} â€” {$url} is not in the current firing set");
+                        continue;
+                    }
 
                     // Skip meta-commentary briefs (LLM explaining its process instead of an actual task)
                     if (str_contains(strtolower($title), 'maintaining my response') || str_contains(strtolower($title), 'peer summaries')) continue;
@@ -184,6 +196,15 @@ class EvaluateRuleCommand extends Command
                         ['rule' => $rule['id'], 'url' => '%' . $url . '%']
                     );
                     if ($existing) continue;
+
+                    $strictActionFamily = $this->inferActionFamily($title, (string) ($brief['your_move'] ?? ''), (string) ($brief['done_when'] ?? ''));
+                    if ($strictActionFamily && $url) {
+                        $strictCrossDup = $this->findExistingTaskByUrlAndActionFamily($url, $strictActionFamily, $rule['id']);
+                        if ($strictCrossDup) {
+                            $output->writeln("     âš¡ STRICT DEDUP: Skipping {$rule['id']} task for {$url} â€” overlaps with {$strictCrossDup['rule_id']} task #{$strictCrossDup['id']} ({$strictActionFamily})");
+                            continue;
+                        }
+                    }
 
                     // Cross-rule dedup — detect overlapping work across different rules for the same URL
                     // Group rules by action type to identify semantic duplicates
@@ -1481,6 +1502,48 @@ PROMPT;
             || str_starts_with($normalizedLower, '/wp-json/')
             || str_starts_with($normalizedLower, '/wp-admin/')
             || preg_match('/\.(html|json|xml|txt)$/', $normalizedLower) === 1;
+    }
+
+    private function inferActionFamily(string $title, string $yourMove = '', string $doneWhen = ''): ?string
+    {
+        $text = strtolower(trim($title . "\n" . $yourMove . "\n" . $doneWhen));
+
+        return match (true) {
+            str_contains($text, 'alt text') || str_contains($text, 'decorative alt') || str_contains($text, 'image alt') => 'images',
+            str_contains($text, 'videoobject') || str_contains($text, 'schema') || str_contains($text, 'json-ld') || str_contains($text, 'faqpage') || str_contains($text, 'organization schema') || str_contains($text, 'review schema') || str_contains($text, 'itemlist') || str_contains($text, 'product schema') => 'schema',
+            str_contains($text, 'internal link') || str_contains($text, 'anchor text') || str_contains($text, 'cluster link') || (str_contains($text, 'link') && str_contains($text, 'inbound')) => 'internal_links',
+            str_contains($text, 'title tag') || str_contains($text, 'meta description') => 'metadata',
+            str_contains($text, 'h1') || str_contains($text, 'h2') || str_contains($text, 'heading') => 'headings',
+            str_contains($text, 'z-frame') || str_contains($text, 'proprietary') || str_contains($text, 'brand term') || str_contains($text, 'testimonial') || str_contains($text, 'review block') => 'content_entity',
+            str_contains($text, 'thin content') || str_contains($text, 'word count') || str_contains($text, '1,000') || str_contains($text, '1000') || str_contains($text, 'expand') => 'content_depth',
+            str_contains($text, 'canonical') || str_contains($text, 'redirect') => 'canonical_redirect',
+            default => null,
+        };
+    }
+
+    private function findExistingTaskByUrlAndActionFamily(string $url, string $actionFamily, string $currentRuleId): ?array
+    {
+        $tasks = $this->db->fetchAllAssociative(
+            "SELECT id, rule_id, title, description
+             FROM tasks
+             WHERE status NOT IN ('done','closed')
+               AND title LIKE :url
+               AND rule_id != :rule",
+            ['url' => '%' . $url . '%', 'rule' => $currentRuleId]
+        );
+
+        foreach ($tasks as $task) {
+            $existingFamily = $this->inferActionFamily(
+                (string) ($task['title'] ?? ''),
+                (string) ($task['description'] ?? ''),
+                ''
+            );
+            if ($existingFamily === $actionFamily) {
+                return $task;
+            }
+        }
+
+        return null;
     }
 
     private function computeBriefBoardConfidence(array $brief, ?array $outputConsensus, array $stage1Consensus): float

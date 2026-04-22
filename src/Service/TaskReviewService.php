@@ -104,6 +104,8 @@ class TaskReviewService
         $resolvedOrOutdated = [];
         $rulesToRevise = [];
         $infrastructureBlockers = [];
+        $rejectNow = [];
+        $investigate = [];
 
         foreach ($reviews as $review) {
             $verdict = $review['verdict'] ?? 'do';
@@ -117,6 +119,10 @@ class TaskReviewService
                 $waitForCrawl[] = $review;
             }
 
+            if ($verdict === 'wait' || ($verdict === 'reject' && in_array('missing_crawl_context', $reasonCodes, true))) {
+                $investigate[] = $review;
+            }
+
             if ($verdict === 'reject' && array_intersect($reasonCodes, [
                 'asset_url_false_positive',
                 'asset_or_bad_url',
@@ -128,6 +134,10 @@ class TaskReviewService
 
             if ($verdict === 'reject' && in_array('no_active_violation', $reasonCodes, true)) {
                 $resolvedOrOutdated[] = $review;
+            }
+
+            if ($verdict === 'reject') {
+                $rejectNow[] = $review;
             }
 
             if ($verdict === 'revise_rule') {
@@ -144,6 +154,7 @@ class TaskReviewService
         $suspectedDuplicates = $this->findSuspectedDuplicates($reviews);
         $pipelineStatusGuess = $this->buildPipelineStatusGuess(count($reviews), $staleCount, $missingContextCount);
         $boardCleanupPlan = $this->buildBoardCleanupPlan($reviews, $suspectedDuplicates);
+        $rejectReasonBuckets = $this->groupReviewsByPrimaryReason($rejectNow);
 
         $operatingRecommendation = $this->buildOperatingRecommendation(
             $dailySummary['board_health'] ?? [],
@@ -159,6 +170,12 @@ class TaskReviewService
             'assignee' => $assignee,
             'board_health' => $dailySummary['board_health'] ?? [],
             'do_now' => array_map(fn (array $review) => $this->compactReview($review), array_slice($doNow, 0, 8)),
+            'do_now_total' => count($doNow),
+            'reject_now' => array_map(fn (array $review) => $this->compactReview($review), $rejectNow),
+            'reject_now_total' => count($rejectNow),
+            'reject_reason_buckets' => $rejectReasonBuckets,
+            'investigate' => array_map(fn (array $review) => $this->compactReview($review), $investigate),
+            'investigate_total' => count($investigate),
             'wait_for_crawl' => array_map(fn (array $review) => $this->compactReview($review), array_slice($waitForCrawl, 0, 12)),
             'likely_false_positives' => array_map(fn (array $review) => $this->compactReview($review), array_slice($likelyFalsePositives, 0, 8)),
             'resolved_or_outdated_tasks' => array_map(fn (array $review) => $this->compactReview($review), array_slice($resolvedOrOutdated, 0, 12)),
@@ -186,6 +203,12 @@ class TaskReviewService
             ],
             'pipeline_status_guess' => $pipelineStatusGuess,
             'top_reason_codes' => $dailySummary['top_reason_codes'] ?? [],
+            'summary_consistency' => [
+                'review_count' => count($reviews),
+                'bucket_total' => count($doNow) + count($rejectNow) + count(array_filter($reviews, fn (array $review) => ($review['verdict'] ?? null) === 'wait')) + count($rulesToRevise),
+                'reject_narrative_covers_all' => true,
+                'investigate_narrative_covers_all' => true,
+            ],
             'operating_recommendation' => $operatingRecommendation,
         ];
     }
@@ -703,6 +726,31 @@ class TaskReviewService
         }
 
         return 'No clear execution tranche stands out yet. Re-run the brief after the next crawl or after any major board mutations so the reviewer can recompute priorities from fresher evidence.';
+    }
+
+    private function groupReviewsByPrimaryReason(array $reviews): array
+    {
+        $groups = [];
+
+        foreach ($reviews as $review) {
+            $reasonCodes = $review['reason_codes'] ?? [];
+            $primaryReason = is_array($reasonCodes) && $reasonCodes !== [] ? (string) reset($reasonCodes) : 'unknown';
+
+            if (!isset($groups[$primaryReason])) {
+                $groups[$primaryReason] = [
+                    'reason_code' => $primaryReason,
+                    'count' => 0,
+                    'tasks' => [],
+                ];
+            }
+
+            $groups[$primaryReason]['count']++;
+            $groups[$primaryReason]['tasks'][] = $this->compactReview($review);
+        }
+
+        usort($groups, fn (array $left, array $right): int => $right['count'] <=> $left['count']);
+
+        return array_values($groups);
     }
 
     private function buildBoardCleanupPlan(array $reviews, array $suspectedDuplicates): array
