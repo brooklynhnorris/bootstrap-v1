@@ -113,16 +113,16 @@ WHERE page_type = 'core'
   AND word_count > 500
   AND is_noindex = FALSE
 ```
-Threshold: word_count > 500 on indexed Tier 3 model/detail pages only. Do not apply to homepage or category hubs.
+Threshold: word_count > 500 on indexed Tier 3 product/model detail pages only. Do not apply to homepage, category hubs, product-carrier hubs, or MSE-carrier pages.
 Data Fields:
 Needs New Data: None.
 Investigation Steps:
 
-Diagnosis: Model/detail pages exceeding 500 body words dilute the MSE-first content architecture     search engines read prose competition against structured elements, and AI systems may extract the wrong content block as the "answer" when body text is overlong and unanchored. This rule is not a hub-page governance rule.
+Diagnosis: Product/model detail pages exceeding 500 body words dilute the MSE-first content architecture     search engines read prose competition against structured elements, and AI systems may extract the wrong content block as the "answer" when body text is overlong and unanchored. This rule is not a hub-page governance rule and must never be used on product-carrier hubs or category landing pages.
 
 **ACTION_OUTPUT (Play-Brief Format):**
-- **Current state    ** Core page body text exceeds 500 words; MSE elements (spec tables, image galleries, configuration options) are visually and structurally subordinated to prose; page reads as an article, not a product page.
-- **Your move    ** Edit body text to    500 words only on model/detail pages. Remove repeated explanatory prose first and preserve at least one compatible proprietary feature mention in the remaining body text. Do not use this rule to strip hub-page buying guidance or category-level differentiators.
+- **Current state    ** Product/model detail page body text exceeds 500 words; MSE elements (spec tables, image galleries, configuration options) are visually and structurally subordinated to prose; page reads as an article, not a product detail page.
+- **Your move    ** Edit body text to    500 words only on true model/detail pages. Remove repeated explanatory prose first and preserve at least one compatible proprietary feature mention in the remaining body text. Do not use this rule to strip hub-page buying guidance, category-level differentiators, or any page acting as the primary MSE carrier for a product class.
 - **Offload destination    ** Content about Z-Frame metallurgy, SafeBump engineering detail, or SafeKick material science belongs on outer pages at    1,000 words, not on the core product page.
 - **Done when    ** `word_count`     500 on next crawl AND the offloaded content lives on a properly classified outer page passing OPQ-003.
 - **Recheck    ** Next scheduled crawl cycle; flag again if any CMS publish event pushes the page back above 500.
@@ -382,11 +382,12 @@ Data Fields: url, schema_types, page_type, word_count, gsc_snapshots.impressions
 Needs New Data: GSC impressions integration (existing in gsc_snapshots table)
 Investigation Steps:
 
-Diagnosis: High-traffic informational pages (e.g., "How to Choose a Horse Trailer," "SafeBump Roof Technology Explained") generate conversational search queries that LLMs can cite directly from FAQPage schema, but currently serve unstructured Q&A.
-Action Output: - Identify outer pages with >800 impressions lacking FAQPage schema
+Diagnosis: High-traffic informational pages (e.g., "How to Choose a Horse Trailer," "SafeBump Roof Technology Explained") generate conversational search queries that LLMs can cite directly from FAQPage schema, but currently serve unstructured Q&A. This rule must only fire when the latest aggregated GSC evidence for the exact canonical URL confirms the impressions threshold is met.
+Action Output: - Identify outer pages with >800 impressions lacking FAQPage schema using the latest aggregated GSC row for the exact canonical URL only
 - Extract Q&A clusters from page content (minimum 5 question-answer pairs per page)
 - Implement FAQPage schema with `mainEntity.Question`, `acceptedAnswer` properties
 - Test in Google Search Console Rich Results Test; monitor AI Overview appearances
+- Do not generate a task when impressions are null, zero, missing, or below threshold; missing GSC evidence is a suppression condition, not a manual operator decision
 Priority: High
 Assigned:
 AI Search Relevance: FAQPage schema enables LLMs to cite specific Double D Trailers answers in Perplexity, Google AI Overviews, and conversational queries about "SafeBump composite roof benefits" or "Z-Frame vs. traditional horse trailer construction."
@@ -690,8 +691,9 @@ Data Fields:
 Needs New Data:
 Investigation Steps:
 
-Diagnosis: A transactional model/detail page is sending mixed signals when its central entity is missing, the H1/title diverge, or its headings read like an educational guide instead of a product page. This rule applies to Tier 3 model/detail pages only, not Tier 1/Tier 2 category hubs.
+Diagnosis: A transactional model/detail page is sending mixed signals when its central entity is missing, the H1/title diverge, or its headings read like an educational guide instead of a product page. This rule applies to Tier 3 model/detail pages only, not Tier 1/Tier 2 category hubs, and must evaluate the canonical single-slash URL rather than generating work against malformed duplicate variants.
 Action Output: Generate a single corrective play per URL. Prioritize the strongest mismatch first:
+- If the evidence comes from a duplicate or malformed variant (double slash, host leak, placeholder token), generate the task against the canonical normalized URL and describe the bad variant as evidence only. Never target the malformed URL as the page to edit.
 - If `h1_matches_title = FALSE`, align H1/title to the same model/entity before touching copy. Preserve the stronger model-specific heading when possible; prefer adjusting the weaker title/meta element instead of flattening a more descriptive H1 into brand-generic wording.
 - If `has_central_entity = FALSE`, add or restore the actual trailer/model entity in the opening paragraph and primary heading.
 - If guide-style H2s are present, replace only the mismatched heading(s) with transactional/product-specific headings that match the model.
@@ -831,15 +833,28 @@ Trigger Source: page_crawl_snapshots
 Trigger Condition: ```sql
 SELECT url, internal_links, page_type
 FROM page_crawl_snapshots
-WHERE internal_links > 3 OR (page_type = 'core' AND h2s LIKE '%learn more%');
+WHERE page_type = 'core'
+  AND is_noindex = FALSE
+  AND is_utility = FALSE
+  AND url NOT LIKE '%.jpg'
+  AND url NOT LIKE '%.jpeg'
+  AND url NOT LIKE '%.png'
+  AND url NOT LIKE '%.gif'
+  AND url NOT LIKE '%.webp'
+  AND url NOT LIKE '%.svg'
+  AND url NOT LIKE '%.pdf'
+  AND (
+    internal_links > 3
+    OR h2s LIKE '%learn more%'
+  );
 ```
 Threshold:
 Data Fields:
 Needs New Data:
 Investigation Steps:
 
-Diagnosis:
-Action Output:
+Diagnosis: A true core product page is leaking authority when body links exceed the cap or when educational CTA headings ("learn more") pull the page toward outer-page behavior. This rule must not fire on assets, utilities, calculators, or non-core pages.
+Action Output: Generate one cleanup play for the core page only. Use the current crawl's internal link count and heading data directly; do not ask the operator to manually verify counts already present in the system. Keep the strongest commercial/supporting links, remove excess body links, and replace "learn more" style headings with transactional/product-specific headings where needed.
 Priority: High
 Assigned:
 AI Search Relevance: Excess links (>3) or OUTER CTAs on cores confuse LLM entity graphs, diluting transactional authority; clean cores boost citations for Z-Frame product queries.[1]
@@ -940,7 +955,7 @@ Data Fields:
 Needs New Data: None (page_crawl_snapshots.word_count and is_noindex already captured)
 Investigation Steps:
 
-Diagnosis: Thin Privacy/Terms pages reduce overall site trustworthiness signals; Google and AI search engines interpret comprehensive, indexable compliance pages as indicators of legitimate, established business operations.
+Diagnosis: Thin Privacy/Terms pages reduce overall site trustworthiness signals; Google and AI search engines interpret comprehensive, indexable compliance pages as indicators of legitimate, established business operations. This rule should only fire on normalized on-site HTML policy URLs and must be suppressed for malformed host-leak paths or placeholder tokens.
 Action Output: - Audit Privacy and Terms page word counts; expand any under 1000 words with detailed sections (data collection practices, user rights, limitation of liability, warranty disclaimers specific to horse trailers/custom orders)
 - Remove `noindex` meta tag if present; confirm `is_noindex = FALSE` in crawl data
 - Ensure pages are linked from footer navigation and site-wide header for discoverability
@@ -1005,7 +1020,7 @@ Data Fields:
 Needs New Data: None (page_crawl_snapshots.content and page_type already captured)
 Investigation Steps:
 
-Diagnosis: Outer pages lack proprietary brand terminology, causing Google and AI search engines to classify content as generic educational material rather than brand-authored expertise     reducing topical authority and citation eligibility.
+Diagnosis: Outer pages lack proprietary brand terminology, causing Google and AI search engines to classify content as generic educational material rather than brand-authored expertise     reducing topical authority and citation eligibility. Suppress the rule entirely if the URL is malformed, unresolved, or not present in the crawled URL registry.
 Action Output: - Identify all outer pages    1000 words without Z-Frame or proprietary product mentions (e.g., `/blog/horse-trailer-maintenance-guide/`)
 - Integrate Z-Frame benefits or SafeTack/SafeBump/SafeKick references naturally into existing sections (e.g., "Why Z-Frame construction outlasts traditional steel in high-impact scenarios")
 - Ensure terms appear    2 times in body text for entity association strength
@@ -1594,6 +1609,9 @@ WHERE p.has_central_entity = FALSE
   AND g.impressions >= 200
   AND g.position <= 20.0
   AND p.page_type IN ('core', 'outer')
+  AND p.is_utility = FALSE
+  AND p.url NOT LIKE '/scripts/%'
+  AND p.url NOT LIKE '%.html'
 ORDER BY g.impressions DESC;
 ```
 Threshold: Any core or outer page with    200 impressions ranking in the top 20 where `has_central_entity = FALSE`
@@ -1601,7 +1619,7 @@ Data Fields:
 Needs New Data: `has_central_entity` and `schema_types` fields must be present and populated in `page_crawl_snapshots`; if `schema_types` is not yet captured, add to next crawl schema extraction pass
 Investigation Steps:
 
-Diagnosis: A page ranking in the top 20 with active impressions but no detectable central entity is receiving traffic it cannot retain or convert into AI citation credit     it is topically unanchored in both traditional crawl evaluation and LLM knowledge graph scoring.
+Diagnosis: A true content page ranking in the top 20 with active impressions but no detectable central entity is receiving traffic it cannot retain or convert into AI citation credit     it is topically unanchored in both traditional crawl evaluation and LLM knowledge graph scoring. Utility tools, calculators, scripts, and non-content HTML endpoints are excluded from this rule.
 Action Output: - **Current state    ** For each flagged URL, pull `h1_matches_title`, `schema_types`, and `h2s` to diagnose the entity gap: missing schema, H1/title mismatch, or genuinely undeclared topic focus
 - **Your move    ** For core pages: ensure H1 names the specific product or construction feature as the explicit subject (e.g., "SafeTack Reverse-Load Horse Trailer" not "Our Trailer Options"); add Product or Vehicle schema where appropriate; ensure opening sentence declares the central entity by name within the first 25 words     For outer pages: ensure H1 names the topical entity explicitly (e.g., "Z-Frame Construction: How Double D Trailers Builds a Safer Horse Trailer"); add Article or FAQPage schema as applicable; confirm `has_central_entity` detection logic recognizes DDT brand terms (Z-Frame, SafeTack, SafeBump, SafeKick) as valid entity anchors in the crawl pipeline
 - **Done when    ** `has_central_entity = TRUE`; `h1_matches_title = TRUE`; `schema_types` contains at least one valid schema type     all confirmed post-recrawl
@@ -2285,7 +2303,7 @@ Needs New Data: None     all required fields (`url`, `word_count`, `page_type`, 
 ---
 Investigation Steps:
 
-Diagnosis: Regional dealer landing pages (e.g., "Horse Trailer Dealers in Texas") serve as the informational hub of the local SEO architecture and must meet the 1000-word outer minimum to satisfy topical depth requirements and qualify for AI citation in state-level horse trailer queries.
+Diagnosis: Regional dealer landing pages (e.g., "Horse Trailer Dealers in Texas") serve as the informational hub of the local SEO architecture and must meet the 1000-word outer minimum to satisfy topical depth requirements and qualify for AI citation in state-level horse trailer queries. This rule must operate on normalized internal URLs only; suppress any host-leak, malformed, or unresolved path before task generation.
 Action Output: - **Current state    ** State or regional dealer page exists but word count is below 1000; the page functions as a thin directory stub rather than an authoritative local resource
 - **Your move    ** Expand to minimum 1000 words using: (1) regional horse trailer ownership context specific to that state (terrain, trailer regulations, climate considerations), (2) explanation of why Z-Frame construction matters in that region's conditions, (3) brief descriptions of each dealer listed with city-level context, (4) SafeTack or SafeBump feature relevance to regional haul patterns     all substantive, no filler
 - **Constraint    ** Max 3 internal links per page; do not exceed this regardless of how many dealers are listed     link to the 3 highest-priority dealer micro pages or the dealer directory hub
@@ -2598,13 +2616,10 @@ Threshold: Any PDF that is strategically intended for
            indexing (brochures, spec sheets, safety guides
            referencing Z-Frame or SafeTack) and carries
            missing title, missing meta description, or an
-           active noindex directive triggers this rule.
+           active noindex directive triggers this rule     but only after PDF metadata is available in a dedicated, verifiable evidence source.
 Data Fields: url, title_tag, meta_description,
              meta_robots, x_robots_tag, page_type
-Needs New Data: None     PDF URLs are captured in
-                page_crawl_snapshots if crawler follows
-                PDF links. Confirm crawler is configured
-                to index PDF metadata fields.
+Needs New Data: PDF-aware metadata ingestion must exist first. Do not execute this rule from the normal HTML crawl alone. A dedicated evidence source must populate verifiable PDF title, description, and robots fields before this rule is allowed to generate tasks.
 Investigation Steps:
 
 Diagnosis: Double D Trailers' downloadable assets (specification
@@ -2612,21 +2627,21 @@ Diagnosis: Double D Trailers' downloadable assets (specification
   proprietary detail about Z-Frame construction and patented
   features that body-capped core pages cannot fully express.
   PDFs missing metadata or carrying noindex are invisible to
-  both traditional search and AI document retrieval.
+  both traditional search and AI document retrieval. Until PDF metadata is actually captured in a verifiable source, this rule must stay suppressed rather than emitting speculative tasks.
 Action Output: CURRENT STATE     PDF assets (brochures, spec sheets,
     safety guides) accessible via the site are missing
     title tags, meta descriptions, or carry noindex
     directives that block indexing of content-rich
     documents referencing SafeTack, SafeBump, and
     Z-Frame specifications.
-  YOUR MOVE     For each strategically valuable PDF:
+  YOUR MOVE     Only if verifiable PDF metadata exists, for each strategically valuable PDF:
     (1) Add descriptive title containing the specific
     feature or model covered; (2) Add meta description
     summarizing the document's value proposition;
     (3) Remove noindex if indexing is the intent;
     (4) Confirm PDF text is machine-readable (not
     scanned image).
-  GATE CHECK     title_tag and meta_description must be
+  GATE CHECK     If PDF metadata source is unavailable, do not generate a board task. If it is available, title_tag and meta_description must be
     non-null and non-empty; meta_robots and x_robots_tag
     must not contain 'noindex' for index-intended PDFs.
   DONE WHEN     Zero qualifying PDF rows returned with
