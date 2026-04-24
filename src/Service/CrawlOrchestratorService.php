@@ -3,7 +3,6 @@
 namespace App\Service;
 
 use Doctrine\DBAL\Connection;
-use Symfony\Component\Process\Process;
 
 class CrawlOrchestratorService
 {
@@ -153,23 +152,83 @@ class CrawlOrchestratorService
     {
         $phpBinary = \PHP_BINARY !== '' ? \PHP_BINARY : 'php';
         $command = array_merge([$phpBinary, $this->projectDir . DIRECTORY_SEPARATOR . 'bin' . DIRECTORY_SEPARATOR . 'console'], $arguments);
+        $commandLine = $this->buildCommandLine($command);
 
-        $process = new Process($command, $this->projectDir);
-        $process->setTimeout($timeoutSeconds);
-        $process->run();
+        $descriptorSpec = [
+            0 => ['pipe', 'r'],
+            1 => ['pipe', 'w'],
+            2 => ['pipe', 'w'],
+        ];
 
-        $output = trim($process->getOutput() . "\n" . $process->getErrorOutput());
+        $process = proc_open($commandLine, $descriptorSpec, $pipes, $this->projectDir);
+        if (!is_resource($process)) {
+            throw new \RuntimeException('Could not start console command.');
+        }
 
-        if (!$process->isSuccessful()) {
+        fclose($pipes[0]);
+
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+
+        $stdout = '';
+        $stderr = '';
+        $start = time();
+
+        while (true) {
+            $stdout .= stream_get_contents($pipes[1]) ?: '';
+            $stderr .= stream_get_contents($pipes[2]) ?: '';
+
+            $status = proc_get_status($process);
+            if (!($status['running'] ?? false)) {
+                break;
+            }
+
+            if ((time() - $start) > $timeoutSeconds) {
+                proc_terminate($process, 9);
+                foreach ($pipes as $pipe) {
+                    if (is_resource($pipe)) {
+                        fclose($pipe);
+                    }
+                }
+                proc_close($process);
+                throw new \RuntimeException('Console command timed out.');
+            }
+
+            usleep(100000);
+        }
+
+        $stdout .= stream_get_contents($pipes[1]) ?: '';
+        $stderr .= stream_get_contents($pipes[2]) ?: '';
+
+        fclose($pipes[1]);
+        fclose($pipes[2]);
+
+        $exitCode = proc_close($process);
+        $output = trim($stdout . "\n" . $stderr);
+
+        if ($exitCode !== 0) {
             throw new \RuntimeException($output !== '' ? $output : 'Console command failed.');
         }
 
         return [
             'command' => implode(' ', $arguments),
             'ok' => true,
-            'exit_code' => $process->getExitCode(),
+            'exit_code' => $exitCode,
             'output' => $output,
         ];
+    }
+
+    private function buildCommandLine(array $parts): string
+    {
+        $escaped = array_map(static function (string $part): string {
+            if (\DIRECTORY_SEPARATOR === '\\') {
+                return '"' . str_replace('"', '\"', $part) . '"';
+            }
+
+            return escapeshellarg($part);
+        }, $parts);
+
+        return implode(' ', $escaped);
     }
 
     private function normalizeUrls(array $urls): array
