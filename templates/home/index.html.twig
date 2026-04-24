@@ -3780,6 +3780,13 @@
         }
     }
 
+    function summarizeReviewerRawResponse(text) {
+        const raw = String(text || '').trim();
+        if (!raw) return 'Empty response body.';
+        const collapsed = raw.replace(/\s+/g, ' ');
+        return collapsed.length > 280 ? collapsed.slice(0, 280) + '...' : collapsed;
+    }
+
     async function readReviewerResponse(res, label) {
         const text = await res.text();
         let parsed = null;
@@ -3799,7 +3806,7 @@
         }
 
         if (!parsed || typeof parsed !== 'object') {
-            throw new Error(label + ' returned an unexpected payload.');
+            throw new Error(label + ' returned an unexpected payload. Raw: ' + summarizeReviewerRawResponse(text));
         }
 
         return parsed;
