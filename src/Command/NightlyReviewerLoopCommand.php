@@ -59,6 +59,8 @@ class NightlyReviewerLoopCommand extends Command
             $output->writeln(sprintf('Round %d/%d: refreshing evidence.', $round, $rounds));
 
             $refresh = $this->crawlOrchestratorService->runNightlyRefresh($crawlLimit, $includeHtmlCrawl);
+            $output->writeln(sprintf('Round %d/%d: verifying overdue rechecks.', $round, $rounds));
+            $outcomeVerification = $this->crawlOrchestratorService->runOutcomeVerification(0);
             $brief = $this->taskReviewService->buildMorningBrief($assignee !== '' ? $assignee : null, $limit);
 
             $closedBuckets = [];
@@ -168,6 +170,7 @@ class NightlyReviewerLoopCommand extends Command
             $roundReport = [
                 'round' => $round,
                 'refresh' => $refresh,
+                'outcome_verification' => $outcomeVerification,
                 'board_health' => $brief['board_health'] ?? [],
                 'closed_buckets' => $closedBuckets,
                 'rule_feedback' => $feedback,

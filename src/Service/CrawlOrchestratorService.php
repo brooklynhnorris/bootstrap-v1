@@ -97,6 +97,17 @@ class CrawlOrchestratorService
         ];
     }
 
+    public function runOutcomeVerification(int $minDays = 0): array
+    {
+        $minDays = max(0, min($minDays, 90));
+
+        return [
+            'mode' => 'verify_outcomes',
+            'min_days' => $minDays,
+            'step' => $this->runConsole(['app:verify-outcomes', '--min-days=' . $minDays]),
+        ];
+    }
+
     public function checkFreshness(array $urls = [], int $maxAgeHours = 24): array
     {
         $normalizedUrls = $this->normalizeUrls($urls);

@@ -3589,6 +3589,11 @@
             return;
         }
 
+        if (Array.isArray(summary.do_now)) {
+            renderMorningBriefSummary(container, summary);
+            return;
+        }
+
         const health = summary.board_health || {};
         const topReasons = Array.isArray(summary.top_reason_codes) ? summary.top_reason_codes : [];
         const bestWork = Array.isArray(summary.best_work_now) ? summary.best_work_now : [];
@@ -3634,6 +3639,74 @@
             '</div>';
     }
 
+    function renderMorningBriefSummary(container, summary) {
+        const health = summary.board_health || {};
+        const generatedAt = summary.generated_at ? new Date(summary.generated_at).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'just now';
+        const rejectCount = Number(summary.reject_now_total || health.reject || 0);
+        const topReasons = Array.isArray(summary.top_reason_codes) ? summary.top_reason_codes : [];
+        const doNow = Array.isArray(summary.do_now) ? summary.do_now : [];
+        const waitForCrawl = Array.isArray(summary.wait_for_crawl) ? summary.wait_for_crawl : [];
+        const investigate = Array.isArray(summary.investigate) ? summary.investigate : [];
+        const rulesToRevise = Array.isArray(summary.rules_to_revise) ? summary.rules_to_revise : [];
+        const recommendation = summary.operating_recommendation ? String(summary.operating_recommendation) : '';
+        const rejectBuckets = Array.isArray(summary.reject_reason_buckets) ? summary.reject_reason_buckets : [];
+
+        container.innerHTML =
+            '<div class="reviewer-header">' +
+                '<div>' +
+                    '<div class="reviewer-title">Morning Brief</div>' +
+                    '<div class="reviewer-subtitle">Latest Claude reviewer pass using live crawl, rule, and rejection evidence. Updated ' + escapeHtml(generatedAt) + '.</div>' +
+                '</div>' +
+                '<div style="display:flex;gap:8px;align-items:center;">' +
+                    (rejectCount > 0
+                        ? '<button class="reviewer-refresh" onclick="bulkCloseReviewerRejects()" title="Close the tasks currently marked reject by the reviewer">Close ' + rejectCount + ' Rejects</button>'
+                        : '') +
+                    '<button class="reviewer-refresh" onclick="loadReviewerSummary()">Refresh</button>' +
+                '</div>' +
+            '</div>' +
+            '<div class="reviewer-health">' +
+                renderReviewerHealthCard(health.pending_reviewed || 0, 'Reviewed', '') +
+                renderReviewerHealthCard(health.do || 0, 'Do', 'do') +
+                renderReviewerHealthCard(health.reject || 0, 'Reject', 'reject') +
+                renderReviewerHealthCard(health.wait || 0, 'Wait', 'wait') +
+                renderReviewerHealthCard(health.investigate || 0, 'Investigate', 'wait') +
+                renderReviewerHealthCard(health.revise_rule || 0, 'Revise Rule', 'revise') +
+            '</div>' +
+            (recommendation
+                ? '<div class="reviewer-section-card" style="margin-top:14px;"><h3>Operating Recommendation</h3><div style="font-size:13px;line-height:1.7;color:var(--text-secondary);">' + escapeHtml(recommendation) + '</div></div>'
+                : '') +
+            '<div class="reviewer-grid" style="margin-top:14px;">' +
+                '<div class="reviewer-section-card">' +
+                    '<h3>Do Now</h3>' +
+                    renderReviewerList(doNow, false, 5, 'No live execution-ready work right now.') +
+                '</div>' +
+                '<div class="reviewer-section-card">' +
+                    '<h3>Reject Now</h3>' +
+                    renderReviewerRejectBuckets(rejectBuckets) +
+                '</div>' +
+                '<div class="reviewer-section-card">' +
+                    '<h3>Wait for Crawl</h3>' +
+                    renderReviewerList(waitForCrawl, false, 5, 'No stale crawl blockers right now.') +
+                '</div>' +
+            '</div>' +
+            '<div class="reviewer-grid" style="margin-top:14px;">' +
+                '<div class="reviewer-section-card">' +
+                    '<h3>Investigate</h3>' +
+                    renderReviewerList(investigate, true, 5, 'No investigation queue right now.') +
+                '</div>' +
+                '<div class="reviewer-section-card">' +
+                    '<h3>Rules to Revise</h3>' +
+                    renderReviewerList(rulesToRevise, true, 5, 'No rule revisions queued right now.') +
+                '</div>' +
+                '<div class="reviewer-section-card">' +
+                    '<h3>Top Noise Signals</h3>' +
+                    (topReasons.length
+                        ? '<div class="reviewer-chip-row">' + topReasons.map(row => '<span class="reviewer-chip ' + escapeHtml(row.key || '') + '">' + escapeHtml(row.key || 'unknown') + ' · ' + (row.count || 0) + '</span>').join('') + '</div>'
+                        : '<div class="dash-empty">No recurring review signals yet.</div>') +
+                '</div>' +
+            '</div>';
+    }
+
     function renderReviewerHealthCard(value, label, variant) {
         return '<div class="reviewer-health-card ' + variant + '">' +
             '<div class="num">' + Number(value || 0).toLocaleString() + '</div>' +
@@ -3641,12 +3714,32 @@
         '</div>';
     }
 
-    function renderReviewerList(items, includeVerdict) {
-        if (!Array.isArray(items) || items.length === 0) {
-            return '<div class="dash-empty">Nothing notable here right now.</div>';
+    function renderReviewerRejectBuckets(buckets) {
+        if (!Array.isArray(buckets) || buckets.length === 0) {
+            return '<div class="dash-empty">No reject buckets right now.</div>';
         }
 
-        return '<div class="reviewer-list">' + items.slice(0, 5).map(item => {
+        return '<div class="reviewer-list">' + buckets.slice(0, 4).map(bucket => {
+            const label = bucket.reason_code ? escapeHtml(String(bucket.reason_code).replace(/_/g, ' ')) : 'unknown';
+            const count = Number(bucket.count || (Array.isArray(bucket.tasks) ? bucket.tasks.length : 0));
+            const items = Array.isArray(bucket.tasks) ? bucket.tasks.slice(0, 2) : [];
+            return '<div class="reviewer-list-item">' +
+                '<div class="reviewer-item-title"><span class="reviewer-chip reject">' + label + '</span> ' + count + ' task' + (count === 1 ? '' : 's') + '</div>' +
+                '<div class="reviewer-item-meta">' + escapeHtml(bucket.reason_text || 'Reviewer says these should be closed or suppressed.') + '</div>' +
+                (items.length
+                    ? '<div class="reviewer-item-meta" style="margin-top:6px;">' + items.map(item => '#' + escapeHtml(String(item.task_id || '')) + ' ' + escapeHtml(item.rule_id || '')).join(' · ') + '</div>'
+                    : '') +
+            '</div>';
+        }).join('') + '</div>';
+    }
+
+    function renderReviewerList(items, includeVerdict, limit, emptyText) {
+        if (!Array.isArray(items) || items.length === 0) {
+            return '<div class="dash-empty">' + escapeHtml(emptyText || 'Nothing notable here right now.') + '</div>';
+        }
+
+        const maxItems = Number(limit || 5);
+        return '<div class="reviewer-list">' + items.slice(0, maxItems).map(item => {
             const verdict = includeVerdict && item.verdict ? '<span class="reviewer-chip ' + escapeHtml(item.verdict) + '">' + escapeHtml(item.verdict) + '</span>' : '';
             const reasons = Array.isArray(item.reason_codes) && item.reason_codes.length ? item.reason_codes.join(', ') : '';
             const taskId = item.task_id ? '<span style="font-family:var(--font-mono);color:var(--text-muted);margin-right:6px;">#' + escapeHtml(String(item.task_id)) + '</span>' : '';
@@ -3669,11 +3762,17 @@
         try {
             container.innerHTML = '<div class="dash-empty">Refreshing reviewer summary…</div>';
             const assignee = USER_NAME ? encodeURIComponent(USER_NAME) : '';
-            const res = await fetch('/api/reviewer/daily-summary?assignee=' + assignee + '&limit=100');
-            if (!res.ok) {
-                throw new Error('Reviewer summary request failed');
+            let res = await fetch('/api/reviewer/morning-brief?assignee=' + assignee + '&limit=100');
+            let summary = null;
+            if (res.ok) {
+                summary = await res.json();
+            } else {
+                res = await fetch('/api/reviewer/daily-summary?assignee=' + assignee + '&limit=100');
+                if (!res.ok) {
+                    throw new Error('Reviewer summary request failed');
+                }
+                summary = await res.json();
             }
-            const summary = await res.json();
             renderReviewerSummary(summary);
         } catch (e) {
             console.error('Reviewer summary failed:', e);
