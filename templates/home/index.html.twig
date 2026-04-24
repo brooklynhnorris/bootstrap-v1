@@ -3780,6 +3780,62 @@
         }
     }
 
+    async function readReviewerResponse(res, label) {
+        const text = await res.text();
+        let parsed = null;
+        try {
+            parsed = text ? JSON.parse(text) : null;
+        } catch (e) {
+            parsed = null;
+        }
+
+        if (!res.ok) {
+            const detail = parsed && parsed.error ? parsed.error : (text || (label + ' failed with HTTP ' + res.status));
+            throw new Error(label + ' failed (' + res.status + '): ' + detail);
+        }
+
+        if (parsed && parsed.error) {
+            throw new Error(label + ' returned error: ' + parsed.error);
+        }
+
+        if (!parsed || typeof parsed !== 'object') {
+            throw new Error(label + ' returned an unexpected payload.');
+        }
+
+        return parsed;
+    }
+
+    async function loadReviewerSummary() {
+        const container = document.getElementById('reviewer-summary-panel');
+        if (!container) return;
+
+        try {
+            container.innerHTML = '<div class="dash-empty">Refreshing reviewer summary...</div>';
+            const assignee = USER_NAME ? encodeURIComponent(USER_NAME) : '';
+
+            try {
+                const morningRes = await fetch('/api/reviewer/morning-brief?assignee=' + assignee + '&limit=100');
+                const morningSummary = await readReviewerResponse(morningRes, 'Morning brief');
+                renderReviewerSummary(morningSummary);
+                return;
+            } catch (morningErr) {
+                console.warn('Morning brief failed, trying daily summary fallback:', morningErr);
+            }
+
+            const dailyRes = await fetch('/api/reviewer/daily-summary?assignee=' + assignee + '&limit=100');
+            const dailySummary = await readReviewerResponse(dailyRes, 'Daily summary');
+            renderReviewerSummary(dailySummary);
+        } catch (e) {
+            console.error('Reviewer summary failed:', e);
+            container.innerHTML =
+                '<div class="reviewer-section-card">' +
+                    '<h3>Reviewer Summary Error</h3>' +
+                    '<div style="font-size:13px;line-height:1.6;color:var(--accent-red);">' + escapeHtml(e.message || 'Unknown reviewer summary error.') + '</div>' +
+                    '<div style="font-size:12px;line-height:1.6;color:var(--text-muted);margin-top:8px;">Open <code>/api/reviewer/morning-brief?assignee=' + escapeHtml(USER_NAME || '') + '&limit=100</code> in the browser to inspect the raw response.</div>' +
+                '</div>';
+        }
+    }
+
     async function bulkCloseReviewerRejects() {
         const assignee = USER_NAME || '';
         if (!confirm('Close all tasks currently marked reject by the reviewer for ' + assignee + '? This will move them out of pending.')) {
