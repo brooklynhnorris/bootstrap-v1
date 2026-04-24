@@ -1717,18 +1717,46 @@ PROMPT;
         }
 
         $url = str_replace('\\', '/', $url);
-        $url = preg_replace('#[?#].*$#', '', $url) ?? $url;
+        $questionPos = strpos($url, '?');
+        $hashPos = strpos($url, '#');
+        if ($questionPos !== false || $hashPos !== false) {
+            if ($questionPos !== false && $hashPos !== false) {
+                $url = substr($url, 0, min($questionPos, $hashPos));
+            } else {
+                $url = substr($url, 0, $questionPos !== false ? $questionPos : $hashPos);
+            }
+        }
 
         if (preg_match('#^//[^/]+(?P<path>/.*)?$#', $url, $matches) === 1) {
             $url = $matches['path'] ?? '/';
         }
 
         $url = ltrim($url, '/');
-        $url = preg_replace('#^(?:https?:/+)?(?:www\.)?doubledtrailers\.com/?#i', '', $url) ?? $url;
-        $url = preg_replace('#/+#', '/', $url) ?? $url;
+        $lowerUrl = strtolower($url);
+        if (str_starts_with($lowerUrl, 'http://doubledtrailers.com/')) {
+            $url = substr($url, strlen('http://doubledtrailers.com/'));
+        } elseif (str_starts_with($lowerUrl, 'https://doubledtrailers.com/')) {
+            $url = substr($url, strlen('https://doubledtrailers.com/'));
+        } elseif (str_starts_with($lowerUrl, 'http://www.doubledtrailers.com/')) {
+            $url = substr($url, strlen('http://www.doubledtrailers.com/'));
+        } elseif (str_starts_with($lowerUrl, 'https://www.doubledtrailers.com/')) {
+            $url = substr($url, strlen('https://www.doubledtrailers.com/'));
+        } elseif ($lowerUrl === 'doubledtrailers.com' || $lowerUrl === 'www.doubledtrailers.com') {
+            $url = '';
+        } elseif (str_starts_with($lowerUrl, 'doubledtrailers.com/')) {
+            $url = substr($url, strlen('doubledtrailers.com/'));
+        } elseif (str_starts_with($lowerUrl, 'www.doubledtrailers.com/')) {
+            $url = substr($url, strlen('www.doubledtrailers.com/'));
+        }
+
+        while (str_contains($url, '//')) {
+            $url = str_replace('//', '/', $url);
+        }
 
         $normalized = '/' . ltrim($url, '/');
-        $normalized = preg_replace('#/+#', '/', $normalized) ?? $normalized;
+        while (str_contains($normalized, '//')) {
+            $normalized = str_replace('//', '/', $normalized);
+        }
 
         return $normalized === '/' ? '/' : rtrim($normalized, '/') . '/';
     }
