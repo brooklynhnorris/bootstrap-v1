@@ -536,7 +536,8 @@ class HomeController extends AbstractController
         return new JsonResponse([
             'response'          => $text,
             'tasks_created'     => $tasksCreated,
-            'actions_executed'  => $actionsExecuted,
+            'actions_executed'  => [],
+            'action_notices'    => $actionNotices,
             'conversation_id'   => $conversationId,
         ]);
     }
