@@ -133,6 +133,108 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'close_tasks',
+    description: 'Close one or more tasks, persist the rejection memory, and optionally suppress regeneration scope when the rejection represents a real false positive.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 1 },
+          minItems: 1,
+          description: 'Task IDs to close.',
+        },
+        reason_text: {
+          type: 'string',
+          description: 'Human-readable close reason to store on the task and in rejection memory.',
+        },
+        reason_code: {
+          type: 'string',
+          description: 'Structured reason code such as no_active_violation, malformed_task_url, or asset_url_false_positive.',
+        },
+        scope: {
+          type: 'string',
+          enum: ['task_only', 'url_only', 'rule_page_type', 'rule_global'],
+          description: 'Suppression scope to apply when this represents a repeat false positive.',
+        },
+        actor: {
+          type: 'string',
+          description: 'Optional actor label to record in audit memory.',
+        },
+      },
+      required: ['task_ids', 'reason_text'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'submit_rule_feedback',
+    description: 'Write structured reviewer feedback for a rule so future evaluation and proposal synthesis can learn from the current board state.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_id: { type: 'string' },
+        task_id: { type: 'integer', minimum: 1 },
+        url: { type: 'string' },
+        outcome_status: { type: 'string' },
+        what_worked: { type: 'string' },
+        what_didnt_work: { type: 'string' },
+        proposed_change: { type: 'string' },
+        change_type: { type: 'string' },
+        actor: { type: 'string' },
+      },
+      required: ['rule_id'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'revise_rule',
+    description: 'Update an active rule directly in seo_rules and optionally attach a revision summary to rule_feedback.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        rule_id: { type: 'string' },
+        changes: {
+          type: 'object',
+          description: 'Allowed keys: trigger_sql, trigger_condition, threshold, diagnosis, action_output, priority, assigned, is_active.',
+        },
+        summary: { type: 'string' },
+        actor: { type: 'string' },
+      },
+      required: ['rule_id', 'changes'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'trigger_crawl',
+    description: 'Run a targeted crawl for specific URLs, a full HTML crawl, a WordPress refresh, or the full nightly refresh flow.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        mode: {
+          type: 'string',
+          enum: ['targeted', 'full', 'wordpress_refresh', 'nightly'],
+        },
+        urls: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'Required for targeted mode.',
+        },
+        limit: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 1000,
+          description: 'URL cap for full/nightly HTML crawl modes.',
+        },
+        sync_page_facts: {
+          type: 'boolean',
+          description: 'Whether to sync page_facts after the crawl step.',
+        },
+      },
+      required: ['mode'],
+      additionalProperties: false,
+    },
+  },
 ];
 
 const server = new Server(

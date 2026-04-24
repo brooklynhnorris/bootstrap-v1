@@ -10,6 +10,8 @@ ini_set('log_errors', '1');
 ob_start();
 
 use App\Kernel;
+use App\Service\CrawlOrchestratorService;
+use App\Service\ReviewerActionService;
 use App\Service\TaskReviewService;
 use App\Service\ViolationSnapshotService;
 use Symfony\Component\Dotenv\Dotenv;
@@ -61,6 +63,7 @@ try {
     $container = $kernel->getContainer();
     $connection = $container->get('doctrine.dbal.default_connection');
     $reviewService = new TaskReviewService($connection, new ViolationSnapshotService($connection));
+    $actionService = new ReviewerActionService($connection, new CrawlOrchestratorService($connection));
 
     $payload = match ($tool) {
         'review_daily_summary' => $reviewService->buildDailySummary(
@@ -93,6 +96,36 @@ try {
         ],
         'propose_rule_gaps' => $reviewService->proposeRuleGaps(
             boundedInt($arguments['limit'] ?? 8, 1, 20),
+        ),
+        'close_tasks' => $actionService->closeTasks(
+            normalizeIntList($arguments['task_ids'] ?? []),
+            trim((string) ($arguments['reason_text'] ?? 'Closed by reviewer action')),
+            trim((string) ($arguments['reason_code'] ?? 'reviewer_close')),
+            trim((string) ($arguments['scope'] ?? 'task_only')),
+            nullableString($arguments['actor'] ?? null),
+        ),
+        'submit_rule_feedback' => $actionService->submitRuleFeedback(
+            (string) ($arguments['rule_id'] ?? ''),
+            isset($arguments['task_id']) ? boundedInt($arguments['task_id'], 1, PHP_INT_MAX) : null,
+            nullableString($arguments['url'] ?? null),
+            (string) ($arguments['outcome_status'] ?? 'REVIEWED'),
+            nullableString($arguments['what_worked'] ?? null),
+            nullableString($arguments['what_didnt_work'] ?? null),
+            nullableString($arguments['proposed_change'] ?? null),
+            (string) ($arguments['change_type'] ?? 'none'),
+            nullableString($arguments['actor'] ?? null),
+        ),
+        'revise_rule' => $actionService->reviseRule(
+            (string) ($arguments['rule_id'] ?? ''),
+            is_array($arguments['changes'] ?? null) ? $arguments['changes'] : [],
+            nullableString($arguments['summary'] ?? null),
+            nullableString($arguments['actor'] ?? null),
+        ),
+        'trigger_crawl' => $actionService->triggerCrawl(
+            (string) ($arguments['mode'] ?? 'targeted'),
+            is_array($arguments['urls'] ?? null) ? $arguments['urls'] : [],
+            boundedInt($arguments['limit'] ?? 250, 1, 1000),
+            !array_key_exists('sync_page_facts', $arguments) || filter_var($arguments['sync_page_facts'], FILTER_VALIDATE_BOOL)
         ),
         'review_task' => reviewTask($reviewService, $arguments),
         default => throw new InvalidArgumentException('Unknown tool: ' . $tool),
@@ -148,6 +181,25 @@ function normalizeStatuses(mixed $statuses): array
     }
 
     return $normalized === [] ? ['pending'] : array_values(array_unique($normalized));
+}
+
+function normalizeIntList(mixed $values): array
+{
+    if (!is_array($values)) {
+        return [];
+    }
+
+    $normalized = [];
+    foreach ($values as $value) {
+        if (is_numeric($value)) {
+            $int = (int) $value;
+            if ($int > 0) {
+                $normalized[] = $int;
+            }
+        }
+    }
+
+    return array_values(array_unique($normalized));
 }
 
 function boundedInt(mixed $value, int $min, int $max): int

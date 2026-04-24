@@ -4,7 +4,9 @@
 declare(strict_types=1);
 
 use App\Kernel;
+use App\Service\CrawlOrchestratorService;
 use App\Service\McpReviewerServer;
+use App\Service\ReviewerActionService;
 use App\Service\TaskReviewService;
 use App\Service\ViolationSnapshotService;
 use Symfony\Component\Dotenv\Dotenv;
@@ -29,7 +31,8 @@ $container = $kernel->getContainer();
 $connection = $container->get('doctrine.dbal.default_connection');
 $violationSnapshotService = new ViolationSnapshotService($connection);
 $taskReviewService = new TaskReviewService($connection, $violationSnapshotService);
-$server = new McpReviewerServer($taskReviewService);
+$reviewerActionService = new ReviewerActionService($connection, new CrawlOrchestratorService($connection));
+$server = new McpReviewerServer($taskReviewService, $reviewerActionService);
 
 $stdin = fopen('php://stdin', 'rb');
 $stdout = fopen('php://stdout', 'wb');

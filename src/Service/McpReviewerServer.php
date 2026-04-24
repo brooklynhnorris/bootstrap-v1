@@ -4,7 +4,10 @@ namespace App\Service;
 
 final class McpReviewerServer
 {
-    public function __construct(private TaskReviewService $taskReviewService)
+    public function __construct(
+        private TaskReviewService $taskReviewService,
+        private ReviewerActionService $reviewerActionService,
+    )
     {
     }
 
@@ -90,6 +93,89 @@ final class McpReviewerServer
                     'additionalProperties' => false,
                 ],
             ],
+            [
+                'name' => 'close_tasks',
+                'description' => 'Close one or more tasks and persist structured rejection memory.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'task_ids' => [
+                            'type' => 'array',
+                            'items' => ['type' => 'integer', 'minimum' => 1],
+                            'minItems' => 1,
+                        ],
+                        'reason_text' => ['type' => 'string'],
+                        'reason_code' => ['type' => 'string'],
+                        'scope' => [
+                            'type' => 'string',
+                            'enum' => ['task_only', 'url_only', 'rule_page_type', 'rule_global'],
+                        ],
+                        'actor' => ['type' => 'string'],
+                    ],
+                    'required' => ['task_ids', 'reason_text'],
+                    'additionalProperties' => false,
+                ],
+            ],
+            [
+                'name' => 'submit_rule_feedback',
+                'description' => 'Write structured reviewer feedback to rule_feedback.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'rule_id' => ['type' => 'string'],
+                        'task_id' => ['type' => 'integer', 'minimum' => 1],
+                        'url' => ['type' => 'string'],
+                        'outcome_status' => ['type' => 'string'],
+                        'what_worked' => ['type' => 'string'],
+                        'what_didnt_work' => ['type' => 'string'],
+                        'proposed_change' => ['type' => 'string'],
+                        'change_type' => ['type' => 'string'],
+                        'actor' => ['type' => 'string'],
+                    ],
+                    'required' => ['rule_id'],
+                    'additionalProperties' => false,
+                ],
+            ],
+            [
+                'name' => 'revise_rule',
+                'description' => 'Update an active seo_rules row directly and optionally attach a revision summary.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'rule_id' => ['type' => 'string'],
+                        'changes' => ['type' => 'object'],
+                        'summary' => ['type' => 'string'],
+                        'actor' => ['type' => 'string'],
+                    ],
+                    'required' => ['rule_id', 'changes'],
+                    'additionalProperties' => false,
+                ],
+            ],
+            [
+                'name' => 'trigger_crawl',
+                'description' => 'Run a targeted crawl, full HTML crawl, WordPress refresh, or nightly refresh.',
+                'inputSchema' => [
+                    'type' => 'object',
+                    'properties' => [
+                        'mode' => [
+                            'type' => 'string',
+                            'enum' => ['targeted', 'full', 'wordpress_refresh', 'nightly'],
+                        ],
+                        'urls' => [
+                            'type' => 'array',
+                            'items' => ['type' => 'string'],
+                        ],
+                        'limit' => [
+                            'type' => 'integer',
+                            'minimum' => 1,
+                            'maximum' => 1000,
+                        ],
+                        'sync_page_facts' => ['type' => 'boolean'],
+                    ],
+                    'required' => ['mode'],
+                    'additionalProperties' => false,
+                ],
+            ],
         ];
     }
 
@@ -142,6 +228,36 @@ final class McpReviewerServer
                 $this->normalizeStatuses($arguments['statuses'] ?? ['pending'])
             ),
             'review_task' => $this->reviewSingleTask($arguments),
+            'close_tasks' => $this->reviewerActionService->closeTasks(
+                $this->normalizeIntList($arguments['task_ids'] ?? []),
+                (string) ($arguments['reason_text'] ?? 'Closed by reviewer action'),
+                (string) ($arguments['reason_code'] ?? 'reviewer_close'),
+                (string) ($arguments['scope'] ?? 'task_only'),
+                $this->nullableString($arguments['actor'] ?? null),
+            ),
+            'submit_rule_feedback' => $this->reviewerActionService->submitRuleFeedback(
+                (string) ($arguments['rule_id'] ?? ''),
+                isset($arguments['task_id']) ? $this->boundedInt($arguments['task_id'], 1, PHP_INT_MAX) : null,
+                $this->nullableString($arguments['url'] ?? null),
+                (string) ($arguments['outcome_status'] ?? 'REVIEWED'),
+                $this->nullableString($arguments['what_worked'] ?? null),
+                $this->nullableString($arguments['what_didnt_work'] ?? null),
+                $this->nullableString($arguments['proposed_change'] ?? null),
+                (string) ($arguments['change_type'] ?? 'none'),
+                $this->nullableString($arguments['actor'] ?? null),
+            ),
+            'revise_rule' => $this->reviewerActionService->reviseRule(
+                (string) ($arguments['rule_id'] ?? ''),
+                is_array($arguments['changes'] ?? null) ? $arguments['changes'] : [],
+                $this->nullableString($arguments['summary'] ?? null),
+                $this->nullableString($arguments['actor'] ?? null),
+            ),
+            'trigger_crawl' => $this->reviewerActionService->triggerCrawl(
+                (string) ($arguments['mode'] ?? 'targeted'),
+                is_array($arguments['urls'] ?? null) ? $arguments['urls'] : [],
+                $this->boundedInt($arguments['limit'] ?? 250, 1, 1000),
+                !array_key_exists('sync_page_facts', $arguments) || filter_var($arguments['sync_page_facts'], FILTER_VALIDATE_BOOL)
+            ),
             default => throw new \InvalidArgumentException('Unknown tool: ' . $name),
         };
 
@@ -203,5 +319,26 @@ final class McpReviewerServer
 
         $value = trim($value);
         return $value === '' ? null : $value;
+    }
+
+    private function normalizeIntList(mixed $values): array
+    {
+        if (!is_array($values)) {
+            return [];
+        }
+
+        $normalized = [];
+        foreach ($values as $value) {
+            if (!is_numeric($value)) {
+                continue;
+            }
+
+            $int = (int) $value;
+            if ($int > 0) {
+                $normalized[] = $int;
+            }
+        }
+
+        return array_values(array_unique($normalized));
     }
 }
