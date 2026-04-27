@@ -290,6 +290,36 @@ class FetchGscCommand extends Command
             $this->db->executeStatement("ALTER TABLE gsc_snapshots ADD COLUMN snapshot_id VARCHAR(20) DEFAULT NULL");
         }
 
+        $columnMeta = $this->db->fetchAllAssociative(
+            "SELECT column_name, data_type, character_maximum_length
+             FROM information_schema.columns
+             WHERE table_name = 'gsc_snapshots'
+               AND column_name IN ('query', 'page', 'date_range')"
+        );
+
+        $byName = [];
+        foreach ($columnMeta as $row) {
+            $byName[(string) ($row['column_name'] ?? '')] = $row;
+        }
+
+        foreach (['query', 'page'] as $column) {
+            $meta = $byName[$column] ?? null;
+            $dataType = strtolower((string) ($meta['data_type'] ?? ''));
+            $maxLength = isset($meta['character_maximum_length']) ? (int) $meta['character_maximum_length'] : null;
+
+            if ($meta !== null && $dataType !== 'text') {
+                if ($maxLength === null || $maxLength < 2048) {
+                    $this->db->executeStatement("ALTER TABLE gsc_snapshots ALTER COLUMN {$column} TYPE TEXT");
+                }
+            }
+        }
+
+        $dateRangeMeta = $byName['date_range'] ?? null;
+        $dateRangeLength = isset($dateRangeMeta['character_maximum_length']) ? (int) $dateRangeMeta['character_maximum_length'] : null;
+        if ($dateRangeMeta !== null && $dateRangeLength !== null && $dateRangeLength < 100) {
+            $this->db->executeStatement("ALTER TABLE gsc_snapshots ALTER COLUMN date_range TYPE VARCHAR(100)");
+        }
+
         $this->db->executeStatement("CREATE INDEX IF NOT EXISTS idx_gsc_snapshot_id ON gsc_snapshots (snapshot_id)");
         $this->db->executeStatement("CREATE INDEX IF NOT EXISTS idx_gsc_date_query_page ON gsc_snapshots (date_range, query, page)");
         $this->db->executeStatement("CREATE INDEX IF NOT EXISTS idx_gsc_date_page ON gsc_snapshots (date_range, page)");
