@@ -953,7 +953,6 @@ class TaskReviewService
                     OR TRIM(BOTH '/' FROM url) = TRIM(BOTH '/' FROM ?)
                  ORDER BY last_crawled_at DESC NULLS LAST, updated_at DESC NULLS LAST
                  LIMIT 1",
-                [$urlVariants],
                 [$urlVariants, trim($normalizedUrl, '/')],
                 [\Doctrine\DBAL\ArrayParameterType::STRING, \Doctrine\DBAL\ParameterType::STRING]
             );
@@ -972,7 +971,6 @@ class TaskReviewService
                     OR TRIM(BOTH '/' FROM url) = TRIM(BOTH '/' FROM ?)
                  ORDER BY crawled_at DESC NULLS LAST, id DESC
                  LIMIT 1",
-                [$urlVariants],
                 [$urlVariants, trim($normalizedUrl, '/')],
                 [\Doctrine\DBAL\ArrayParameterType::STRING, \Doctrine\DBAL\ParameterType::STRING]
             );
