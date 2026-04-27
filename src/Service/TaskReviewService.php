@@ -950,10 +950,12 @@ class TaskReviewService
                         'page_facts' AS context_source
                  FROM page_facts
                  WHERE url IN (?)
+                    OR TRIM(BOTH '/' FROM url) = TRIM(BOTH '/' FROM ?)
                  ORDER BY last_crawled_at DESC NULLS LAST, updated_at DESC NULLS LAST
                  LIMIT 1",
                 [$urlVariants],
-                [\Doctrine\DBAL\ArrayParameterType::STRING]
+                [$urlVariants, trim($normalizedUrl, '/')],
+                [\Doctrine\DBAL\ArrayParameterType::STRING, \Doctrine\DBAL\ParameterType::STRING]
             );
             if ($page !== false) {
                 $page['context_timestamp'] = $page['last_crawled_at'] ?? null;
@@ -967,10 +969,12 @@ class TaskReviewService
                         'page_crawl_snapshots' AS context_source
                  FROM page_crawl_snapshots
                  WHERE url IN (?)
+                    OR TRIM(BOTH '/' FROM url) = TRIM(BOTH '/' FROM ?)
                  ORDER BY crawled_at DESC NULLS LAST, id DESC
                  LIMIT 1",
                 [$urlVariants],
-                [\Doctrine\DBAL\ArrayParameterType::STRING]
+                [$urlVariants, trim($normalizedUrl, '/')],
+                [\Doctrine\DBAL\ArrayParameterType::STRING, \Doctrine\DBAL\ParameterType::STRING]
             );
             if ($page !== false) {
                 $page['last_crawled_at'] = $page['crawled_at'] ?? null;
