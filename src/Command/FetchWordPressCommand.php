@@ -437,7 +437,24 @@ class FetchWordPressCommand extends Command
             if (str_ends_with(strtolower($path), $ext)) return null;
         }
 
-        return $path;
+        return $this->normalizePath($path);
+    }
+
+    private function normalizePath(string $path): string
+    {
+        $path = trim($path);
+        if ($path === '') {
+            return '/';
+        }
+
+        $path = str_replace('\\', '/', $path);
+        while (str_contains($path, '//')) {
+            $path = str_replace('//', '/', $path);
+        }
+
+        $normalized = '/' . ltrim($path, '/');
+
+        return $normalized === '/' ? '/' : rtrim($normalized, '/') . '/';
     }
 
     // ─────────────────────────────────────────────

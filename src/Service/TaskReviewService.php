@@ -942,15 +942,18 @@ class TaskReviewService
             return $this->pageContextCache[$normalizedUrl];
         }
         $candidates = [];
+        $urlVariants = $this->urlLookupVariants($normalizedUrl);
 
         if ($this->tableExists('page_facts')) {
             $page = $this->db->fetchAssociative(
                 "SELECT url, page_type, word_count, h1, title_tag, target_query_impressions, last_crawled_at,
                         'page_facts' AS context_source
                  FROM page_facts
-                 WHERE url = ?
+                 WHERE url IN (?)
+                 ORDER BY last_crawled_at DESC NULLS LAST, updated_at DESC NULLS LAST
                  LIMIT 1",
-                [$normalizedUrl]
+                [$urlVariants],
+                [\Doctrine\DBAL\ArrayParameterType::STRING]
             );
             if ($page !== false) {
                 $page['context_timestamp'] = $page['last_crawled_at'] ?? null;
@@ -963,10 +966,11 @@ class TaskReviewService
                 "SELECT url, page_type, word_count, h1, title_tag, target_query_impressions, crawled_at,
                         'page_crawl_snapshots' AS context_source
                  FROM page_crawl_snapshots
-                 WHERE url = ?
+                 WHERE url IN (?)
                  ORDER BY crawled_at DESC NULLS LAST, id DESC
                  LIMIT 1",
-                [$normalizedUrl]
+                [$urlVariants],
+                [\Doctrine\DBAL\ArrayParameterType::STRING]
             );
             if ($page !== false) {
                 $page['last_crawled_at'] = $page['crawled_at'] ?? null;
@@ -988,6 +992,26 @@ class TaskReviewService
 
         $this->pageContextCache[$normalizedUrl] = $candidates[0];
         return $this->pageContextCache[$normalizedUrl];
+    }
+
+    /**
+     * Support both normalized trailing-slash URLs and older slashless rows.
+     *
+     * @return string[]
+     */
+    private function urlLookupVariants(string $normalizedUrl): array
+    {
+        if ($normalizedUrl === '' || $normalizedUrl === '/') {
+            return ['/'];
+        }
+
+        $variants = [$normalizedUrl];
+        $withoutTrailingSlash = rtrim($normalizedUrl, '/');
+        if ($withoutTrailingSlash !== '') {
+            $variants[] = $withoutTrailingSlash;
+        }
+
+        return array_values(array_unique($variants));
     }
 
     private function loadRejectionStats(?string $url, ?string $ruleId, ?string $pageType): array
