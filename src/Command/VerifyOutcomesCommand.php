@@ -104,10 +104,19 @@ class VerifyOutcomesCommand extends Command
         $totalFail    = 0;
 
         foreach ($reviews as $review) {
-            $ruleId   = $review['rule_id'];
+            $ruleId   = $this->resolveReviewRuleId($review);
             $url      = $review['url'];
             $fixDate  = $review['fix_implemented_at'];
             $daysAgo  = (int) ((time() - strtotime($fixDate)) / 86400);
+
+            if ($ruleId === '') {
+                $output->writeln(">> [SKIP] {$url}");
+                $output->writeln("   [?] Missing rule_id on completed task/review — skipping this legacy row.");
+                $output->writeln('');
+                continue;
+            }
+
+            $review['rule_id'] = $ruleId;
 
             $output->writeln(">> {$ruleId} | {$url}");
             $output->writeln("   Fix implemented: {$fixDate} ({$daysAgo} days ago)");
@@ -633,6 +642,21 @@ class VerifyOutcomesCommand extends Command
         }
 
         return ['status' => $status, 'reason' => $reason, 'next_action' => $nextAction, 'metric' => $metric, 'improvement_pct' => $improvPct, 'classification' => $status === 'FAIL' ? 'rule_failed' : 'verified'];
+    }
+
+    private function resolveReviewRuleId(array $review): string
+    {
+        $ruleId = trim((string) ($review['rule_id'] ?? ''));
+        if ($ruleId !== '') {
+            return strtoupper($ruleId);
+        }
+
+        $title = (string) ($review['title'] ?? '');
+        if (preg_match('/^\[([A-Z]+-[A-Za-z0-9]+)\]/', $title, $matches)) {
+            return strtoupper(trim((string) ($matches[1] ?? '')));
+        }
+
+        return '';
     }
 
     private function applyVerificationGuards(
