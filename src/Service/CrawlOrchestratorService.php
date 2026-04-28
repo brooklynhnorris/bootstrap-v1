@@ -61,7 +61,7 @@ class CrawlOrchestratorService
     public function triggerWordPressRefresh(bool $syncPageFacts = true): array
     {
         $results = [
-            $this->runConsole(['app:fetch-wordpress', '--type=all']),
+            $this->runConsole(['app:fetch-wordpress', '--type=all', '--no-clear']),
         ];
 
         if ($syncPageFacts) {
@@ -80,7 +80,7 @@ class CrawlOrchestratorService
     {
         $steps = [];
         $steps[] = $this->runConsole(['app:fetch-gsc']);
-        $steps[] = $this->runConsole(['app:fetch-wordpress', '--type=all']);
+        $steps[] = $this->runConsole(['app:fetch-wordpress', '--type=all', '--no-clear']);
         $steps[] = $this->runConsole(['app:sync-page-facts']);
 
         if ($includeHtmlCrawl) {
