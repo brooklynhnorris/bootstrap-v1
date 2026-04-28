@@ -362,13 +362,6 @@ class CrawlPagesCommand extends Command
             WHERE EXISTS (SELECT 1 FROM sitemap_urls s WHERE s.url = p.url)
         ");
         
-        // PostgreSQL-specific alternative if the above doesn't work:
-        $this->db->executeStatement("
-            UPDATE page_crawl_snapshots 
-            SET in_sitemap = 1 
-            WHERE url IN (SELECT url FROM sitemap_urls)
-        ");
-        
         $output->writeln("  Indexed {$inserted} URLs from sitemap");
     }
     
