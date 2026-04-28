@@ -78,6 +78,7 @@ class CrawlPagesCommand extends Command
         $this
             ->addOption('url', null, InputOption::VALUE_OPTIONAL, 'Crawl a single URL path')
             ->addOption('limit', null, InputOption::VALUE_OPTIONAL, 'Max URLs to crawl', 200)
+            ->addOption('rebuild', null, InputOption::VALUE_NONE, 'Clear existing crawl rows before repopulating them')
             ->addOption('debug', null, InputOption::VALUE_NONE, 'Extra debug output');
     }
 
@@ -85,6 +86,7 @@ class CrawlPagesCommand extends Command
     {
         $singleUrl = $input->getOption('url');
         $limit     = (int) $input->getOption('limit');
+        $rebuild   = (bool) $input->getOption('rebuild');
         $debug     = (bool) $input->getOption('debug');
 
         $this->ensureSchema();
@@ -104,10 +106,15 @@ class CrawlPagesCommand extends Command
         }
 
         if (!$singleUrl) {
-            // Clean up any stale media/image entries from previous crawls
+            // Always clean up stale media/image rows that should never contribute page signals.
             $this->db->executeStatement("DELETE FROM page_crawl_snapshots WHERE url LIKE '%/wp-content/%' OR url LIKE '%.png' OR url LIKE '%.jpg' OR url LIKE '%.jpeg' OR url LIKE '%.gif' OR url LIKE '%.svg' OR url LIKE '%.pdf' OR url LIKE '%.mp4' OR url LIKE '%.mp3' OR url LIKE '%.zip' OR url LIKE '%.css' OR url LIKE '%.js'");
-            $this->db->executeStatement('DELETE FROM page_crawl_snapshots');
-            $output->writeln('Cleared old crawl data (including stale media entries).');
+
+            if ($rebuild) {
+                $this->db->executeStatement('DELETE FROM page_crawl_snapshots');
+                $output->writeln('Cleared old crawl data (full rebuild mode).');
+            } else {
+                $output->writeln('Incremental crawl mode: keeping existing crawl rows and refreshing only selected URLs.');
+            }
         }
 
         $crawled = 0;
