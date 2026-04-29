@@ -38,13 +38,14 @@ class ReviewerActionService
                     continue;
                 }
 
+                $taskResultCode = $this->compactTaskResultCode($reasonCode);
                 $this->db->update('tasks', [
                     'status' => 'closed',
                     'completed_at' => $now,
                     'recheck_date' => null,
                     'recheck_days' => null,
                     'recheck_verified' => true,
-                    'recheck_result' => $reasonCode,
+                    'recheck_result' => $taskResultCode,
                     'recheck_criteria' => $reasonText,
                 ], ['id' => $taskId]);
 
@@ -287,6 +288,18 @@ class ReviewerActionService
     {
         $actor = trim((string) $actor);
         return $actor !== '' ? $actor : 'logiri-reviewer';
+    }
+
+    private function compactTaskResultCode(string $reasonCode): string
+    {
+        $reasonCode = trim($reasonCode);
+
+        return match ($reasonCode) {
+            'no_active_violation' => 'no_active_violation',
+            'malformed_task_url' => 'malformed_task_url',
+            'asset_url_false_positive' => 'asset_false_positive',
+            default => strlen($reasonCode) <= 20 ? $reasonCode : 'reviewer_reject',
+        };
     }
 
     private function tableExists(string $tableName): bool

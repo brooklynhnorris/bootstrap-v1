@@ -55,7 +55,7 @@ php /var/www/html/bin/console app:ensure-schema 2>/dev/null || php -r "
     recheck_type VARCHAR(50),
     recheck_date DATE,
     recheck_verified BOOLEAN DEFAULT false,
-    recheck_result VARCHAR(20),
+    recheck_result VARCHAR(50),
     created_at TIMESTAMP DEFAULT NOW(),
     completed_at TIMESTAMP
 )');
@@ -78,7 +78,8 @@ if (!in_array('engaged_sessions', \$ga4Cols)) { \$pdo->exec('ALTER TABLE ga4_sna
 if (!in_array('recheck_type', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_type VARCHAR(50)'); }
 if (!in_array('recheck_date', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_date DATE'); }
 if (!in_array('recheck_verified', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_verified BOOLEAN DEFAULT false'); }
-if (!in_array('recheck_result', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_result VARCHAR(20)'); }
+if (!in_array('recheck_result', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_result VARCHAR(50)'); }
+if (in_array('recheck_result', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ALTER COLUMN recheck_result TYPE VARCHAR(50)'); }
 if (!in_array('logged_hours', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN logged_hours FLOAT DEFAULT 0'); }
 if (!in_array('recheck_days', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_days INT DEFAULT NULL'); }
 if (!in_array('recheck_criteria', \$taskCols)) { \$pdo->exec('ALTER TABLE tasks ADD COLUMN recheck_criteria TEXT DEFAULT NULL'); }
