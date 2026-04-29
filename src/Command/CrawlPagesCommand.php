@@ -1648,14 +1648,20 @@ class CrawlPagesCommand extends Command
     private function getUrlsFromGsc(int $limit): array
     {
         $paths = [];
-        
-        // 1. First, try to fetch URLs from XML sitemap (most comprehensive source)
+
+        // 1. Seed from live pending tasks so crawl budget serves the board first.
+        $pendingTaskUrls = $this->getPendingTaskUrls();
+        if (!empty($pendingTaskUrls)) {
+            $paths = array_merge($paths, $pendingTaskUrls);
+        }
+
+        // 2. Then fetch URLs from XML sitemap (most comprehensive source)
         $sitemapUrls = $this->getUrlsFromSitemap();
         if (!empty($sitemapUrls)) {
             $paths = array_merge($paths, $sitemapUrls);
         }
-        
-        // 2. Add URLs from GSC snapshots (pages with actual impressions)
+
+        // 3. Add URLs from GSC snapshots (pages with actual impressions)
         $rows = $this->db->fetchAllAssociative(
             "SELECT DISTINCT page FROM gsc_snapshots
              WHERE date_range = '28d' AND page LIKE '%doubledtrailers.com%'
@@ -1667,19 +1673,101 @@ class CrawlPagesCommand extends Command
             if ($parsed) $paths[] = $parsed;
         }
 
-        // 3. Add hardcoded core URLs as fallback
+        // 4. Add hardcoded core URLs as fallback
         foreach ($this->coreUrls as $core) {
             $paths[] = $core;
         }
 
-        // Filter out media/asset URLs that shouldn't be crawled as pages
-        $paths = array_filter($paths, function($p) {
-            if (str_contains($p, '/wp-content/')) return false;
-            if (preg_match('/\.(jpg|jpeg|png|gif|webp|svg|pdf|mp4|mp3|zip|css|js)$/i', $p)) return false;
-            return true;
-        });
+        $normalized = [];
+        foreach ($paths as $path) {
+            $path = $this->normalizeCrawlPath(is_string($path) ? $path : '');
+            if ($path === '' || !$this->isCrawlablePagePath($path)) {
+                continue;
+            }
+            $normalized[] = $path;
+        }
 
-        return array_slice(array_unique(array_values($paths)), 0, $limit);
+        return array_slice(array_values(array_unique($normalized)), 0, $limit);
+    }
+
+    private function getPendingTaskUrls(): array
+    {
+        $paths = [];
+
+        try {
+            $rows = $this->db->fetchAllAssociative(
+                "SELECT url, title
+                 FROM tasks
+                 WHERE status = 'pending'
+                 ORDER BY priority DESC NULLS LAST, id ASC"
+            );
+        } catch (\Throwable) {
+            return [];
+        }
+
+        foreach ($rows as $row) {
+            $candidates = [];
+
+            if (!empty($row['url']) && is_string($row['url'])) {
+                $candidates[] = $row['url'];
+            }
+
+            if (!empty($row['title']) && is_string($row['title']) && preg_match('|(/[a-z0-9][a-z0-9_/-]*/?)|i', $row['title'], $matches)) {
+                $candidates[] = $matches[1];
+            }
+
+            foreach ($candidates as $candidate) {
+                $path = $this->normalizeCrawlPath($candidate);
+                if ($path === '' || !$this->isCrawlablePagePath($path)) {
+                    continue;
+                }
+                $paths[] = $path;
+            }
+        }
+
+        return array_values(array_unique($paths));
+    }
+
+    private function normalizeCrawlPath(string $path): string
+    {
+        $path = trim($path);
+        if ($path === '') {
+            return '';
+        }
+
+        if (str_starts_with($path, 'http://') || str_starts_with($path, 'https://')) {
+            $parsed = parse_url($path, PHP_URL_PATH);
+            $path = is_string($parsed) ? $parsed : '';
+        }
+
+        if ($path === '') {
+            return '';
+        }
+
+        if (!str_starts_with($path, '/')) {
+            $path = '/' . $path;
+        }
+
+        $path = preg_replace('#/+#', '/', $path) ?? $path;
+
+        return $path === '/' ? '/' : rtrim($path, '/') . '/';
+    }
+
+    private function isCrawlablePagePath(string $path): bool
+    {
+        if ($path === '') {
+            return false;
+        }
+
+        if (str_contains($path, '/wp-content/')) {
+            return false;
+        }
+
+        if (preg_match('/\.(jpg|jpeg|png|gif|webp|svg|pdf|mp4|mp3|zip|css|js)$/i', $path)) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
