@@ -30,7 +30,7 @@ class NightlyReviewerLoopCommand extends Command
             ->addOption('rounds', null, InputOption::VALUE_OPTIONAL, 'Maximum review/crawl rounds to run', '3')
             ->addOption('sleep-minutes', null, InputOption::VALUE_OPTIONAL, 'Minutes to sleep between rounds', '30')
             ->addOption('crawl-limit', null, InputOption::VALUE_OPTIONAL, 'Maximum URLs for the initial HTML crawl step', '250')
-            ->addOption('targeted-recrawl-limit', null, InputOption::VALUE_OPTIONAL, 'Maximum URLs to target in each follow-up recrawl', '12')
+            ->addOption('targeted-recrawl-limit', null, InputOption::VALUE_OPTIONAL, 'Maximum URLs to target in each follow-up recrawl (0 = all)', '12')
             ->addOption('skip-initial-html-crawl', null, InputOption::VALUE_NONE, 'Skip the initial HTML crawl in the first refresh round')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Print the final loop report as JSON');
     }
@@ -42,7 +42,7 @@ class NightlyReviewerLoopCommand extends Command
         $rounds = max(1, min((int) $input->getOption('rounds'), 12));
         $sleepMinutes = max(0, min((int) $input->getOption('sleep-minutes'), 240));
         $crawlLimit = max(1, min((int) $input->getOption('crawl-limit'), 1000));
-        $targetedRecrawlLimit = max(1, min((int) $input->getOption('targeted-recrawl-limit'), 50));
+        $targetedRecrawlLimit = max(0, min((int) $input->getOption('targeted-recrawl-limit'), 1000));
         $skipInitialHtmlCrawl = (bool) $input->getOption('skip-initial-html-crawl');
 
         $report = [
@@ -159,7 +159,10 @@ class NightlyReviewerLoopCommand extends Command
                 }
                 $recrawlUrls[] = $url;
             }
-            $recrawlUrls = array_slice(array_values(array_unique($recrawlUrls)), 0, $targetedRecrawlLimit);
+            $recrawlUrls = array_values(array_unique($recrawlUrls));
+            if ($targetedRecrawlLimit > 0) {
+                $recrawlUrls = array_slice($recrawlUrls, 0, $targetedRecrawlLimit);
+            }
 
             $recrawl = null;
             if ($recrawlUrls !== []) {
