@@ -841,6 +841,12 @@ PROMPT;
             $rawUrl = trim((string) ($brief['url'] ?? ''));
             $url = $this->normalizeUrl($rawUrl);
             $page = $pageMap[$url] ?? null;
+            if ($page === null && $url !== '') {
+                $page = $this->loadLatestPageDataForUrl($url);
+                if ($page !== null) {
+                    $pageMap[$url] = $page;
+                }
+            }
 
             if ($this->shouldDropBriefForUrl($rawUrl, $url, $page, (string) ($rule['id'] ?? ''))) {
                 continue;
@@ -868,6 +874,58 @@ PROMPT;
         }
 
         return $sanitized;
+    }
+
+    private function loadLatestPageDataForUrl(string $url): ?array
+    {
+        try {
+            $row = $this->db->fetchAssociative(
+                "WITH latest_page_crawl_snapshots AS (
+                    SELECT *
+                    FROM (
+                        SELECT pcs.*,
+                               ROW_NUMBER() OVER (PARTITION BY pcs.url ORDER BY pcs.crawled_at DESC, pcs.id DESC) AS rn
+                        FROM page_crawl_snapshots pcs
+                    ) ranked
+                    WHERE rn = 1
+                )
+                SELECT url, page_type, word_count, h1, title_tag, h1_matches_title, h2s,
+                       schema_types, schema_errors, has_central_entity, has_core_link,
+                       internal_link_count, is_noindex, canonical_url, body_text_snippet,
+                       first_sentence_text, meta_description, image_count, has_faq_section,
+                       has_product_image, images_without_alt, images_with_generic_alt,
+                       image_alt_data, target_query, target_query_impressions,
+                       target_query_position, target_query_clicks
+                FROM latest_page_crawl_snapshots
+                WHERE url = ?",
+                [$url]
+            );
+
+            if ($row !== false) {
+                return $row;
+            }
+
+            $row = $this->db->fetchAssociative(
+                "SELECT pf.url, pf.page_type, pf.word_count, pf.h1, pf.title_tag, pf.h1_matches_title,
+                        CASE WHEN pf.h2_count > 0 THEN '[\"present\"]' ELSE '[]' END AS h2s,
+                        COALESCE(CAST(pf.schema_types AS TEXT), '[]') AS schema_types,
+                        COALESCE(CAST(pf.schema_errors AS TEXT), '[]') AS schema_errors,
+                        pf.has_central_entity, pf.has_core_link, pf.internal_link_count,
+                        CASE WHEN pf.is_indexable = TRUE THEN FALSE ELSE TRUE END AS is_noindex,
+                        NULL AS canonical_url, NULL AS body_text_snippet, NULL AS first_sentence_text,
+                        NULL AS meta_description, 0 AS image_count, FALSE AS has_faq_section,
+                        FALSE AS has_product_image, 0 AS images_without_alt, 0 AS images_with_generic_alt,
+                        NULL AS image_alt_data, pf.target_query, pf.target_query_impressions,
+                        pf.target_query_position, pf.target_query_clicks
+                 FROM page_facts pf
+                 WHERE pf.url = ?",
+                [$url]
+            );
+
+            return $row !== false ? $row : null;
+        } catch (\Throwable) {
+            return null;
+        }
     }
 
     private function loadKnownCrawledUrls(): array
