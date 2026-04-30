@@ -796,7 +796,7 @@ class TaskReviewService
         $recommendedAction = 'work_now';
         $ruleFollowup = ['needed' => false];
 
-        if ($url !== null && $this->looksLikeAssetUrl($url)) {
+        if ($url !== null && $this->looksLikeAssetUrl($url) && $ruleId !== 'MAO-R6') {
             $verdict = 'reject';
             $confidence = 0.99;
             $reasonCodes[] = 'asset_url_false_positive';

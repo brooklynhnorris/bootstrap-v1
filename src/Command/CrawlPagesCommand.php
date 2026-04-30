@@ -107,7 +107,7 @@ class CrawlPagesCommand extends Command
 
         if (!$singleUrl) {
             // Always clean up stale media/image rows that should never contribute page signals.
-            $this->db->executeStatement("DELETE FROM page_crawl_snapshots WHERE url LIKE '%/wp-content/%' OR url LIKE '%.png' OR url LIKE '%.jpg' OR url LIKE '%.jpeg' OR url LIKE '%.gif' OR url LIKE '%.svg' OR url LIKE '%.pdf' OR url LIKE '%.mp4' OR url LIKE '%.mp3' OR url LIKE '%.zip' OR url LIKE '%.css' OR url LIKE '%.js'");
+            $this->db->executeStatement("DELETE FROM page_crawl_snapshots WHERE url LIKE '%/wp-content/%' OR url LIKE '%.png' OR url LIKE '%.jpg' OR url LIKE '%.jpeg' OR url LIKE '%.gif' OR url LIKE '%.svg' OR url LIKE '%.mp4' OR url LIKE '%.mp3' OR url LIKE '%.zip' OR url LIKE '%.css' OR url LIKE '%.js'");
 
             if ($rebuild) {
                 $this->db->executeStatement('DELETE FROM page_crawl_snapshots');
@@ -124,7 +124,7 @@ class CrawlPagesCommand extends Command
         foreach ($urls as $path) {
             // Skip media assets — they're not pages and shouldn't be in page signals
             if (str_contains($path, '/wp-content/uploads/') || str_contains($path, '/wp-content/themes/') ||
-                preg_match('/\.(jpg|jpeg|png|gif|webp|svg|pdf|mp4|mp3|zip|css|js)$/i', $path)) {
+                preg_match('/\.(jpg|jpeg|png|gif|webp|svg|mp4|mp3|zip|css|js)$/i', $path)) {
                 continue;
             }
 

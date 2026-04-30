@@ -842,7 +842,7 @@ PROMPT;
             $url = $this->normalizeUrl($rawUrl);
             $page = $pageMap[$url] ?? null;
 
-            if ($this->shouldDropBriefForUrl($rawUrl, $url, $page)) {
+            if ($this->shouldDropBriefForUrl($rawUrl, $url, $page, (string) ($rule['id'] ?? ''))) {
                 continue;
             }
 
@@ -1480,7 +1480,7 @@ PROMPT;
         $rawUrl = trim((string) ($brief['url'] ?? ''));
         $normalizedUrl = $this->normalizeUrl($rawUrl);
 
-        if ($this->shouldDropBriefForUrl($rawUrl, $normalizedUrl, null)) {
+        if ($this->shouldDropBriefForUrl($rawUrl, $normalizedUrl, null, (string) ($brief['rule_id'] ?? ''))) {
             return true;
         }
 
@@ -1509,17 +1509,18 @@ PROMPT;
         return false;
     }
 
-    private function shouldDropBriefForUrl(string $rawUrl, string $normalizedUrl, ?array $page): bool
+    private function shouldDropBriefForUrl(string $rawUrl, string $normalizedUrl, ?array $page, ?string $ruleId = null): bool
     {
         $rawUrl = trim($rawUrl);
         $rawLower = strtolower($rawUrl);
         $normalizedLower = strtolower($normalizedUrl);
+        $ruleId = strtoupper(trim((string) $ruleId));
 
         if ($rawLower === '' || $normalizedLower === '') {
             return false;
         }
 
-        if ($this->looksLikeSuppressedAssetUrl($normalizedLower)) {
+        if ($this->looksLikeSuppressedAssetUrl($normalizedLower) && !($ruleId === 'MAO-R6' && preg_match('/\.pdf$/', $normalizedLower) === 1)) {
             return true;
         }
 
@@ -1760,7 +1761,15 @@ PROMPT;
             $normalized = str_replace('//', '/', $normalized);
         }
 
-        return $normalized === '/' ? '/' : rtrim($normalized, '/') . '/';
+        if ($normalized === '/') {
+            return '/';
+        }
+
+        if (preg_match('/\.[a-z0-9]{2,8}$/i', $normalized) === 1) {
+            return rtrim($normalized, '/');
+        }
+
+        return rtrim($normalized, '/') . '/';
     }
 
     private function toBool(mixed $value): bool
@@ -2097,10 +2106,6 @@ PROMPT;
             $af = self::ASSET_FILTER;
             $utilExclude = "AND is_utility IS NOT TRUE AND url NOT LIKE '%thank-you%' AND url NOT LIKE '%thank_you%' AND url NOT LIKE '%thanks%' AND url NOT LIKE '%-submit%' AND url NOT LIKE '%-confirmation%' AND url NOT LIKE '%prize-wheel%' AND url NOT LIKE '%payment-failed%' AND url NOT LIKE '%payment-success%' AND url NOT LIKE '%terms-of-use%' AND url NOT LIKE '%privacy-policy%'";
 
-            if (($rule['id'] ?? '') === 'MAO-R6') {
-                return [];
-            }
-
             // Try to extract executable SQL from the rule's trigger condition
             $sql = $rule['trigger_sql'] ?? '';
             $ruleId = $rule['id'];
@@ -2113,7 +2118,7 @@ PROMPT;
             if ($simplifiedQuery) {
                 $simplifiedQuery = $this->applyLatestSnapshotScope($simplifiedQuery);
                 try {
-                    $results = $this->filterNonActionableRows($this->db->fetchAllAssociative($simplifiedQuery));
+                    $results = $this->filterNonActionableRows($this->db->fetchAllAssociative($simplifiedQuery), $ruleId === 'MAO-R6');
                     if (!empty($results)) return $results;
                 } catch (\Exception $e) {
                     // Simplified query failed — fall through to trigger_sql
@@ -2129,7 +2134,7 @@ PROMPT;
                 }
                 $sql = $this->applyLatestSnapshotScope($sql);
                 try {
-                    $results = $this->filterNonActionableRows($this->db->fetchAllAssociative($sql));
+                    $results = $this->filterNonActionableRows($this->db->fetchAllAssociative($sql), $ruleId === 'MAO-R6');
                     if (!empty($results)) return $results;
                 } catch (\Exception $e) {
                     // SQL failed (missing columns/tables) — fall through to legacy
@@ -2155,7 +2160,7 @@ PROMPT;
             };
 
             if ($query) {
-                return $this->filterNonActionableRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope($query)));
+                return $this->filterNonActionableRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope($query)), $ruleId === 'MAO-R6');
             }
 
             // If no SQL and no legacy match, the trigger_condition is likely a bare WHERE clause
@@ -2183,7 +2188,7 @@ PROMPT;
                          LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url)
                          WHERE {$where}
                          LIMIT 15"
-                    )));
+                    )), $ruleId === 'MAO-R6');
                 }
 
                 // Default: page_crawl_snapshots only
@@ -2194,7 +2199,7 @@ PROMPT;
                      FROM page_crawl_snapshots
                      WHERE {$where}
                      LIMIT 15"
-                )));
+                )), $ruleId === 'MAO-R6');
             }
 
             return [];
@@ -2250,36 +2255,44 @@ PROMPT;
                 {$scopedSql}";
     }
 
-    private function filterNonActionableRows(array $rows): array
+    private function filterNonActionableRows(array $rows, bool $allowPdfAssets = false): array
     {
-        return array_values(array_filter($rows, function (array $row): bool {
+        return array_values(array_filter($rows, function (array $row) use ($allowPdfAssets): bool {
             $candidateUrl = null;
             foreach (['url', 'page'] as $key) {
                 if (!empty($row[$key]) && is_string($row[$key])) {
                     $candidateUrl = $row[$key];
-                    if ($this->shouldSuppressCandidateUrl($candidateUrl)) {
+                    if ($this->shouldSuppressCandidateUrl($candidateUrl, $allowPdfAssets)) {
                         return false;
                     }
                 }
+            }
+
+            if ($allowPdfAssets && is_string($candidateUrl) && preg_match('/\.pdf$/i', (string) (parse_url($candidateUrl, PHP_URL_PATH) ?: $candidateUrl)) === 1) {
+                return true;
             }
 
             return $this->isDdtTopicallyRelevantRow($row, $candidateUrl);
         }));
     }
 
-    private function shouldSuppressCandidateUrl(string $candidateUrl): bool
+    private function shouldSuppressCandidateUrl(string $candidateUrl, bool $allowPdfAssets = false): bool
     {
-        if ($this->isAssetLikeUrl($candidateUrl) || $this->isUtilityLikeUrl($candidateUrl)) {
+        if ($this->isAssetLikeUrl($candidateUrl, $allowPdfAssets) || $this->isUtilityLikeUrl($candidateUrl)) {
             return true;
         }
 
         return $this->isMalformedCandidateUrl($candidateUrl);
     }
 
-    private function isAssetLikeUrl(string $url): bool
+    private function isAssetLikeUrl(string $url, bool $allowPdfAssets = false): bool
     {
         $path = parse_url($url, PHP_URL_PATH) ?: $url;
         $path = strtolower($path);
+
+        if ($allowPdfAssets && preg_match('/\.pdf$/i', $path) === 1) {
+            return false;
+        }
 
         if (str_contains($path, '/wp-content/uploads/')) {
             return true;
@@ -2405,7 +2418,7 @@ PROMPT;
 
     private function getSimplifiedQuery(string $ruleId, string $triggerCondition): ?string
     {
-        $cols = "url, page_type, word_count, h1, title_tag, has_central_entity, central_entity_count, schema_types, h1_matches_title, h2s, has_core_link, canonical_url, is_noindex, internal_links, internal_link_count, body_internal_links, body_internal_link_count, body_link_extraction_confident, body_link_extraction_scope, target_query, target_query_impressions, target_query_position";
+        $cols = "url, page_type, word_count, h1, title_tag, meta_description, has_central_entity, central_entity_count, schema_types, h1_matches_title, h2s, has_core_link, canonical_url, is_noindex, internal_links, internal_link_count, body_internal_links, body_internal_link_count, body_link_extraction_confident, body_link_extraction_scope, body_text_snippet, target_query, target_query_impressions, target_query_position";
 
         // Relevance filter — exclude pages with zero GSC presence unless they're core product pages
         // Also exclude wp-content/media assets that shouldn't be in the table at all
@@ -2475,7 +2488,7 @@ PROMPT;
             'MAO-R1' => "SELECT {$cols}, images_without_alt FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND images_without_alt > 0 AND is_noindex = FALSE ORDER BY images_without_alt DESC LIMIT 15",
             'MAO-R2' => "SELECT {$cols}, images_without_alt FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count >= 1000 AND images_without_alt > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} ORDER BY images_without_alt DESC LIMIT 15",
             'MAO-R4' => "SELECT {$cols}, has_main_content_video, video_metadata_valid, video_topic_aligned, video_urls, video_title FROM page_crawl_snapshots WHERE has_main_content_video = TRUE AND video_metadata_valid = TRUE AND video_topic_aligned = TRUE AND video_urls IS NOT NULL AND video_urls <> '' AND video_title IS NOT NULL AND video_title <> '' AND schema_types NOT LIKE '%VideoObject%' AND is_noindex = FALSE AND is_utility = FALSE LIMIT 15",
-            'MAO-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url LIKE '%.pdf' LIMIT 15",
+            'MAO-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url LIKE '%.pdf' AND ((title_tag IS NULL OR title_tag = '') OR (meta_description IS NULL OR meta_description = '') OR schema_types IS NULL OR schema_types = '[]' OR schema_types NOT LIKE '%PDF_XMP%') LIMIT 15",
             'MAO-R7' => "SELECT {$cols}, images_with_generic_alt FROM page_crawl_snapshots WHERE page_type IN ('core', 'outer') AND images_with_generic_alt > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} ORDER BY images_with_generic_alt DESC LIMIT 15",
 
             // Internal Link Architecture

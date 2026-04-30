@@ -91,7 +91,15 @@ class ViolationSnapshotService
         $normalized = '/' . ltrim($url, '/');
         $normalized = $this->collapseSlashes($normalized);
 
-        return $normalized === '/' ? '/' : rtrim($normalized, '/') . '/';
+        if ($normalized === '/') {
+            return '/';
+        }
+
+        if (preg_match('/\.[a-z0-9]{2,8}$/i', $normalized) === 1) {
+            return rtrim($normalized, '/');
+        }
+
+        return rtrim($normalized, '/') . '/';
     }
 
     private function stripQueryAndFragment(string $url): string

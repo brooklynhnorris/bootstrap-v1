@@ -171,7 +171,15 @@ class PageFactsSyncService
     private function normalizePath(string $path): string
     {
         $trimmed = '/' . trim(parse_url($path, PHP_URL_PATH) ?? $path, '/');
-        return $trimmed === '/' ? '/' : $trimmed . '/';
+        if ($trimmed === '/') {
+            return '/';
+        }
+
+        if (preg_match('/\.[a-z0-9]{2,8}$/i', $trimmed) === 1) {
+            return rtrim($trimmed, '/');
+        }
+
+        return $trimmed . '/';
     }
 
     private function countHeadings(mixed $rawValue): int

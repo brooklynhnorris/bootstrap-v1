@@ -144,7 +144,15 @@ class BackfillTaskRejectionsCommand extends Command
             $url = '/' . $url;
         }
 
-        return $url === '/' ? '/' : rtrim($url, '/') . '/';
+        if ($url === '/') {
+            return '/';
+        }
+
+        if (preg_match('/\.[a-z0-9]{2,8}$/i', $url) === 1) {
+            return rtrim($url, '/');
+        }
+
+        return rtrim($url, '/') . '/';
     }
 
     private function fetchLatestPageContext(string $url): array

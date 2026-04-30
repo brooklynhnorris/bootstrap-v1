@@ -74,7 +74,7 @@ class FetchWordPressCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addOption('type', null, InputOption::VALUE_OPTIONAL, 'Content type to fetch: pages, posts, or all', 'all')
+            ->addOption('type', null, InputOption::VALUE_OPTIONAL, 'Content type to fetch: pages, posts, media, or all', 'all')
             ->addOption('limit', null, InputOption::VALUE_OPTIONAL, 'Max items to fetch (0 = all)', 0)
             ->addOption('no-clear', null, InputOption::VALUE_NONE, 'Do not clear existing crawl data before fetching')
             ->addOption('debug', null, InputOption::VALUE_NONE, 'Show extra debug output');
@@ -116,6 +116,17 @@ class FetchWordPressCommand extends Command
             $allItems = array_merge($allItems, $posts);
         }
 
+        if ($type === 'media' || $type === 'all') {
+            $output->writeln('Fetching PDF media...');
+            $pdfMedia = $this->fetchAllFromEndpoint('/wp-json/wp/v2/media', $output, $debug, [
+                'media_type' => 'file',
+                'mime_type' => 'application/pdf',
+                'status' => 'inherit',
+            ]);
+            $output->writeln('  Retrieved ' . count($pdfMedia) . ' PDF media items from WordPress.');
+            $allItems = array_merge($allItems, $pdfMedia);
+        }
+
         if (empty($allItems)) {
             $output->writeln('[ERROR] No content retrieved from WordPress API.');
             return Command::FAILURE;
@@ -138,7 +149,9 @@ class FetchWordPressCommand extends Command
         $total   = count($allItems);
 
         foreach ($allItems as $i => $item) {
-            $path = $this->extractPath($item);
+            $path = $this->isPdfMediaItem($item)
+                ? $this->extractPdfPath($item)
+                : $this->extractPath($item);
             if (!$path) {
                 $skipped++;
                 continue;
@@ -146,7 +159,9 @@ class FetchWordPressCommand extends Command
 
             $output->writeln("[{$i}/{$total}] Processing: {$path}");
 
-            $row = $this->processItem($item, $path, $hasYoast, $debug, $output);
+            $row = $this->isPdfMediaItem($item)
+                ? $this->processPdfMediaItem($item, $path, $debug, $output)
+                : $this->processItem($item, $path, $hasYoast, $debug, $output);
 
             if ($row) {
                 // Remove any existing row for this URL (in case of --no-clear)
@@ -182,14 +197,19 @@ class FetchWordPressCommand extends Command
     //  Handles pagination (max 100 per page)
     // ─────────────────────────────────────────────
 
-    private function fetchAllFromEndpoint(string $endpoint, OutputInterface $output, bool $debug): array
+    private function fetchAllFromEndpoint(string $endpoint, OutputInterface $output, bool $debug, array $extraQuery = []): array
     {
         $allItems = [];
         $page     = 1;
         $perPage  = 100;
 
         while (true) {
-            $url = $this->siteUrl . $endpoint . "?per_page={$perPage}&page={$page}&status=publish";
+            $query = array_merge([
+                'per_page' => $perPage,
+                'page' => $page,
+                'status' => 'publish',
+            ], $extraQuery);
+            $url = $this->siteUrl . $endpoint . '?' . http_build_query($query);
             if ($debug) $output->writeln("  [DEBUG] Fetching: {$url}");
 
             $context = stream_context_create([
@@ -389,6 +409,90 @@ class FetchWordPressCommand extends Command
         ];
     }
 
+    private function processPdfMediaItem(array $item, string $path, bool $debug, OutputInterface $output): ?array
+    {
+        $sourceUrl = (string) ($item['source_url'] ?? '');
+        if ($sourceUrl === '') {
+            return null;
+        }
+
+        $wpTitle = html_entity_decode((string) ($item['title']['rendered'] ?? ''), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $wpTitle = trim(strip_tags($wpTitle));
+        $caption = $this->htmlToCleanText((string) ($item['caption']['rendered'] ?? ''));
+        $description = $this->htmlToCleanText((string) ($item['description']['rendered'] ?? ''));
+
+        $pdfBinary = $this->fetchRemoteBinary($sourceUrl);
+        $pdfMetadata = $pdfBinary !== null ? $this->extractPdfMetadata($pdfBinary) : [
+            'title' => null,
+            'description' => null,
+            'has_xmp' => false,
+        ];
+
+        $titleTag = trim((string) ($pdfMetadata['title'] ?? ''));
+        if ($titleTag === '') {
+            $titleTag = $wpTitle;
+        }
+
+        $metaDescription = trim((string) ($pdfMetadata['description'] ?? ''));
+        if ($metaDescription === '') {
+            $metaDescription = $description !== '' ? $description : $caption;
+        }
+
+        $bodyText = $description !== '' ? $description : $caption;
+        $wordCount = str_word_count(trim($bodyText));
+        $h1 = $wpTitle !== '' ? $wpTitle : $titleTag;
+        $h1MatchesTitle = $this->checkH1TitleMatch($h1, $titleTag);
+
+        $bodyLower = strtolower($bodyText . ' ' . $titleTag);
+        $centralEntityCount = 0;
+        foreach ($this->centralEntityVariants as $variant) {
+            $centralEntityCount += substr_count($bodyLower, $variant);
+        }
+        $hasCentralEntity = $centralEntityCount >= 1;
+
+        $schemaTypes = ['PDF'];
+        if ($titleTag !== '') {
+            $schemaTypes[] = 'PDF_TITLE';
+        }
+        if ($metaDescription !== '') {
+            $schemaTypes[] = 'PDF_DESCRIPTION';
+        }
+        if (!empty($pdfMetadata['has_xmp'])) {
+            $schemaTypes[] = 'PDF_XMP';
+        }
+
+        $pgBool = fn(bool $v): string => $v ? 't' : 'f';
+
+        if ($debug) {
+            $output->writeln('  [PDF] title=' . ($titleTag !== '' ? $titleTag : 'n/a') . ' | desc=' . ($metaDescription !== '' ? substr($metaDescription, 0, 60) : 'n/a') . ' | xmp=' . (!empty($pdfMetadata['has_xmp']) ? 'yes' : 'no'));
+        }
+
+        return [
+            'url'                  => $path,
+            'http_status'          => 200,
+            'title_tag'            => $titleTag !== '' ? substr($titleTag, 0, 500) : null,
+            'h1'                   => $h1 !== '' ? substr($h1, 0, 500) : null,
+            'h2s'                  => json_encode([]),
+            'meta_description'     => $metaDescription !== '' ? substr($metaDescription, 0, 500) : null,
+            'word_count'           => $wordCount,
+            'has_central_entity'   => $pgBool($hasCentralEntity),
+            'central_entity_count' => $centralEntityCount,
+            'internal_links'       => json_encode([]),
+            'has_core_link'        => $pgBool(false),
+            'core_links_found'     => json_encode([]),
+            'h1_matches_title'     => $pgBool($h1MatchesTitle),
+            'schema_types'         => json_encode(array_values(array_unique($schemaTypes))),
+            'canonical_url'        => substr($sourceUrl, 0, 500),
+            'is_noindex'           => $pgBool(false),
+            'page_type'            => 'outer',
+            'is_utility'           => $pgBool(false),
+            'body_text_snippet'    => $bodyText !== '' ? substr($bodyText, 0, 1000) : null,
+            'first_sentence_text'  => $bodyText !== '' ? substr($bodyText, 0, 300) : null,
+            'schema_errors'        => null,
+            'crawled_at'           => date('Y-m-d H:i:s'),
+        ];
+    }
+
     // ─────────────────────────────────────────────
     //  CHECK IF YOAST SEO IS AVAILABLE
     // ─────────────────────────────────────────────
@@ -440,6 +544,26 @@ class FetchWordPressCommand extends Command
         return $this->normalizePath($path);
     }
 
+    private function isPdfMediaItem(array $item): bool
+    {
+        return strtolower((string) ($item['mime_type'] ?? '')) === 'application/pdf';
+    }
+
+    private function extractPdfPath(array $item): ?string
+    {
+        $sourceUrl = $item['source_url'] ?? null;
+        if (!is_string($sourceUrl) || trim($sourceUrl) === '') {
+            return null;
+        }
+
+        $path = parse_url($sourceUrl, PHP_URL_PATH);
+        if (!is_string($path) || $path === '') {
+            return null;
+        }
+
+        return $this->normalizePath($path);
+    }
+
     private function normalizePath(string $path): string
     {
         $path = trim($path);
@@ -453,8 +577,82 @@ class FetchWordPressCommand extends Command
         }
 
         $normalized = '/' . ltrim($path, '/');
+        $normalized = preg_replace('#/+#', '/', $normalized) ?? $normalized;
+        if ($normalized === '/') {
+            return '/';
+        }
 
-        return $normalized === '/' ? '/' : rtrim($normalized, '/') . '/';
+        if (preg_match('/\.[a-z0-9]{2,8}$/i', $normalized) === 1) {
+            return rtrim($normalized, '/');
+        }
+
+        return rtrim($normalized, '/') . '/';
+    }
+
+    private function fetchRemoteBinary(string $url): ?string
+    {
+        $context = stream_context_create([
+            'http' => [
+                'method' => 'GET',
+                'header' => "User-Agent: LogiriBot/1.0\r\nAccept: application/pdf,*/*",
+                'timeout' => 30,
+                'ignore_errors' => true,
+            ],
+        ]);
+
+        $raw = @file_get_contents($url, false, $context);
+
+        return is_string($raw) && $raw !== '' ? $raw : null;
+    }
+
+    private function extractPdfMetadata(string $binary): array
+    {
+        $title = null;
+        $description = null;
+        $hasXmp = false;
+
+        if (preg_match('/<x:xmpmeta[\s\S]*?<\/x:xmpmeta>/i', $binary, $matches) === 1) {
+            $hasXmp = true;
+            $xmp = $matches[0];
+
+            if (preg_match('/<dc:title>[\s\S]*?<rdf:li[^>]*>(.*?)<\/rdf:li>[\s\S]*?<\/dc:title>/i', $xmp, $m) === 1) {
+                $title = $this->cleanPdfMetadataText($m[1]);
+            }
+            if (preg_match('/<dc:description>[\s\S]*?<rdf:li[^>]*>(.*?)<\/rdf:li>[\s\S]*?<\/dc:description>/i', $xmp, $m) === 1) {
+                $description = $this->cleanPdfMetadataText($m[1]);
+            }
+        }
+
+        if (($title === null || $title === '') && preg_match('/\/Title\s*\((.*?)\)/s', $binary, $m) === 1) {
+            $title = $this->decodePdfLiteralString($m[1]);
+        }
+
+        if (($description === null || $description === '') && preg_match('/\/Subject\s*\((.*?)\)/s', $binary, $m) === 1) {
+            $description = $this->decodePdfLiteralString($m[1]);
+        }
+
+        return [
+            'title' => $title !== '' ? $title : null,
+            'description' => $description !== '' ? $description : null,
+            'has_xmp' => $hasXmp,
+        ];
+    }
+
+    private function cleanPdfMetadataText(string $value): string
+    {
+        $value = html_entity_decode(strip_tags($value), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+
+        return trim($value);
+    }
+
+    private function decodePdfLiteralString(string $value): string
+    {
+        $value = preg_replace('/\\\\([()\\\\])/', '$1', $value) ?? $value;
+        $value = preg_replace('/\\\\r|\\\\n|\\\\t/', ' ', $value) ?? $value;
+        $value = preg_replace('/\s+/', ' ', $value) ?? $value;
+
+        return trim($value);
     }
 
     // ─────────────────────────────────────────────
@@ -641,6 +839,9 @@ class FetchWordPressCommand extends Command
                     is_noindex              BOOLEAN DEFAULT FALSE,
                     page_type               VARCHAR(20) DEFAULT NULL,
                     is_utility              BOOLEAN DEFAULT FALSE,
+                    body_text_snippet       TEXT DEFAULT NULL,
+                    first_sentence_text     TEXT DEFAULT NULL,
+                    schema_errors           TEXT DEFAULT NULL,
                     crawled_at              TIMESTAMP NOT NULL
                 )
             ");
@@ -651,6 +852,9 @@ class FetchWordPressCommand extends Command
         } else {
             try {
                 $this->db->executeStatement('ALTER TABLE page_crawl_snapshots ADD COLUMN IF NOT EXISTS is_utility BOOLEAN DEFAULT FALSE');
+                $this->db->executeStatement('ALTER TABLE page_crawl_snapshots ADD COLUMN IF NOT EXISTS body_text_snippet TEXT DEFAULT NULL');
+                $this->db->executeStatement('ALTER TABLE page_crawl_snapshots ADD COLUMN IF NOT EXISTS first_sentence_text TEXT DEFAULT NULL');
+                $this->db->executeStatement('ALTER TABLE page_crawl_snapshots ADD COLUMN IF NOT EXISTS schema_errors TEXT DEFAULT NULL');
             } catch (\Exception $e) {}
         }
     }

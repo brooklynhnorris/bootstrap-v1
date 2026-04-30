@@ -281,7 +281,15 @@ class ReviewerActionService
 
         $url = preg_replace('#/+#', '/', $url) ?? $url;
 
-        return $url === '/' ? '/' : rtrim($url, '/') . '/';
+        if ($url === '/') {
+            return '/';
+        }
+
+        if (preg_match('/\.[a-z0-9]{2,8}$/i', $url) === 1) {
+            return rtrim($url, '/');
+        }
+
+        return rtrim($url, '/') . '/';
     }
 
     private function normalizeActor(?string $actor): string
