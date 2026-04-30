@@ -1109,7 +1109,7 @@ class TaskReviewService
             return '/';
         }
 
-        if (preg_match('|(/[a-z0-9][a-z0-9_./-]*/?)|i', $title, $matches)) {
+        if (preg_match('|(/[a-z0-9][a-z0-9_./%+-]*[a-z0-9]|/[a-z0-9][a-z0-9_./%+-]*/?)|i', $title, $matches)) {
             return $this->violationSnapshotService->normalizeUrl($matches[1]);
         }
 
@@ -1122,7 +1122,7 @@ class TaskReviewService
             return '/';
         }
 
-        if (preg_match('|(/[a-z0-9][a-z0-9_./-]*/?)|i', $title, $matches)) {
+        if (preg_match('|(/[a-z0-9][a-z0-9_./%+-]*[a-z0-9]|/[a-z0-9][a-z0-9_./%+-]*/?)|i', $title, $matches)) {
             return $matches[1];
         }
 

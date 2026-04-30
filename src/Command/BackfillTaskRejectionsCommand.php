@@ -126,7 +126,7 @@ class BackfillTaskRejectionsCommand extends Command
 
     private function extractTaskUrl(array $task): string
     {
-        if (preg_match('|(/[a-z0-9][a-z0-9_/-]*/)|i', (string) ($task['title'] ?? ''), $urlMatch)) {
+        if (preg_match('|(/[a-z0-9][a-z0-9_./%+-]*[a-z0-9]|/[a-z0-9][a-z0-9_./%+-]*/?)|i', (string) ($task['title'] ?? ''), $urlMatch)) {
             return $this->normalizeUrl((string) $urlMatch[1]);
         }
 

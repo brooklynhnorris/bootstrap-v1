@@ -232,7 +232,7 @@ class ReviewerActionService
             return $this->normalizeUrl($task['url']);
         }
 
-        if (preg_match('|(/[a-z0-9][a-z0-9_/-]*/)|i', (string) ($task['title'] ?? ''), $matches)) {
+        if (preg_match('|(/[a-z0-9][a-z0-9_./%+-]*[a-z0-9]|/[a-z0-9][a-z0-9_./%+-]*/?)|i', (string) ($task['title'] ?? ''), $matches)) {
             return $this->normalizeUrl((string) $matches[1]);
         }
 

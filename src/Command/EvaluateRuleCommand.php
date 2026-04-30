@@ -2377,7 +2377,7 @@ PROMPT;
             'ETA-02' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND has_central_entity = FALSE AND word_count > 0 AND is_noindex = FALSE LIMIT 15",
             'ETA-03' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND is_noindex = FALSE AND (has_zframe_mention = FALSE AND has_safetack_mention = FALSE AND has_safebump_mention = FALSE AND has_safekick_mention = FALSE) LIMIT 15",
             'ETA-04' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND schema_types NOT LIKE '%Product%' AND schema_types NOT LIKE '%Organization%' AND is_noindex = FALSE LIMIT 15",
-            'ETA-05' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} LIMIT 15",
+            'ETA-05' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE AND is_utility = FALSE AND url NOT LIKE '/double-d-trailer-review-posted-on-%' {$relevanceFilter} LIMIT 15",
             'ETA-06' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 500 AND is_noindex = FALSE LIMIT 15",
 
             // E-E-A-T & Trust Signals
