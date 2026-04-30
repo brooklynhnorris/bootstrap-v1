@@ -1549,12 +1549,14 @@ PROMPT;
     private function looksLikeSuppressedAssetUrl(string $normalizedLower): bool
     {
         return str_contains($normalizedLower, '/wp-content/uploads/')
-            || preg_match('/\.(jpg|jpeg|png|gif|webp|svg|pdf)$/', $normalizedLower) === 1;
+            || preg_match('/\.(jpg|jpeg|png|gif|webp|avif|svg|pdf|docx?|xlsx?|zip|mp4|mov|avi|wmv|webm)$/', $normalizedLower) === 1;
     }
 
     private function looksLikeSuppressedUtilityUrl(string $normalizedLower): bool
     {
         return str_starts_with($normalizedLower, '/scripts/')
+            || str_starts_with($normalizedLower, '/api/')
+            || str_starts_with($normalizedLower, '/cgi-bin/')
             || str_starts_with($normalizedLower, '/wp-json/')
             || str_starts_with($normalizedLower, '/wp-admin/')
             || preg_match('/\.(html|json|xml|txt)$/', $normalizedLower) === 1;
@@ -2109,12 +2111,6 @@ PROMPT;
             // dedup guards, and accurate column references. Use these first.
             $simplifiedQuery = $this->getSimplifiedQuery($ruleId, $tc);
             if ($simplifiedQuery) {
-                // Inject global media exclusion into every query
-                $simplifiedQuery = preg_replace(
-                    '/\bLIMIT\b/i',
-                    "AND url NOT LIKE '%/wp-content/%' AND url NOT LIKE '%.png' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.jpeg' AND url NOT LIKE '%.gif' AND url NOT LIKE '%.pdf' AND url NOT LIKE '%.svg' LIMIT",
-                    $simplifiedQuery
-                );
                 $simplifiedQuery = $this->applyLatestSnapshotScope($simplifiedQuery);
                 try {
                     $results = $this->filterNonActionableRows($this->db->fetchAllAssociative($simplifiedQuery));
@@ -2261,7 +2257,7 @@ PROMPT;
             foreach (['url', 'page'] as $key) {
                 if (!empty($row[$key]) && is_string($row[$key])) {
                     $candidateUrl = $row[$key];
-                    if ($this->isAssetLikeUrl($candidateUrl)) {
+                    if ($this->shouldSuppressCandidateUrl($candidateUrl)) {
                         return false;
                     }
                 }
@@ -2269,6 +2265,15 @@ PROMPT;
 
             return $this->isDdtTopicallyRelevantRow($row, $candidateUrl);
         }));
+    }
+
+    private function shouldSuppressCandidateUrl(string $candidateUrl): bool
+    {
+        if ($this->isAssetLikeUrl($candidateUrl) || $this->isUtilityLikeUrl($candidateUrl)) {
+            return true;
+        }
+
+        return $this->isMalformedCandidateUrl($candidateUrl);
     }
 
     private function isAssetLikeUrl(string $url): bool
@@ -2281,6 +2286,44 @@ PROMPT;
         }
 
         return (bool) preg_match('/\.(png|jpe?g|gif|svg|webp|avif|pdf|docx?|xlsx?|zip|mp4|mov|avi|wmv|webm)$/i', $path);
+    }
+
+    private function isUtilityLikeUrl(string $url): bool
+    {
+        $path = parse_url($url, PHP_URL_PATH) ?: $url;
+        $path = strtolower($path);
+
+        return str_starts_with($path, '/scripts/')
+            || str_starts_with($path, '/api/')
+            || str_starts_with($path, '/cgi-bin/')
+            || str_starts_with($path, '/wp-json/')
+            || str_starts_with($path, '/wp-admin/')
+            || preg_match('/\.(html|json|xml|txt)$/i', $path) === 1;
+    }
+
+    private function isMalformedCandidateUrl(string $url): bool
+    {
+        $rawUrl = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5));
+        if ($rawUrl === '') {
+            return false;
+        }
+
+        $normalizedUrl = strtolower($this->normalizeUrl($rawUrl));
+        $rawLower = strtolower($rawUrl);
+
+        if (preg_match('#^/(title|url|slug|page|placeholder|safetack)/?$#', $normalizedUrl) === 1) {
+            return true;
+        }
+
+        if (preg_match('#(?:^|/)(?:www\.)?doubledtrailers\.com(?:/|$)#', $rawLower) === 1) {
+            return true;
+        }
+
+        if ($normalizedUrl === '/' && !preg_match('#^(?:https?://)?(?:www\.)?doubledtrailers\.com/?$#', $rawLower)) {
+            return true;
+        }
+
+        return preg_match('#^/[A-Z][A-Za-z0-9-]*/?$#', $rawUrl) === 1;
     }
 
     private function isDdtTopicallyRelevantRow(array $row, ?string $candidateUrl): bool
@@ -2366,10 +2409,10 @@ PROMPT;
 
         // Relevance filter — exclude pages with zero GSC presence unless they're core product pages
         // Also exclude wp-content/media assets that shouldn't be in the table at all
-        $relevanceFilter = "AND (page_type = 'core' OR target_query IS NOT NULL OR target_query_impressions > 0) AND url NOT LIKE '%/wp-content/%' AND url NOT LIKE '%.png' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.pdf'";
+        $relevanceFilter = "AND (page_type = 'core' OR target_query IS NOT NULL OR target_query_impressions > 0) AND url NOT LIKE '%/wp-content/%' AND url NOT LIKE '%.png' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.pdf' AND url NOT LIKE '/scripts/%' AND url NOT LIKE '/api/%' AND url NOT LIKE '/cgi-bin/%'";
 
         // Media exclusion — always applied, even to core-only queries
-        $noMedia = "AND url NOT LIKE '%/wp-content/%' AND url NOT LIKE '%.png' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.jpeg' AND url NOT LIKE '%.gif' AND url NOT LIKE '%.pdf' AND url NOT LIKE '%.svg'";
+        $noMedia = "AND url NOT LIKE '%/wp-content/%' AND url NOT LIKE '%.png' AND url NOT LIKE '%.jpg' AND url NOT LIKE '%.jpeg' AND url NOT LIKE '%.gif' AND url NOT LIKE '%.pdf' AND url NOT LIKE '%.svg' AND url NOT LIKE '/scripts/%' AND url NOT LIKE '/api/%' AND url NOT LIKE '/cgi-bin/%'";
 
         return match($ruleId) {
             // Entity & Topical Authority
@@ -2409,10 +2452,10 @@ PROMPT;
             'USE-R4' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.h2s, p.target_query, g.impressions, g.clicks, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND p.word_count < 1000 AND g.impressions >= 500 AND g.position <= 30 ORDER BY g.impressions DESC LIMIT 15",
             'USE-R5' => "SELECT p.url, p.page_type, p.word_count, p.h2s, p.h1_matches_title, p.target_query, g.impressions FROM page_crawl_snapshots p LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type IN ('core', 'outer') AND p.is_utility = FALSE AND (p.h2s IS NULL OR p.h2s = '[]' OR p.h2s = '') AND p.word_count > 300 AND p.is_noindex = FALSE ORDER BY g.impressions DESC NULLS LAST LIMIT 15",
             'USE-R6' => "SELECT p.url, p.page_type, p.h1, p.title_tag, p.meta_description, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND g.impressions >= 300 AND g.position <= 20 AND g.ctr < 0.025 ORDER BY g.impressions DESC LIMIT 15",
-            'USE-R7' => "SELECT p.url, p.page_type, p.has_central_entity, p.word_count, p.schema_types, p.h1_matches_title, p.target_query, g.impressions, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.has_central_entity = FALSE AND g.impressions >= 200 AND g.position <= 20 AND p.page_type IN ('core', 'outer') AND p.is_noindex = FALSE AND p.is_utility = FALSE ORDER BY g.impressions DESC LIMIT 15",
+            'USE-R7' => "SELECT p.url, p.page_type, p.has_central_entity, p.word_count, p.schema_types, p.h1_matches_title, p.target_query, g.impressions, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.has_central_entity = FALSE AND g.impressions >= 200 AND g.position <= 20 AND p.page_type IN ('core', 'outer') AND p.is_noindex = FALSE AND p.is_utility = FALSE AND p.url NOT LIKE '/scripts/%' AND p.url NOT LIKE '/api/%' AND p.url NOT LIKE '/cgi-bin/%' ORDER BY g.impressions DESC LIMIT 15",
 
             // Keyword & Intent Alignment (GSC)
-            'KIA-R2' => "SELECT query, COUNT(DISTINCT page) AS page_count, SUM(impressions) as total_imp, AVG(position) as avg_pos FROM gsc_snapshots WHERE position <= 20 GROUP BY query HAVING COUNT(DISTINCT page) > 1 AND SUM(impressions) > 100 ORDER BY total_imp DESC LIMIT 15",
+            'KIA-R2' => "SELECT g.query, COUNT(DISTINCT p.url) AS page_count, SUM(g.impressions) AS total_imp, AVG(g.position) AS avg_pos FROM gsc_snapshots g JOIN page_crawl_snapshots p ON g.page LIKE CONCAT('%', p.url) WHERE g.position <= 20 AND p.page_type = 'outer' AND p.is_noindex = FALSE AND p.is_utility = FALSE AND (p.canonical_url IS NULL OR p.canonical_url = '' OR LOWER(TRIM(TRAILING '/' FROM p.canonical_url)) <> LOWER(TRIM(TRAILING '/' FROM CONCAT('https://www.doubledtrailers.com', p.url)))) GROUP BY g.query HAVING COUNT(DISTINCT p.url) > 1 AND SUM(g.impressions) > 100 ORDER BY total_imp DESC LIMIT 15",
             'KIA-R3' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND (word_count = 0 OR has_central_entity = FALSE OR h1_matches_title = FALSE) AND is_noindex = FALSE LIMIT 15",
             'KIA-R4' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE g.impressions > 5000 AND g.position > 10 AND (g.query LIKE '%horse trailer%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%z-frame%' OR g.query LIKE '%safetack%') GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
             'KIA-R5' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%2 horse%' OR g.query LIKE '%3 horse%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%safetack%') AND g.impressions > 100 AND g.position > 30 GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
