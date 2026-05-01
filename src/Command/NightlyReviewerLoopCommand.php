@@ -32,6 +32,8 @@ class NightlyReviewerLoopCommand extends Command
             ->addOption('crawl-limit', null, InputOption::VALUE_OPTIONAL, 'Maximum URLs for the initial HTML crawl step', '250')
             ->addOption('targeted-recrawl-limit', null, InputOption::VALUE_OPTIONAL, 'Maximum URLs to target in each follow-up recrawl (0 = all)', '12')
             ->addOption('skip-initial-html-crawl', null, InputOption::VALUE_NONE, 'Skip the initial HTML crawl in the first refresh round')
+            ->addOption('skip-rule-evaluation', null, InputOption::VALUE_NONE, 'Skip nightly rule evaluation refresh steps')
+            ->addOption('re-evaluate-each-round', null, InputOption::VALUE_NONE, 'Re-run the full task-generating evaluator on every round instead of only round 1')
             ->addOption('json', null, InputOption::VALUE_NONE, 'Print the final loop report as JSON');
     }
 
@@ -44,6 +46,8 @@ class NightlyReviewerLoopCommand extends Command
         $crawlLimit = max(1, min((int) $input->getOption('crawl-limit'), 1000));
         $targetedRecrawlLimit = max(0, min((int) $input->getOption('targeted-recrawl-limit'), 1000));
         $skipInitialHtmlCrawl = (bool) $input->getOption('skip-initial-html-crawl');
+        $skipRuleEvaluation = (bool) $input->getOption('skip-rule-evaluation');
+        $reEvaluateEachRound = (bool) $input->getOption('re-evaluate-each-round');
 
         $report = [
             'generated_at' => date('c'),
@@ -56,9 +60,16 @@ class NightlyReviewerLoopCommand extends Command
 
         for ($round = 1; $round <= $rounds; $round++) {
             $includeHtmlCrawl = $round === 1 ? !$skipInitialHtmlCrawl : false;
+            $includeFoundationalRuleEvaluation = !$skipRuleEvaluation;
+            $includeTaskGeneration = !$skipRuleEvaluation && ($round === 1 || $reEvaluateEachRound);
             $output->writeln(sprintf('Round %d/%d: refreshing evidence.', $round, $rounds));
 
-            $refresh = $this->crawlOrchestratorService->runNightlyRefresh($crawlLimit, $includeHtmlCrawl);
+            $refresh = $this->crawlOrchestratorService->runNightlyRefresh(
+                $crawlLimit,
+                $includeHtmlCrawl,
+                $includeFoundationalRuleEvaluation,
+                $includeTaskGeneration
+            );
             $output->writeln(sprintf('Round %d/%d: verifying overdue rechecks.', $round, $rounds));
             $outcomeVerification = $this->crawlOrchestratorService->runOutcomeVerification(0);
             $brief = $this->taskReviewService->buildMorningBrief($assignee !== '' ? $assignee : null, $limit);

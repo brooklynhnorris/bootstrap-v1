@@ -76,7 +76,12 @@ class CrawlOrchestratorService
         ];
     }
 
-    public function runNightlyRefresh(int $crawlLimit = 250, bool $includeHtmlCrawl = true): array
+    public function runNightlyRefresh(
+        int $crawlLimit = 250,
+        bool $includeHtmlCrawl = true,
+        bool $includeFoundationalRuleEvaluation = true,
+        bool $includeTaskGeneration = true
+    ): array
     {
         $steps = [];
         $steps[] = $this->runConsole(['app:fetch-gsc']);
@@ -88,9 +93,19 @@ class CrawlOrchestratorService
             $steps[] = $this->runConsole(['app:sync-page-facts']);
         }
 
+        if ($includeFoundationalRuleEvaluation) {
+            $steps[] = $this->runConsole(['app:evaluate-foundational-rules', '--skip-sync']);
+        }
+
+        if ($includeTaskGeneration) {
+            $steps[] = $this->runConsole(['app:evaluate-rule', '--skip-validation'], 14400);
+        }
+
         return [
             'mode' => 'nightly',
             'include_html_crawl' => $includeHtmlCrawl,
+            'include_foundational_rule_evaluation' => $includeFoundationalRuleEvaluation,
+            'include_task_generation' => $includeTaskGeneration,
             'crawl_limit' => max(1, min($crawlLimit, 1000)),
             'steps' => $steps,
             'freshness' => $this->checkFreshness(),
