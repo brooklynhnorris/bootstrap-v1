@@ -135,10 +135,12 @@ class BackfillTaskRejectionsCommand extends Command
 
     private function normalizeUrl(string $url): string
     {
-        $url = trim($url);
+        $url = trim(html_entity_decode($url, ENT_QUOTES | ENT_HTML5));
         if ($url === '') {
             return '';
         }
+
+        $url = rawurldecode(str_replace('\\', '/', $url));
 
         if (!str_starts_with($url, '/')) {
             $url = '/' . $url;

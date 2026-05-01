@@ -63,6 +63,7 @@ class ViolationSnapshotService
 
         $url = str_replace('\\', '/', $url);
         $url = $this->stripQueryAndFragment($url);
+        $url = rawurldecode($url);
 
         if (preg_match('#^//[^/]+(?P<path>/.*)?$#', $url, $matches) === 1) {
             $url = $matches['path'] ?? '/';

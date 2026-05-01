@@ -1861,6 +1861,7 @@ PROMPT;
         }
 
         $url = str_replace('\\', '/', $url);
+        $url = rawurldecode($url);
         $questionPos = strpos($url, '?');
         $hashPos = strpos($url, '#');
         if ($questionPos !== false || $hashPos !== false) {
