@@ -1060,6 +1060,24 @@ PROMPT;
             );
         }
 
+        if ($this->referencesExternalPayload($yourMove) && !$this->containsContentPayload($yourMove)) {
+            return $this->convertBriefToReview(
+                $brief,
+                $page,
+                'Review referenced payload before implementation',
+                'The brief refers to headings, copy, schema, or other input that is not actually included in the task. Regenerate it with the full payload inline so the user can copy and paste immediately.'
+            );
+        }
+
+        if ($this->requiresInlinePageEditPayload($combined) && !$this->containsContentPayload($yourMove)) {
+            return $this->convertBriefToReview(
+                $brief,
+                $page,
+                'Review missing inline page-edit payload before implementation',
+                'The brief asks the user to add or expand visible page content, metadata, headings, or schema, but it does not include the exact payload to paste. Regenerate it with the full copy or schema block inline.'
+            );
+        }
+
         if ($this->hasVaguePlacementInstruction($yourMove) && !$this->containsQuotedPlacementAnchor($yourMove)) {
             return $this->convertBriefToReview(
                 $brief,
@@ -1190,6 +1208,36 @@ PROMPT;
             || str_contains($combined, 'insert the passage');
     }
 
+    private function referencesExternalPayload(string $text): bool
+    {
+        $lower = strtolower($text);
+
+        return str_contains($lower, 'see play description')
+            || str_contains($lower, 'see the play description')
+            || str_contains($lower, 'see play brief')
+            || str_contains($lower, 'from the play brief')
+            || str_contains($lower, 'already in the play brief')
+            || str_contains($lower, 'copy blocks already in the play brief')
+            || str_contains($lower, 'listed in the play brief')
+            || str_contains($lower, 'listed above')
+            || str_contains($lower, 'listed below')
+            || str_contains($lower, 'the three h2s listed')
+            || str_contains($lower, 'the h2s listed')
+            || str_contains($lower, 'both proprietary feature sentences')
+            || str_contains($lower, 'use the copy blocks')
+            || str_contains($lower, 'ready to paste')
+            || str_contains($lower, 'exact copy is below');
+    }
+
+    private function requiresInlinePageEditPayload(string $combined): bool
+    {
+        $actionSignal = preg_match('/\b(add|expand|rewrite|replace|insert|paste|publish|update|create|draft)\b/', $combined) === 1;
+        $payloadTarget = preg_match('/\b(meta description|title tag|h1|h2|heading|question h2|paragraph|copy|body copy|opening copy|sentence|faq|schema|json-ld|blogposting|product schema|organization schema|faqpage|description)\b/', $combined) === 1;
+        $explicitNoPayloadNeeded = preg_match('/\b(alt text|anchor text|canonical|redirect|internal link|dismiss|reclassify)\b/', $combined) === 1;
+
+        return $actionSignal && $payloadTarget && !$explicitNoPayloadNeeded;
+    }
+
     private function containsExactCopyPayload(string $text): bool
     {
         return preg_match('/["\'].{80,}["\']/s', $text) === 1
@@ -1197,6 +1245,41 @@ PROMPT;
             || str_contains($text, "Replace it with exactly this:\n")
             || str_contains($text, "Insert this copy:\n")
             || str_contains($text, "```");
+    }
+
+    private function containsContentPayload(string $text): bool
+    {
+        $lower = strtolower($text);
+
+        if ($this->containsExactCopyPayload($text) || $this->containsSchemaPayload($text)) {
+            return true;
+        }
+
+        if (preg_match('/^#{1,6}\s.+$/m', $text) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^\s*(?:-|\*|\d+\.)\s*["\'][^"\']{10,}["\']\s*$/m', $text) === 1) {
+            return true;
+        }
+
+        if (preg_match('/(?:title tag|meta description|alt text)\s*:\s*["\'][^"\']{15,}["\']/i', $text) === 1) {
+            return true;
+        }
+
+        if (str_contains($lower, 'insert this copy:')
+            || str_contains($lower, 'paste this copy:')
+            || str_contains($lower, 'use this meta description:')
+            || str_contains($lower, 'use this title tag:')
+            || str_contains($lower, 'add this h2:')
+            || str_contains($lower, 'add these h2s:')
+            || str_contains($lower, 'replace this heading:')
+            || str_contains($lower, 'replace this paragraph:')
+        ) {
+            return true;
+        }
+
+        return false;
     }
 
     private function hasVaguePlacementInstruction(string $text): bool
