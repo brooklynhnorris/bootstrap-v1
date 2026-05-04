@@ -78,12 +78,17 @@ class EvaluateRuleCommand extends Command
 
         $totalEvaluated = 0;
         $totalFlagged   = 0;
+        $totalNoPages   = 0;
 
         foreach ($rules as $rule) {
             $firingPages = $this->getFiringPages($rule);
 
             if (empty($firingPages)) {
                 $output->writeln("[ ] {$rule['id']} -- no pages currently firing, skipping.");
+                if (!$dryRun) {
+                    $this->storeSkippedEvaluation($rule, 'NO_FIRING_PAGES', 'No pages currently satisfy this rule trigger.');
+                }
+                $totalNoPages++;
                 continue;
             }
 
@@ -352,6 +357,7 @@ class EvaluateRuleCommand extends Command
 
         $output->writeln('==============================================');
         $output->writeln("SUMMARY: {$totalEvaluated} rules evaluated | {$totalFlagged} flagged");
+        $output->writeln("SKIPPED (no firing pages): {$totalNoPages}");
         $output->writeln('');
         $output->writeln("  View evaluations: SELECT * FROM rule_evaluations ORDER BY evaluated_at DESC;");
         $output->writeln("  View outputs:     SELECT rule_id, output_finding, output_priority FROM rule_evaluations ORDER BY evaluated_at DESC;");
@@ -3249,6 +3255,53 @@ GLOSSARY;
                 'output_caveat'        => $outputConsensus['caveat']     ?? null,
                 'output_conf'          => $outputConsensus['avg_conf']   ?? null,
                 'evaluated_at'         => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Exception $e) {
+            // Non-fatal
+        }
+    }
+
+    private function storeSkippedEvaluation(array $rule, string $skipCode, string $reason): void
+    {
+        try {
+            $this->db->insert('rule_evaluations', [
+                'rule_id' => $rule['id'],
+                'rule_name' => $rule['name'],
+                'pages_firing' => 0,
+                'sample_urls' => json_encode([]),
+                'claude_verdict' => $skipCode,
+                'claude_conf' => 0,
+                'claude_summary' => $reason,
+                'gpt4o_verdict' => $skipCode,
+                'gpt4o_conf' => 0,
+                'gpt4o_summary' => $reason,
+                'gemini_verdict' => $skipCode,
+                'gemini_conf' => 0,
+                'gemini_summary' => $reason,
+                'grok_verdict' => $skipCode,
+                'grok_conf' => 0,
+                'grok_summary' => $reason,
+                'perplexity_verdict' => $skipCode,
+                'perplexity_conf' => 0,
+                'perplexity_summary' => $reason,
+                'consensus_status' => 'SKIPPED',
+                'avg_confidence' => 0,
+                'consensus_reason' => $reason,
+                'rounds_run' => 0,
+                'round_history' => json_encode([]),
+                'play_brief' => null,
+                'output_finding' => null,
+                'output_diagnosis' => null,
+                'output_pages' => null,
+                'output_priority' => null,
+                'output_verify_in' => null,
+                'output_brook' => null,
+                'output_brad' => null,
+                'output_kalib' => null,
+                'output_jeanne' => null,
+                'output_caveat' => null,
+                'output_conf' => null,
+                'evaluated_at' => date('Y-m-d H:i:s'),
             ]);
         } catch (\Exception $e) {
             // Non-fatal
