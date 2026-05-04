@@ -87,7 +87,7 @@ class EvaluateRuleCommand extends Command
             if (empty($firingPages)) {
                 $output->writeln("[ ] {$rule['id']} -- no pages currently firing, skipping.");
                 if (!$dryRun) {
-                    $this->storeSkippedEvaluation($rule, 'NO_FIRING_PAGES', 'No pages currently satisfy this rule trigger.');
+                    $this->storeSkippedEvaluation($rule, 'NO_PAGES', 'No pages currently satisfy this rule trigger.');
                 }
                 $totalNoPages++;
                 continue;
