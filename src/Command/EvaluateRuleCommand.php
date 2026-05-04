@@ -79,6 +79,7 @@ class EvaluateRuleCommand extends Command
         $totalEvaluated = 0;
         $totalFlagged   = 0;
         $totalNoPages   = 0;
+        $totalRules     = count($rules);
 
         foreach ($rules as $rule) {
             $firingPages = $this->getFiringPages($rule);
@@ -358,6 +359,7 @@ class EvaluateRuleCommand extends Command
         $output->writeln('==============================================');
         $output->writeln("SUMMARY: {$totalEvaluated} rules evaluated | {$totalFlagged} flagged");
         $output->writeln("SKIPPED (no firing pages): {$totalNoPages}");
+        $output->writeln("ATTEMPTED: " . ($totalEvaluated + $totalNoPages) . " of {$totalRules} active rules");
         $output->writeln('');
         $output->writeln("  View evaluations: SELECT * FROM rule_evaluations ORDER BY evaluated_at DESC;");
         $output->writeln("  View outputs:     SELECT rule_id, output_finding, output_priority FROM rule_evaluations ORDER BY evaluated_at DESC;");
@@ -3155,6 +3157,8 @@ GLOSSARY;
         // Last resort: find any standalone digit 1-10 near the word "confidence" within 100 chars
         if ($confidence === 0 && preg_match('/confidence.{0,100}?\b([1-9]|10)\b/is', $text, $m)) $confidence = (int) $m[1];
 
+        $confidence = $this->normalizeConfidence($confidence);
+
         // Fallback verdict parsing for Gemini / prose responses
         if ($verdict === 'UNKNOWN') {
             $lower = strtolower($text);
@@ -3191,6 +3195,20 @@ GLOSSARY;
         return ['verdict' => $verdict, 'confidence' => $confidence, 'summary' => $summary, 'needs_change' => $needsChange, 'suggested' => $suggested, 'raw' => $text];
     }
 
+    private function normalizeConfidence(int $confidence): int
+    {
+        // Confidence must be an integer score in the inclusive 0..10 range.
+        if ($confidence < 0) {
+            return 0;
+        }
+
+        if ($confidence > 10) {
+            return 10;
+        }
+
+        return $confidence;
+    }
+
     // ─────────────────────────────────────────────
     //  DETERMINE CONSENSUS (single round)
     // ─────────────────────────────────────────────
@@ -3198,14 +3216,26 @@ GLOSSARY;
     private function determineConsensus(array $verdicts): array
     {
         $passes = $flags = $totalConf = $count = 0;
+        $totalModels = count($verdicts);
         foreach ($verdicts as $v) {
             if ($v['verdict'] === 'PASS') $passes++;
             if ($v['verdict'] === 'FLAG') $flags++;
             if ($v['confidence'] > 0) { $totalConf += $v['confidence']; $count++; }
         }
         $avgConf = $count > 0 ? round($totalConf / $count, 1) : 0;
+        if ($totalModels === 0) {
+            return [
+                'status' => 'FLAGGED',
+                'passes' => 0,
+                'flags' => 0,
+                'avg_conf' => 0,
+                'reason' => 'No model responses were available for consensus.',
+                'majority' => false,
+            ];
+        }
+
         $status  = ($flags > 0 || $avgConf < 6) ? 'FLAGGED' : 'VALIDATED';
-        $reason  = $flags > 0 ? "{$flags} of " . count($verdicts) . " LLMs flagged this rule." : ($avgConf < 6 ? "Low avg confidence ({$avgConf}/10)." : 'All LLMs agree rule is firing correctly.');
+        $reason  = $flags > 0 ? "{$flags} of {$totalModels} LLMs flagged this rule." : ($avgConf < 6 ? "Low avg confidence ({$avgConf}/10)." : 'All LLMs agree rule is firing correctly.');
         return ['status' => $status, 'passes' => $passes, 'flags' => $flags, 'avg_conf' => $avgConf, 'reason' => $reason, 'majority' => false];
     }
 
