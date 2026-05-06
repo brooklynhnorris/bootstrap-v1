@@ -224,12 +224,20 @@ class TaskSuggestionService
             // Non-fatal: suppression logging should never block the workflow.
         }
 
-        $sourceViolationId = isset($aiTask['source_violation_id']) ? (int) $aiTask['source_violation_id'] : 0;
-        if ($sourceViolationId <= 0 && isset($aiTask['violation_id'])) {
-            $sourceViolationId = (int) $aiTask['violation_id'];
+        if (!$this->tableExists('rule_violations')) {
+            return;
         }
 
-        if ($sourceViolationId <= 0 || !$this->tableExists('rule_violations')) {
+        $sourceViolationId = $this->resolveSourceViolationId($aiTask, $normalizedUrl, $ruleId);
+        if ($sourceViolationId <= 0) {
+            return;
+        }
+
+        if (
+            !$this->tableHasColumn('rule_violations', 'decision')
+            || !$this->tableHasColumn('rule_violations', 'suppression_reason_code')
+            || !$this->tableHasColumn('rule_violations', 'suppression_reason_text')
+        ) {
             return;
         }
 
@@ -240,13 +248,46 @@ class TaskSuggestionService
                 'suppression_reason_text' => $reasonText,
             ];
 
-            if ($this->tableHasColumn('rule_violations', 'detected_at')) {
-                $updates['detected_at'] = date('Y-m-d H:i:s');
-            }
-
             $this->db->update('rule_violations', $updates, ['id' => $sourceViolationId]);
         } catch (\Exception $e) {
             // Non-fatal
+        }
+    }
+
+    private function resolveSourceViolationId(array $aiTask, string $normalizedUrl, ?string $ruleId): int
+    {
+        $sourceViolationId = isset($aiTask['source_violation_id']) ? (int) $aiTask['source_violation_id'] : 0;
+        if ($sourceViolationId <= 0 && isset($aiTask['violation_id'])) {
+            $sourceViolationId = (int) $aiTask['violation_id'];
+        }
+        if ($sourceViolationId > 0) {
+            return $sourceViolationId;
+        }
+        if ($ruleId === null) {
+            return 0;
+        }
+
+        $candidateColumns = [];
+        if ($this->tableHasColumn('rule_violations', 'decision')) {
+            $candidateColumns[] = "AND (decision IS NULL OR decision = 'pending')";
+        }
+        $decisionClause = implode(' ', $candidateColumns);
+
+        try {
+            $id = $this->db->fetchOne(
+                "SELECT id
+                 FROM rule_violations
+                 WHERE rule_id = ?
+                   AND LOWER(TRIM(TRAILING '/' FROM url)) = ?
+                   {$decisionClause}
+                 ORDER BY detected_at DESC, id DESC
+                 LIMIT 1",
+                [$ruleId, $normalizedUrl]
+            );
+
+            return (int) ($id ?: 0);
+        } catch (\Exception $e) {
+            return 0;
         }
     }
 
