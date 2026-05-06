@@ -52,6 +52,16 @@ class TaskSuggestionService
             return null;
         }
 
+        $urlFragment = $this->extractUrlFragment($title);
+        $candidateUrl = trim((string) ($aiTask['url'] ?? $urlFragment ?? ''));
+        if ($candidateUrl !== '') {
+            $assetReason = self::detectAssetUrl($candidateUrl);
+            if ($assetReason !== null) {
+                $this->recordSuppression($aiTask, $candidateUrl, 'ASSET_URL', $assetReason);
+                return null;
+            }
+        }
+
         $existing = $this->db->fetchAssociative(
             "SELECT id FROM tasks WHERE title = ? AND status NOT IN ('done','closed') LIMIT 1",
             [$title]
@@ -60,7 +70,6 @@ class TaskSuggestionService
             return null;
         }
 
-        $urlFragment = $this->extractUrlFragment($title);
         $ruleId = $this->extractRuleId((string) ($aiTask['title'] ?? '')) ?? $this->normalizeRuleId($aiTask['rule_id'] ?? null);
         $activeViolation = null;
         if ($urlFragment !== null) {
@@ -114,6 +123,36 @@ class TaskSuggestionService
         return $created ?: ['title' => $title];
     }
 
+    public static function detectAssetUrl(string $url): ?string
+    {
+        $u = self::normalizeUrlForFilterStatic($url);
+
+        $parsed = parse_url($u);
+        $path = isset($parsed['path']) && is_string($parsed['path']) ? $parsed['path'] : $u;
+
+        if (preg_match('#^/wp-content/uploads/#i', $path) === 1) {
+            return 'wp-content-uploads-prefix';
+        }
+        if (preg_match('#^/scripts/.*\.html$#i', $path) === 1) {
+            return 'scripts-html-suffix';
+        }
+
+        $blockedExt = [
+            'jpg', 'jpeg', 'png', 'webp', 'gif', 'svg',
+            'pdf', 'doc', 'docx', 'xls', 'xlsx',
+            'zip',
+            'mp4', 'webm',
+        ];
+        if (preg_match('/\.([a-z0-9]+)$/i', $path, $m) === 1) {
+            $ext = strtolower((string) ($m[1] ?? ''));
+            if (in_array($ext, $blockedExt, true)) {
+                return 'extension-' . $ext;
+            }
+        }
+
+        return null;
+    }
+
     private function extractUrlFragment(string $title): ?string
     {
         if (preg_match('|(/[a-z0-9][a-z0-9_-]+(?:/[a-z0-9_-]+)*/)|i', $title, $matches)) {
@@ -164,6 +203,50 @@ class TaskSuggestionService
             return $blanketSuppressed > 0;
         } catch (\Exception $e) {
             return false;
+        }
+    }
+
+    private function recordSuppression(array $aiTask, string $url, string $reasonCode, ?string $reasonText = null): void
+    {
+        $normalizedUrl = $this->normalizeUrl($url);
+        $ruleId = $this->extractRuleId((string) ($aiTask['title'] ?? '')) ?? $this->normalizeRuleId($aiTask['rule_id'] ?? null);
+
+        try {
+            if ($this->tableExists('suppressed_tasks')) {
+                $this->db->insert('suppressed_tasks', [
+                    'url' => $normalizedUrl,
+                    'rule_id' => $ruleId,
+                    'reason' => $reasonCode,
+                    'created_at' => date('Y-m-d H:i:s'),
+                ]);
+            }
+        } catch (\Exception $e) {
+            // Non-fatal: suppression logging should never block the workflow.
+        }
+
+        $sourceViolationId = isset($aiTask['source_violation_id']) ? (int) $aiTask['source_violation_id'] : 0;
+        if ($sourceViolationId <= 0 && isset($aiTask['violation_id'])) {
+            $sourceViolationId = (int) $aiTask['violation_id'];
+        }
+
+        if ($sourceViolationId <= 0 || !$this->tableExists('rule_violations')) {
+            return;
+        }
+
+        try {
+            $updates = [
+                'decision' => 'suppressed',
+                'suppression_reason_code' => $reasonCode,
+                'suppression_reason_text' => $reasonText,
+            ];
+
+            if ($this->tableHasColumn('rule_violations', 'detected_at')) {
+                $updates['detected_at'] = date('Y-m-d H:i:s');
+            }
+
+            $this->db->update('rule_violations', $updates, ['id' => $sourceViolationId]);
+        } catch (\Exception $e) {
+            // Non-fatal
         }
     }
 
@@ -271,5 +354,46 @@ class TaskSuggestionService
         );
 
         return !empty($tables);
+    }
+
+    private function tableHasColumn(string $tableName, string $columnName): bool
+    {
+        $columns = $this->db->fetchFirstColumn(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?",
+            [$tableName, $columnName]
+        );
+
+        return !empty($columns);
+    }
+
+    private function normalizeUrl(string $url): string
+    {
+        $url = trim($url);
+        $url = strtolower($url);
+        return rtrim($url, '/');
+    }
+
+    private function normalizeUrlForFilter(string $url): string
+    {
+        return self::normalizeUrlForFilterStatic($url);
+    }
+
+    private static function normalizeUrlForFilterStatic(string $url): string
+    {
+        $u = trim($url);
+        $u = strtolower($u);
+        $u = rtrim($u, '/');
+
+        $q = strpos($u, '?');
+        if ($q !== false) {
+            $u = substr($u, 0, $q);
+        }
+
+        $f = strpos($u, '#');
+        if ($f !== false) {
+            $u = substr($u, 0, $f);
+        }
+
+        return $u;
     }
 }
