@@ -16,33 +16,85 @@ class RuleEvaluationService
             return ['snapshot_version' => 0, 'inserted' => 0];
         }
 
+        $runId = null;
+        $tracksRun = $this->tableExists('rule_runs');
+        if ($tracksRun) {
+            $runId = $this->openRuleRun('cron');
+        }
+
         $snapshotVersion = (int) $this->db->fetchOne('SELECT COALESCE(MAX(snapshot_version), 0) + 1 FROM rule_violations');
         $pages = $this->db->fetchAllAssociative('SELECT * FROM page_facts ORDER BY url');
         $suppressionTable = $this->tableExists('suppressed_tasks');
 
         $inserted = 0;
-        foreach ($pages as $page) {
-            $violations = $this->determineViolationsForPage($page);
-            foreach ($violations as $violation) {
-                $status = 'fail';
-                if ($suppressionTable && $this->isSuppressed((string) $page['url'], $violation['rule_id'])) {
-                    $status = 'suppressed';
-                }
+        $rulesAttempted = 0;
+        $rulesSucceeded = 0;
+        $rulesFailed = 0;
 
-                $this->db->insert('rule_violations', [
-                    'rule_id' => $violation['rule_id'],
-                    'url' => $page['url'],
-                    'status' => $status,
-                    'severity' => $violation['severity'],
-                    'assignee' => $violation['assignee'],
-                    'triage' => $this->determineTriage((int) ($page['target_query_impressions'] ?? 0)),
-                    'evidence_json' => json_encode($violation['evidence'], JSON_UNESCAPED_SLASHES),
-                    'explanation_short' => $violation['message'],
-                    'detected_at' => date('Y-m-d H:i:s'),
-                    'snapshot_version' => $snapshotVersion,
-                ]);
-                $inserted++;
+        try {
+            foreach ($pages as $page) {
+                $violations = $this->determineViolationsForPage($page);
+                foreach ($violations as $violation) {
+                    $status = 'fail';
+                    if ($suppressionTable && $this->isSuppressed((string) $page['url'], $violation['rule_id'])) {
+                        $status = 'suppressed';
+                    }
+
+                    $normalizedUrl = $this->normalizeUrl((string) $page['url']);
+                    $candidateHash = $runId !== null
+                        ? hash('sha256', $violation['rule_id'] . '|' . $normalizedUrl . '|' . $runId)
+                        : null;
+
+                    $row = [
+                        'rule_id' => $violation['rule_id'],
+                        'url' => $page['url'],
+                        'status' => $status,
+                        'severity' => $violation['severity'],
+                        'assignee' => $violation['assignee'],
+                        'triage' => $this->determineTriage((int) ($page['target_query_impressions'] ?? 0)),
+                        'evidence_json' => json_encode($violation['evidence'], JSON_UNESCAPED_SLASHES),
+                        'explanation_short' => $violation['message'],
+                        'detected_at' => date('Y-m-d H:i:s'),
+                        'snapshot_version' => $snapshotVersion,
+                    ];
+
+                    if ($runId !== null && $this->tableHasColumn('rule_violations', 'run_id')) {
+                        $row['run_id'] = $runId;
+                    }
+                    if ($this->tableHasColumn('rule_violations', 'candidate_hash')) {
+                        $row['candidate_hash'] = $candidateHash;
+                    }
+                    if ($this->tableHasColumn('rule_violations', 'decision')) {
+                        $row['decision'] = 'pending';
+                    }
+
+                    $rulesAttempted++;
+                    $this->db->insert('rule_violations', $row);
+                    $inserted++;
+                    $rulesSucceeded++;
+                }
             }
+        } catch (\Throwable $e) {
+            $rulesFailed++;
+            if ($runId !== null && $tracksRun) {
+                $this->closeRuleRun($runId, 'failed', [
+                    'rules_attempted' => $rulesAttempted,
+                    'rules_succeeded' => $rulesSucceeded,
+                    'rules_failed' => $rulesFailed,
+                    'violations_recorded' => $inserted,
+                    'error' => $e->getMessage(),
+                ], $e->getMessage());
+            }
+            throw $e;
+        }
+
+        if ($runId !== null && $tracksRun) {
+            $this->closeRuleRun($runId, 'completed', [
+                'rules_attempted' => $rulesAttempted,
+                'rules_succeeded' => $rulesSucceeded,
+                'rules_failed' => $rulesFailed,
+                'violations_recorded' => $inserted,
+            ]);
         }
 
         if ($this->tableExists('data_sources')) {
@@ -191,5 +243,47 @@ class RuleEvaluationService
         );
 
         return !empty($tables);
+    }
+
+    private function tableHasColumn(string $tableName, string $columnName): bool
+    {
+        $columns = $this->db->fetchFirstColumn(
+            "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?",
+            [$tableName, $columnName]
+        );
+
+        return !empty($columns);
+    }
+
+    private function openRuleRun(string $triggeredBy): int
+    {
+        $this->db->insert('rule_runs', [
+            'started_at' => date('Y-m-d H:i:s'),
+            'status' => 'running',
+            'triggered_by' => $triggeredBy,
+        ]);
+
+        return (int) $this->db->lastInsertId();
+    }
+
+    private function closeRuleRun(int $runId, string $status, array $stats, ?string $notes = null): void
+    {
+        $this->db->update('rule_runs', [
+            'ended_at' => date('Y-m-d H:i:s'),
+            'status' => $status,
+            'rules_attempted' => $stats['rules_attempted'] ?? 0,
+            'rules_succeeded' => $stats['rules_succeeded'] ?? 0,
+            'rules_failed' => $stats['rules_failed'] ?? 0,
+            'violations_recorded' => $stats['violations_recorded'] ?? 0,
+            'summary_json' => json_encode($stats, JSON_UNESCAPED_SLASHES),
+            'notes' => $notes,
+        ], ['id' => $runId]);
+    }
+
+    private function normalizeUrl(string $url): string
+    {
+        $url = trim($url);
+        $url = strtolower($url);
+        return rtrim($url, '/');
     }
 }
