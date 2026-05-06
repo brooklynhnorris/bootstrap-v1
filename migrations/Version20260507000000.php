@@ -23,13 +23,22 @@ final class Version20260507000000 extends AbstractMigration
             UPDATE seo_rules
             SET action_family = CASE
                 WHEN category IS NULL OR BTRIM(category) = '' THEN 'general_fix'
-                WHEN LOWER(category) IN ('technical', 'tech', 'cwv', 'schema', 'structured_data') THEN 'technical_fix'
-                WHEN LOWER(category) IN ('content', 'eta', 'ais', 'opq', 'mao') THEN 'content_update'
-                WHEN LOWER(category) IN ('internal_linking', 'ila', 'linking') THEN 'internal_linking'
-                WHEN LOWER(category) IN ('keyword', 'kia', 'query') THEN 'keyword_alignment'
-                WHEN LOWER(category) IN ('ux', 'use', 'conversion', 'cta') THEN 'ux_conversion'
-                WHEN LOWER(category) IN ('local', 'ddt-local') THEN 'local_optimization'
-                WHEN LOWER(category) IN ('compliance', 'policy', 'trust', 'eeat', 'ddt-eeat') THEN 'trust_compliance'
+                WHEN LOWER(category) = LOWER('Technical SEO') THEN 'technical_fix'
+                WHEN LOWER(category) = LOWER('Core Web Vitals & Performance') THEN 'performance_fix'
+                WHEN LOWER(category) = LOWER('Schema & Structured Data') THEN 'schema_impl'
+                WHEN LOWER(category) = LOWER('On-Page Content Quality') THEN 'content_expand'
+                WHEN LOWER(category) = LOWER('Entity & Topical Authority') THEN 'content_expand'
+                WHEN LOWER(category) = LOWER('Content Freshness & Lifecycle') THEN 'content_expand'
+                WHEN LOWER(category) = LOWER('AI Search & Citation Eligibility') THEN 'content_expand'
+                WHEN LOWER(category) = LOWER('Media & Asset Optimization') THEN 'image_fix'
+                WHEN LOWER(category) = LOWER('Keyword & Intent Alignment') THEN 'metadata_fix'
+                WHEN LOWER(category) = LOWER('Internal Link Architecture') THEN 'link_add'
+                WHEN LOWER(category) = LOWER('User Signals & Engagement') THEN 'ux_conversion'
+                WHEN LOWER(category) = LOWER('Conversion Path & CTA') THEN 'ux_conversion'
+                WHEN LOWER(category) = LOWER('E-E-A-T & Trust Signals') THEN 'trust_signal_add'
+                WHEN LOWER(category) = LOWER('Local & Dealer SEO') THEN 'local_optimization'
+                WHEN LOWER(category) = LOWER('Competitive Intelligence') THEN 'competitive_research'
+                WHEN LOWER(category) = LOWER('Reporting') THEN 'reporting'
                 ELSE 'general_fix'
             END
             WHERE action_family IS NULL OR BTRIM(action_family) = ''
@@ -44,15 +53,12 @@ final class Version20260507000000 extends AbstractMigration
         ");
 
         $this->addSql("CREATE INDEX IF NOT EXISTS idx_seo_rules_action_family ON seo_rules (action_family)");
-        $this->addSql("CREATE INDEX IF NOT EXISTS idx_seo_rules_business_multiplier ON seo_rules (business_multiplier)");
     }
 
     public function down(Schema $schema): void
     {
-        $this->addSql("DROP INDEX IF EXISTS idx_seo_rules_business_multiplier");
         $this->addSql("DROP INDEX IF EXISTS idx_seo_rules_action_family");
         $this->addSql("ALTER TABLE seo_rules DROP COLUMN IF EXISTS business_multiplier");
         $this->addSql("ALTER TABLE seo_rules DROP COLUMN IF EXISTS action_family");
     }
 }
-
