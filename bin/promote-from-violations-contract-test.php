@@ -5,23 +5,20 @@ declare(strict_types=1);
 require dirname(__DIR__) . '/vendor/autoload.php';
 
 use App\Service\TaskSuggestionService;
-use App\Service\ViolationSnapshotService;
-use Doctrine\DBAL\DriverManager;
-use Symfony\Component\DependencyInjection\ParameterBag\ParameterBag;
 
-$db = DriverManager::getConnection(['url' => 'sqlite:///:memory:']);
-$violationSnapshotService = new ViolationSnapshotService($db);
-$params = new ParameterBag([
-    'logiri.avr_floor' => 15,
-    'logiri.capacity_per_role_per_day' => [
-        'seo' => 8,
-        'content' => 5,
-        'dev' => 4,
-        'sales' => 3,
-        'default' => 5,
-    ],
-]);
+$kernel = new \App\Kernel('prod', false);
+$kernel->boot();
+$container = $kernel->getContainer();
+
+$db = $container->get('doctrine.dbal.default_connection');
+$violationSnapshotService = $container->get(\App\Service\ViolationSnapshotService::class);
+$params = method_exists($container, 'getParameterBag')
+    ? $container->getParameterBag()
+    : $container->get('parameter_bag');
+
 $svc = new TaskSuggestionService($db, $violationSnapshotService, $params);
+$synthMethod = new \ReflectionMethod(TaskSuggestionService::class, 'synthesizeTaskFromViolation');
+$synthMethod->setAccessible(true);
 
 $cases = [
     [
@@ -64,7 +61,7 @@ $cases = [
 
 $failed = false;
 foreach ($cases as $c) {
-    $task = $svc->synthesizeTaskFromViolation($c['violation'], $c['rule']);
+    $task = $synthMethod->invoke($svc, $c['violation'], $c['rule']);
     $ok = $task['assigned_to'] === $c['expect']['assigned_to']
         && $task['assigned_role'] === $c['expect']['assigned_role']
         && str_starts_with((string) $task['title'], '[' . $c['rule']['rule_id'] . '] ')
