@@ -3480,7 +3480,8 @@
         const hours  = task.estimated_hours || '?';
         const url    = extractUrl(task.title || '');
         const priority = (task.priority || 'medium');
-        const avrVal = (task.avr_score === null || task.avr_score === undefined || task.avr_score === '') ? null : Number(task.avr_score);
+        const avrRaw = (task.avr_score === null || task.avr_score === undefined || task.avr_score === '') ? null : Number(task.avr_score);
+        const avrVal = Number.isFinite(avrRaw) ? avrRaw : null;
         const avrClass = avrVal === null ? '' : (avrVal >= 60 ? 'high' : (avrVal >= 30 ? 'medium' : 'low'));
         const avrBadge = (!isDone && avrVal !== null)
             ? '<span class="avr-badge ' + avrClass + '">AVR ' + avrVal + '</span>'
@@ -4022,7 +4023,8 @@
                     const prio = task.priority || 'medium';
                     const ruleId = task.rule_id || '';
                     const impressions = task.gsc_impressions || 0;
-                    const avrVal = (task.avr_score === null || task.avr_score === undefined || task.avr_score === '') ? null : Number(task.avr_score);
+                    const avrRaw = (task.avr_score === null || task.avr_score === undefined || task.avr_score === '') ? null : Number(task.avr_score);
+                    const avrVal = Number.isFinite(avrRaw) ? avrRaw : null;
                     const avrClass = avrVal === null ? '' : (avrVal >= 60 ? 'high' : (avrVal >= 30 ? 'medium' : 'low'));
                     const avrBadge = (avrVal === null) ? '' : '<span class="avr-badge ' + avrClass + '">AVR ' + avrVal + '</span>';
                     return '<div class="focus-card" onclick="showChatForTask(' + task.id + ', \'' + escapeHtml((task.title||'').replace(/'/g, "\\'")) + '\')">' +
