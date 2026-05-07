@@ -34,8 +34,11 @@ final class AvrScorer
         $revenueProximity = $this->computeRevenueProximity($pageFacts, $rule);
         $effort = $this->resolveEffort((string) ($rule['action_family'] ?? 'general_fix'));
 
-        $raw = ($impact * $confidence * $urgency * $revenueProximity) / max(1, $effort);
-        $avrScore = (int) round(max(0.0, min(1.0, $raw)) * 100);
+        $product = $impact * $confidence * $urgency * $revenueProximity;
+        $geometricMean = $product > 0.0 ? pow($product, 0.25) : 0.0;
+        $effortDivisor = max(1.0, $effort * 0.5);
+        $adjusted = $geometricMean / $effortDivisor;
+        $avrScore = (int) round(max(0.0, min(1.0, $adjusted)) * 100);
 
         return [
             'avr_score' => $avrScore,
@@ -169,4 +172,3 @@ final class AvrScorer
         return $value === true || $value === 1 || $value === '1' || $value === 't' || $value === 'true';
     }
 }
-

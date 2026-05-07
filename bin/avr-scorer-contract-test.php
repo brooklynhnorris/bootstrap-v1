@@ -33,8 +33,8 @@ $tests = [
             'action_family' => 'schema_impl',
             'business_multiplier' => 1.5,
         ],
-        'min' => 75,
-        'max' => 95,
+        'min' => 80,
+        'max' => 100,
     ],
     [
         'name' => 'Tier-C stale blog content with low traffic should score low',
@@ -61,7 +61,7 @@ $tests = [
             'business_multiplier' => 1.0,
         ],
         'min' => 5,
-        'max' => 20,
+        'max' => 25,
     ],
 ];
 
@@ -77,9 +77,18 @@ foreach ($tests as $t) {
     fwrite(STDOUT, "[PASS] {$t['name']} => score={$score}\n");
 }
 
+$highScore = (int) $scorer->score($tests[0]['violation'], $tests[0]['page'], $tests[0]['rule'])['avr_score'];
+$lowScore = (int) $scorer->score($tests[1]['violation'], $tests[1]['page'], $tests[1]['rule'])['avr_score'];
+$spread = $highScore - $lowScore;
+if ($spread < 50) {
+    $failed = true;
+    fwrite(STDERR, "[FAIL] score spread too small => high={$highScore}, low={$lowScore}, spread={$spread}, expected >= 50\n");
+} else {
+    fwrite(STDOUT, "[PASS] score spread check => high={$highScore}, low={$lowScore}, spread={$spread}\n");
+}
+
 if ($failed) {
     exit(1);
 }
 
 fwrite(STDOUT, "AVR scorer contract test PASSED\n");
-
