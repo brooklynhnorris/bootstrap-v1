@@ -831,6 +831,17 @@
         .task-priority.high     { background: var(--accent-yellow-dim); color: var(--accent-yellow); }
         .task-priority.medium   { background: var(--accent-blue-dim); color: var(--accent-blue); }
         .task-priority.low      { background: var(--bg-tertiary); color: var(--text-muted); }
+        .avr-badge {
+            display: inline-block;
+            padding: 2px 6px;
+            margin-left: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 3px;
+        }
+        .avr-badge.high { background: #d1fae5; color: #065f46; }
+        .avr-badge.medium { background: #fef3c7; color: #92400e; }
+        .avr-badge.low { background: #f3f4f6; color: #6b7280; }
         #panel-actions { padding: 14px 18px; border-top: 1px solid var(--border-subtle); display: flex; gap: 8px; }
         .panel-btn {
             flex: 1; padding: 9px; border-radius: var(--radius-sm);
@@ -3468,6 +3479,12 @@
         const isDone = task.status === 'done';
         const hours  = task.estimated_hours || '?';
         const url    = extractUrl(task.title || '');
+        const priority = (task.priority || 'medium');
+        const avrVal = (task.avr_score === null || task.avr_score === undefined || task.avr_score === '') ? null : Number(task.avr_score);
+        const avrClass = avrVal === null ? '' : (avrVal >= 60 ? 'high' : (avrVal >= 30 ? 'medium' : 'low'));
+        const avrBadge = (!isDone && avrVal !== null)
+            ? '<span class="avr-badge ' + avrClass + '">AVR ' + avrVal + '</span>'
+            : '';
 
         // Verification badge
         let verifyBadge = '';
@@ -3496,6 +3513,8 @@
                 '<div class="board-card-top-left">' +
                     '<div class="board-card-id">#' + task.id + '</div>' +
                     '<div class="board-card-hours">' + hours + 'h</div>' +
+                    '<span class="task-priority ' + priority + '">' + priority + '</span>' +
+                    avrBadge +
                 '</div>' +
                 (task.assigned_to ? '<div class="board-card-assignee">' + escapeHtml(task.assigned_to) : '') +
             '</div>' +
@@ -4003,6 +4022,9 @@
                     const prio = task.priority || 'medium';
                     const ruleId = task.rule_id || '';
                     const impressions = task.gsc_impressions || 0;
+                    const avrVal = (task.avr_score === null || task.avr_score === undefined || task.avr_score === '') ? null : Number(task.avr_score);
+                    const avrClass = avrVal === null ? '' : (avrVal >= 60 ? 'high' : (avrVal >= 30 ? 'medium' : 'low'));
+                    const avrBadge = (avrVal === null) ? '' : '<span class="avr-badge ' + avrClass + '">AVR ' + avrVal + '</span>';
                     return '<div class="focus-card" onclick="showChatForTask(' + task.id + ', \'' + escapeHtml((task.title||'').replace(/'/g, "\\'")) + '\')">' +
                         '<div class="focus-num">' + (i + 1) + '</div>' +
                         '<div class="focus-content">' +
@@ -4010,6 +4032,7 @@
                             (url ? '<div class="focus-url">' + escapeHtml(url) + '</div>' : '') +
                             '<div class="focus-meta">' +
                                 '<span class="focus-tag ' + prio + '">' + prio.charAt(0).toUpperCase() + prio.slice(1) + '</span>' +
+                                avrBadge +
                                 '<span class="focus-tag hours">' + hours + 'h</span>' +
                                 (impressions > 0 ? '<span class="focus-tag hours">' + impressions.toLocaleString() + ' imp/28d</span>' : '') +
                                 (ruleId ? '<span class="focus-rule-id">' + escapeHtml(ruleId) + '</span>' : '') +
