@@ -47,6 +47,101 @@ class TaskSuggestionService
         ];
     }
 
+    /**
+     * Synthesize a deterministic task payload from violation + rule metadata.
+     */
+    private function synthesizeTaskFromViolation(array $violation, array $rule): array
+    {
+        $url = (string) ($violation['url'] ?? '');
+        $ruleId = (string) ($rule['rule_id'] ?? ($violation['rule_id'] ?? ''));
+        $ruleName = trim((string) ($rule['name'] ?? ''));
+        $titleAction = $ruleName !== '' ? $ruleName : 'Resolve violation';
+        if (strlen($titleAction) > 60) {
+            $titleAction = substr($titleAction, 0, 57) . '...';
+        }
+        $title = sprintf('[%s] %s — %s', $ruleId, $titleAction, $url);
+
+        [$assignedTo, $assignedRole] = $this->resolveAssignmentFromRule((string) ($rule['assigned'] ?? ''));
+        $priority = $this->normalizePriority((string) ($rule['priority'] ?? 'medium'));
+
+        return [
+            'title' => $title,
+            'description' => (string) ($rule['action_output'] ?? $rule['diagnosis'] ?? ''),
+            'assigned_to' => $assignedTo,
+            'assigned_role' => $assignedRole,
+            'priority' => $priority,
+            'estimated_hours' => 1,
+            'recheck_type' => null,
+            'recheck_days' => null,
+            'recheck_criteria' => null,
+            'url' => $url,
+            'source_violation_id' => (int) ($violation['id'] ?? 0),
+            'violation_id' => (int) ($violation['id'] ?? 0),
+            'rule_id' => $ruleId,
+        ];
+    }
+
+    /**
+     * Promote pending violations from a completed run into tasks using existing gates.
+     */
+    public function promoteFromViolations(int $runId): array
+    {
+        $stats = [
+            'promoted' => 0,
+            'suppressed' => 0,
+            'suppressed_by_reason' => [],
+        ];
+
+        $pending = $this->db->fetchAllAssociative(
+            "SELECT rv.id, rv.url, rv.rule_id, rv.run_id, rv.avr_score, rv.candidate_hash, rv.action_family,
+                    r.name AS rule_name, r.diagnosis, r.action_output, r.assigned, r.priority, r.tier
+             FROM rule_violations rv
+             LEFT JOIN seo_rules r ON r.rule_id = rv.rule_id
+             WHERE rv.run_id = ? AND rv.decision = 'pending'
+             ORDER BY rv.avr_score DESC NULLS LAST, rv.id ASC",
+            [$runId]
+        );
+
+        foreach ($pending as $row) {
+            $rule = [
+                'rule_id' => $row['rule_id'],
+                'name' => $row['rule_name'],
+                'diagnosis' => $row['diagnosis'],
+                'action_output' => $row['action_output'],
+                'assigned' => $row['assigned'],
+                'priority' => $row['priority'],
+                'tier' => $row['tier'],
+            ];
+            $violation = [
+                'id' => (int) $row['id'],
+                'url' => $row['url'],
+                'rule_id' => $row['rule_id'],
+                'run_id' => (int) ($row['run_id'] ?? 0),
+                'avr_score' => (int) ($row['avr_score'] ?? 0),
+                'candidate_hash' => $row['candidate_hash'],
+                'action_family' => $row['action_family'],
+            ];
+
+            $aiTask = $this->synthesizeTaskFromViolation($violation, $rule);
+            $this->createSingleTask($aiTask, []);
+
+            $latest = $this->db->fetchAssociative(
+                "SELECT decision, suppression_reason_code FROM rule_violations WHERE id = ?",
+                [$violation['id']]
+            ) ?: [];
+
+            if (($latest['decision'] ?? '') === 'promoted') {
+                $stats['promoted']++;
+            } elseif (($latest['decision'] ?? '') === 'suppressed') {
+                $stats['suppressed']++;
+                $reason = (string) ($latest['suppression_reason_code'] ?? 'UNKNOWN');
+                $stats['suppressed_by_reason'][$reason] = ($stats['suppressed_by_reason'][$reason] ?? 0) + 1;
+            }
+        }
+
+        return $stats;
+    }
+
     private function createSingleTask(array $aiTask, array $crawlData): ?array
     {
         $title = trim((string) ($aiTask['title'] ?? ''));
@@ -155,7 +250,7 @@ class TaskSuggestionService
         }
 
         // 7) Role capacity gate
-        $assignedRole = strtolower(trim((string) ($aiTask['role'] ?? 'default')));
+        $assignedRole = strtolower(trim((string) ($aiTask['assigned_role'] ?? $aiTask['role'] ?? 'default')));
         $capacityByRole = (array) $this->params->get('logiri.capacity_per_role_per_day');
         $capacity = isset($capacityByRole[$assignedRole]) ? (int) $capacityByRole[$assignedRole] : (int) ($capacityByRole['default'] ?? 5);
         $currentCount = (int) $this->db->fetchOne(
@@ -396,6 +491,45 @@ class TaskSuggestionService
         $value = $this->db->fetchOne("SELECT action_family FROM seo_rules WHERE rule_id = ? LIMIT 1", [$ruleId]);
         $value = is_string($value) ? trim($value) : '';
         return $value !== '' ? $value : 'general_fix';
+    }
+
+    private function resolveAssignmentFromRule(string $assigned): array
+    {
+        $key = strtolower(trim($assigned));
+        $keyShort = trim((string) preg_replace('/\(.*?\)/', '', $key));
+
+        $map = [
+            'brook' => ['Brook', 'seo'],
+            'brad' => ['Brad', 'dev'],
+            'brook (seo/content)' => ['Brook', 'seo'],
+            'technical seo team' => ['Brad', 'dev'],
+            'tech seo team' => ['Brad', 'dev'],
+            'content team' => ['Brook', 'content'],
+            'seo/content lead' => ['Brook', 'seo'],
+            'seo team' => ['Brook', 'seo'],
+            'seo director' => ['Brook', 'seo'],
+            'content lead' => ['Brook', 'content'],
+            'seo lead' => ['Brook', 'seo'],
+        ];
+
+        foreach ([$key, $keyShort] as $k) {
+            if ($k !== '' && isset($map[$k])) {
+                return $map[$k];
+            }
+        }
+
+        $firstToken = strtolower((string) strtok($assigned, ' ('));
+        if ($firstToken !== '' && isset($map[$firstToken])) {
+            return $map[$firstToken];
+        }
+
+        return ['Brook', 'default'];
+    }
+
+    private function normalizePriority(string $priority): string
+    {
+        $p = strtolower(trim($priority));
+        return in_array($p, ['critical', 'high', 'medium', 'low'], true) ? $p : 'medium';
     }
 
     private function passesTrafficGate(array $aiTask, string $title, string $urlFragment, array $crawlData): bool

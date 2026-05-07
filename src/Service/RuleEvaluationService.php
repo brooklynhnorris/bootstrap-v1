@@ -10,7 +10,8 @@ class RuleEvaluationService
 
     public function __construct(
         private Connection $db,
-        private AvrScorer $avrScorer
+        private AvrScorer $avrScorer,
+        private TaskSuggestionService $taskSuggestionService
     )
     {
     }
@@ -35,6 +36,12 @@ class RuleEvaluationService
         $rulesAttempted = 0;
         $rulesSucceeded = 0;
         $rulesFailed = 0;
+
+        $promotionStats = [
+            'promoted' => 0,
+            'suppressed' => 0,
+            'suppressed_by_reason' => [],
+        ];
 
         try {
             foreach ($pages as $page) {
@@ -97,6 +104,10 @@ class RuleEvaluationService
                     $rulesSucceeded++;
                 }
             }
+
+            if ($runId !== null) {
+                $promotionStats = $this->taskSuggestionService->promoteFromViolations($runId);
+            }
         } catch (\Throwable $e) {
             $rulesFailed++;
             if ($runId !== null && $tracksRun) {
@@ -117,6 +128,9 @@ class RuleEvaluationService
                 'rules_succeeded' => $rulesSucceeded,
                 'rules_failed' => $rulesFailed,
                 'violations_recorded' => $inserted,
+                'tasks_promoted' => $promotionStats['promoted'] ?? 0,
+                'tasks_suppressed' => $promotionStats['suppressed'] ?? 0,
+                'suppressed_by_reason' => $promotionStats['suppressed_by_reason'] ?? [],
             ]);
         }
 
@@ -298,6 +312,8 @@ class RuleEvaluationService
             'rules_succeeded' => $stats['rules_succeeded'] ?? 0,
             'rules_failed' => $stats['rules_failed'] ?? 0,
             'violations_recorded' => $stats['violations_recorded'] ?? 0,
+            'tasks_promoted' => $stats['tasks_promoted'] ?? 0,
+            'tasks_suppressed' => $stats['tasks_suppressed'] ?? 0,
             'summary_json' => json_encode($stats, JSON_UNESCAPED_SLASHES),
             'notes' => $notes,
         ], ['id' => $runId]);
