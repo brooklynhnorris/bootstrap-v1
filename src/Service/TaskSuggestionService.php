@@ -3,12 +3,14 @@
 namespace App\Service;
 
 use Doctrine\DBAL\Connection;
+use Symfony\Component\DependencyInjection\ParameterBag\ParameterBagInterface;
 
 class TaskSuggestionService
 {
     public function __construct(
         private Connection $db,
-        private ViolationSnapshotService $violationSnapshotService
+        private ViolationSnapshotService $violationSnapshotService,
+        private ParameterBagInterface $params
     )
     {
     }
@@ -54,57 +56,128 @@ class TaskSuggestionService
 
         $urlFragment = $this->extractUrlFragment($title);
         $candidateUrl = trim((string) ($aiTask['url'] ?? $urlFragment ?? ''));
-        if ($candidateUrl !== '') {
-            $assetReason = self::detectAssetUrl($candidateUrl);
-            if ($assetReason !== null) {
-                $this->recordSuppression($aiTask, $candidateUrl, 'ASSET_URL', $assetReason);
+        $ruleId = $this->extractRuleId((string) ($aiTask['title'] ?? '')) ?? $this->normalizeRuleId($aiTask['rule_id'] ?? null);
+
+        if ($candidateUrl === '') {
+            return null;
+        }
+
+        $normalizedUrl = $this->normalizeUrl($candidateUrl);
+        $sourceViolationId = $this->resolveSourceViolationId($aiTask, $normalizedUrl, $ruleId);
+        if ($sourceViolationId <= 0) {
+            $this->recordSuppression($aiTask, $normalizedUrl, 'MISSING_REQUIRED_EVIDENCE', 'no_source_violation');
+            return null;
+        }
+
+        $violation = $this->fetchViolationById($sourceViolationId);
+        if ($violation === null) {
+            $this->recordSuppression($aiTask, $normalizedUrl, 'MISSING_REQUIRED_EVIDENCE', 'source_violation_not_found');
+            return null;
+        }
+
+        $ruleId = (string) ($violation['rule_id'] ?? $ruleId ?? '');
+        if ($ruleId === '') {
+            $this->recordSuppression($aiTask, $normalizedUrl, 'MISSING_REQUIRED_EVIDENCE', 'missing_rule_id');
+            return null;
+        }
+
+        $runId = isset($violation['run_id']) ? (int) $violation['run_id'] : 0;
+        $avrScore = isset($violation['avr_score']) ? (int) $violation['avr_score'] : 0;
+        $actionFamily = $this->getActionFamilyForRule($ruleId);
+
+        // 1) Asset filter
+        $assetReason = self::detectAssetUrl($candidateUrl);
+        if ($assetReason !== null) {
+            $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'ASSET_URL', $assetReason);
+            return null;
+        }
+
+        // 2) URL canonical exists in page_facts
+        if (!$this->canonicalExists($normalizedUrl)) {
+            $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'INVALID_URL', 'canonical_not_found');
+            return null;
+        }
+
+        // 3) Evidence URL match
+        $evidenceUrl = $this->normalizeUrl((string) ($violation['url'] ?? ''));
+        if ($evidenceUrl === '' || $evidenceUrl !== $normalizedUrl) {
+            $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'URL_EVIDENCE_MISMATCH', "evidence_url={$evidenceUrl}");
+            return null;
+        }
+
+        // 4) Existing task / idempotency
+        $idempotencyKey = (string) ($violation['candidate_hash'] ?? '');
+        if ($idempotencyKey !== '') {
+            $existingByKey = $this->db->fetchAssociative(
+                "SELECT id, status, COALESCE(lifecycle_state,'') AS lifecycle_state FROM tasks WHERE idempotency_key = ? LIMIT 1",
+                [$idempotencyKey]
+            );
+            if ($existingByKey) {
+                $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'EXISTING_OPEN_TASK', 'task_id=' . $existingByKey['id'] . ';lifecycle_state=' . $existingByKey['lifecycle_state']);
                 return null;
             }
         }
 
+        // Legacy duplicate catch (title-level) stays as safety.
         $existing = $this->db->fetchAssociative(
             "SELECT id FROM tasks WHERE title = ? AND status NOT IN ('done','closed') LIMIT 1",
             [$title]
         );
         if ($existing) {
+            $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'EXISTING_OPEN_TASK', 'title_duplicate_task_id=' . $existing['id']);
             return null;
         }
 
-        $ruleId = $this->extractRuleId((string) ($aiTask['title'] ?? '')) ?? $this->normalizeRuleId($aiTask['rule_id'] ?? null);
-        $activeViolation = null;
-        if ($urlFragment !== null) {
-            $activeViolation = $this->findActiveViolation($urlFragment, $ruleId, $crawlData);
-            if ($ruleId !== null && $activeViolation === null) {
-                return null;
-            }
-
-            $rulePrefix = substr($title, 0, 10);
-            $nearDuplicate = $this->db->fetchAssociative(
-                "SELECT id FROM tasks WHERE title LIKE ? AND title LIKE ? AND status NOT IN ('done','closed') LIMIT 1",
-                ['%' . $urlFragment . '%', $rulePrefix . '%']
+        // 5) Cross-rule collision: one task per (run_id, normalized_url, action_family)
+        if ($runId > 0) {
+            $collision = $this->db->fetchAssociative(
+                "SELECT t.id
+                 FROM tasks t
+                 JOIN rule_violations rv ON rv.id = t.source_violation_id
+                 JOIN seo_rules sr ON sr.rule_id = rv.rule_id
+                 WHERE rv.run_id = ?
+                   AND LOWER(TRIM(TRAILING '/' FROM rv.url)) = ?
+                   AND COALESCE(sr.action_family, 'general_fix') = ?
+                 LIMIT 1",
+                [$runId, $normalizedUrl, $actionFamily]
             );
-            if ($nearDuplicate) {
-                return null;
-            }
-
-            if ($this->isSuppressed($title, $urlFragment)) {
-                return null;
-            }
-
-            if (!$this->passesTrafficGate($aiTask, $title, $urlFragment, $crawlData)) {
+            if ($collision) {
+                $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'CROSS_RULE_COLLISION', 'task_id=' . $collision['id']);
                 return null;
             }
         }
 
+        // 6) Low AVR score
+        $avrFloor = (int) $this->params->get('logiri.avr_floor');
+        if ($avrScore < $avrFloor) {
+            $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'LOW_AVR_SCORE', "avr_score={$avrScore};floor={$avrFloor}");
+            return null;
+        }
+
+        // 7) Role capacity gate
+        $assignedRole = strtolower(trim((string) ($aiTask['role'] ?? 'default')));
+        $capacityByRole = (array) $this->params->get('logiri.capacity_per_role_per_day');
+        $capacity = isset($capacityByRole[$assignedRole]) ? (int) $capacityByRole[$assignedRole] : (int) ($capacityByRole['default'] ?? 5);
+        $currentCount = (int) $this->db->fetchOne(
+            "SELECT COUNT(*) FROM tasks WHERE COALESCE(assigned_role,'default') = ? AND DATE(created_at) = CURRENT_DATE",
+            [$assignedRole]
+        );
+        if ($currentCount >= $capacity) {
+            $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'ROLE_CAPACITY_EXCEEDED', "role={$assignedRole};count={$currentCount};capacity={$capacity}");
+            return null;
+        }
+
+        $activeViolation = $urlFragment !== null ? $this->findActiveViolation($urlFragment, $ruleId, $crawlData) : null;
         $priority = $this->resolvePriority($aiTask, $activeViolation);
         $assignedTo = $aiTask['assigned_to'] ?? ($activeViolation['assignee'] ?? null);
         $description = isset($aiTask['description']) ? strip_tags((string) $aiTask['description']) : null;
 
+        // 8) Insert task with avr_score
         $this->db->insert('tasks', [
             'title' => $title,
             'description' => $description,
             'assigned_to' => $assignedTo,
-            'assigned_role' => $aiTask['role'] ?? null,
+            'assigned_role' => $assignedRole,
             'status' => 'pending',
             'priority' => $priority,
             'estimated_hours' => (float) ($aiTask['estimated_hours'] ?? 1),
@@ -112,8 +185,19 @@ class TaskSuggestionService
             'recheck_type' => $aiTask['recheck_type'] ?? null,
             'recheck_days' => isset($aiTask['recheck_days']) ? (int) $aiTask['recheck_days'] : null,
             'recheck_criteria' => $aiTask['recheck_criteria'] ?? null,
+            'idempotency_key' => $idempotencyKey !== '' ? $idempotencyKey : null,
+            'source_violation_id' => $sourceViolationId,
+            'run_id' => $runId > 0 ? $runId : null,
+            'lifecycle_state' => 'active',
+            'last_seen_at' => date('Y-m-d H:i:s'),
+            'avr_score' => $avrScore,
             'created_at' => date('Y-m-d H:i:s'),
         ]);
+
+        // 9) Mark violation promoted
+        if ($this->tableExists('rule_violations') && $this->tableHasColumn('rule_violations', 'decision')) {
+            $this->db->update('rule_violations', ['decision' => 'promoted'], ['id' => $sourceViolationId]);
+        }
 
         $created = $this->db->fetchAssociative(
             'SELECT id, title, priority, assigned_to, estimated_hours, recheck_type FROM tasks WHERE title = ? AND status != ? LIMIT 1',
@@ -224,12 +308,20 @@ class TaskSuggestionService
             // Non-fatal: suppression logging should never block the workflow.
         }
 
-        $sourceViolationId = isset($aiTask['source_violation_id']) ? (int) $aiTask['source_violation_id'] : 0;
-        if ($sourceViolationId <= 0 && isset($aiTask['violation_id'])) {
-            $sourceViolationId = (int) $aiTask['violation_id'];
+        if (!$this->tableExists('rule_violations')) {
+            return;
         }
 
-        if ($sourceViolationId <= 0 || !$this->tableExists('rule_violations')) {
+        $sourceViolationId = $this->resolveSourceViolationId($aiTask, $normalizedUrl, $ruleId);
+        if ($sourceViolationId <= 0) {
+            return;
+        }
+
+        if (
+            !$this->tableHasColumn('rule_violations', 'decision')
+            || !$this->tableHasColumn('rule_violations', 'suppression_reason_code')
+            || !$this->tableHasColumn('rule_violations', 'suppression_reason_text')
+        ) {
             return;
         }
 
@@ -240,14 +332,70 @@ class TaskSuggestionService
                 'suppression_reason_text' => $reasonText,
             ];
 
-            if ($this->tableHasColumn('rule_violations', 'detected_at')) {
-                $updates['detected_at'] = date('Y-m-d H:i:s');
-            }
-
             $this->db->update('rule_violations', $updates, ['id' => $sourceViolationId]);
         } catch (\Exception $e) {
             // Non-fatal
         }
+    }
+
+    private function resolveSourceViolationId(array $aiTask, string $normalizedUrl, ?string $ruleId): int
+    {
+        $sourceViolationId = isset($aiTask['source_violation_id']) ? (int) $aiTask['source_violation_id'] : 0;
+        if ($sourceViolationId <= 0 && isset($aiTask['violation_id'])) {
+            $sourceViolationId = (int) $aiTask['violation_id'];
+        }
+        if ($sourceViolationId > 0) {
+            return $sourceViolationId;
+        }
+        if ($ruleId === null || !$this->tableExists('rule_violations')) {
+            return 0;
+        }
+
+        $id = $this->db->fetchOne(
+            "SELECT id
+             FROM rule_violations
+             WHERE rule_id = ?
+               AND LOWER(TRIM(TRAILING '/' FROM url)) = ?
+             ORDER BY detected_at DESC, id DESC
+             LIMIT 1",
+            [$ruleId, $normalizedUrl]
+        );
+
+        return (int) ($id ?: 0);
+    }
+
+    private function canonicalExists(string $normalizedUrl): bool
+    {
+        if (!$this->tableExists('page_facts')) {
+            return false;
+        }
+        $count = (int) $this->db->fetchOne(
+            "SELECT COUNT(*) FROM page_facts WHERE LOWER(TRIM(TRAILING '/' FROM url)) = ?",
+            [$normalizedUrl]
+        );
+        return $count > 0;
+    }
+
+    private function fetchViolationById(int $id): ?array
+    {
+        if (!$this->tableExists('rule_violations')) {
+            return null;
+        }
+        $row = $this->db->fetchAssociative(
+            "SELECT id, rule_id, url, run_id, candidate_hash, avr_score FROM rule_violations WHERE id = ? LIMIT 1",
+            [$id]
+        );
+        return $row ?: null;
+    }
+
+    private function getActionFamilyForRule(string $ruleId): string
+    {
+        if (!$this->tableExists('seo_rules')) {
+            return 'general_fix';
+        }
+        $value = $this->db->fetchOne("SELECT action_family FROM seo_rules WHERE rule_id = ? LIMIT 1", [$ruleId]);
+        $value = is_string($value) ? trim($value) : '';
+        return $value !== '' ? $value : 'general_fix';
     }
 
     private function passesTrafficGate(array $aiTask, string $title, string $urlFragment, array $crawlData): bool
