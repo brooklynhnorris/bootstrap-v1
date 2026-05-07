@@ -6,7 +6,12 @@ use Doctrine\DBAL\Connection;
 
 class RuleEvaluationService
 {
-    public function __construct(private Connection $db)
+    private array $ruleMetaCache = [];
+
+    public function __construct(
+        private Connection $db,
+        private AvrScorer $avrScorer
+    )
     {
     }
 
@@ -58,6 +63,15 @@ class RuleEvaluationService
                         'snapshot_version' => $snapshotVersion,
                     ];
 
+                    $ruleMeta = $this->getRuleMetadata($violation['rule_id']);
+                    $violationForScore = $violation + [
+                        'consecutive_violation_count' => $this->getConsecutiveViolationCount($violation['rule_id'], (string) $page['url']),
+                        'position_delta' => $this->getPositionDelta((string) $page['url'], (float) ($page['target_query_position'] ?? 0.0)),
+                        'open_task_age_days' => $this->getOpenTaskAgeDays($violation['rule_id'], (string) $page['url']),
+                        'asset_filter_clean' => true,
+                    ];
+                    $score = $this->avrScorer->score($violationForScore, $page, $ruleMeta);
+
                     if ($runId !== null && $this->tableHasColumn('rule_violations', 'run_id')) {
                         $row['run_id'] = $runId;
                     }
@@ -66,6 +80,15 @@ class RuleEvaluationService
                     }
                     if ($this->tableHasColumn('rule_violations', 'decision')) {
                         $row['decision'] = 'pending';
+                    }
+                    if ($this->tableHasColumn('rule_violations', 'avr_score')) {
+                        $row['avr_score'] = $score['avr_score'];
+                    }
+                    if ($this->tableHasColumn('rule_violations', 'avr_breakdown_json')) {
+                        $row['avr_breakdown_json'] = json_encode([
+                            'breakdown' => $score['breakdown'],
+                            'inputs' => $score['inputs'],
+                        ], JSON_UNESCAPED_SLASHES);
                     }
 
                     $rulesAttempted++;
@@ -285,5 +308,99 @@ class RuleEvaluationService
         $url = trim($url);
         $url = strtolower($url);
         return rtrim($url, '/');
+    }
+
+    private function getRuleMetadata(string $ruleId): array
+    {
+        if (isset($this->ruleMetaCache[$ruleId])) {
+            return $this->ruleMetaCache[$ruleId];
+        }
+
+        if (!$this->tableExists('seo_rules')) {
+            return $this->ruleMetaCache[$ruleId] = [
+                'tier' => 'tier_c',
+                'action_family' => 'general_fix',
+                'business_multiplier' => 1.0,
+            ];
+        }
+
+        $row = $this->db->fetchAssociative(
+            "SELECT tier, action_family, business_multiplier FROM seo_rules WHERE rule_id = ? LIMIT 1",
+            [$ruleId]
+        ) ?: [];
+
+        return $this->ruleMetaCache[$ruleId] = [
+            'tier' => (string) ($row['tier'] ?? 'tier_c'),
+            'action_family' => (string) ($row['action_family'] ?? 'general_fix'),
+            'business_multiplier' => (float) ($row['business_multiplier'] ?? 1.0),
+        ];
+    }
+
+    private function getConsecutiveViolationCount(string $ruleId, string $url): int
+    {
+        $normalizedUrl = $this->normalizeUrl($url);
+        $count = (int) $this->db->fetchOne(
+            "SELECT COUNT(*)
+             FROM rule_violations
+             WHERE rule_id = ?
+               AND LOWER(TRIM(TRAILING '/' FROM url)) = ?",
+            [$ruleId, $normalizedUrl]
+        );
+
+        return max(0, $count);
+    }
+
+    private function getPositionDelta(string $url, float $currentPosition): float
+    {
+        if (!$this->tableExists('page_crawl_snapshots') || !$this->tableHasColumn('page_crawl_snapshots', 'target_query_position')) {
+            return 0.0;
+        }
+
+        $orderColumn = $this->tableHasColumn('page_crawl_snapshots', 'crawled_at') ? 'crawled_at' : 'id';
+
+        $prior = $this->db->fetchOne(
+            "SELECT target_query_position
+             FROM page_crawl_snapshots
+             WHERE LOWER(TRIM(TRAILING '/' FROM url)) = ?
+               AND target_query_position IS NOT NULL
+             ORDER BY {$orderColumn} DESC
+             LIMIT 1",
+            [$this->normalizeUrl($url)]
+        );
+
+        if ($prior === false || $prior === null) {
+            return 0.0;
+        }
+
+        return $currentPosition - (float) $prior;
+    }
+
+    private function getOpenTaskAgeDays(string $ruleId, string $url): float
+    {
+        if (!$this->tableExists('tasks')) {
+            return 0.0;
+        }
+
+        $row = $this->db->fetchAssociative(
+            "SELECT created_at
+             FROM tasks
+             WHERE status NOT IN ('done', 'closed', 'rejected')
+               AND title LIKE ?
+               AND title LIKE ?
+             ORDER BY created_at ASC
+             LIMIT 1",
+            ['%' . $ruleId . '%', '%' . $url . '%']
+        );
+
+        if (!is_array($row) || empty($row['created_at'])) {
+            return 0.0;
+        }
+
+        $createdTs = strtotime((string) $row['created_at']);
+        if ($createdTs === false) {
+            return 0.0;
+        }
+
+        return max(0.0, (time() - $createdTs) / 86400);
     }
 }
