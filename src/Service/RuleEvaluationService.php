@@ -37,6 +37,12 @@ class RuleEvaluationService
         $rulesSucceeded = 0;
         $rulesFailed = 0;
 
+        $promotionStats = [
+            'promoted' => 0,
+            'suppressed' => 0,
+            'suppressed_by_reason' => [],
+        ];
+
         try {
             foreach ($pages as $page) {
                 $violations = $this->determineViolationsForPage($page);
@@ -98,6 +104,10 @@ class RuleEvaluationService
                     $rulesSucceeded++;
                 }
             }
+
+            if ($runId !== null) {
+                $promotionStats = $this->taskSuggestionService->promoteFromViolations($runId);
+            }
         } catch (\Throwable $e) {
             $rulesFailed++;
             if ($runId !== null && $tracksRun) {
@@ -110,15 +120,6 @@ class RuleEvaluationService
                 ], $e->getMessage());
             }
             throw $e;
-        }
-
-        $promotionStats = [
-            'promoted' => 0,
-            'suppressed' => 0,
-            'suppressed_by_reason' => [],
-        ];
-        if ($runId !== null) {
-            $promotionStats = $this->taskSuggestionService->promoteFromViolations($runId);
         }
 
         if ($runId !== null && $tracksRun) {
