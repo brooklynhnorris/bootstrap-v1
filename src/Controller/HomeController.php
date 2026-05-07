@@ -130,7 +130,7 @@ class HomeController extends AbstractController
             $showPersonaPicker = true;
         }
         $tasks = $this->db->fetchAllAssociative(
-            "SELECT * FROM tasks WHERE status NOT IN ('done','closed') AND assigned_to = ? ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END, created_at DESC LIMIT 20",
+            "SELECT * FROM tasks WHERE status NOT IN ('done','closed') AND assigned_to = ? ORDER BY CASE priority WHEN 'critical' THEN 0 WHEN 'urgent' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 WHEN 'low' THEN 4 END ASC, avr_score DESC NULLS LAST, created_at DESC LIMIT 20",
             [$userName]
         );
         $rechecks = $this->db->fetchAllAssociative(
