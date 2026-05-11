@@ -50,6 +50,10 @@ class ResolveCanonicalUrlsCommand extends Command
                     if (rtrim($finalUrl, '/') === rtrim($url, '/')) {
                         $finalUrl = $url;
                     }
+                    // Normalize case — same path with different case = same resource
+                    if (strtolower($finalUrl) === strtolower($url)) {
+                        $finalUrl = $url;
+                    }
 
                     $canonical = $finalUrl;
                     if ($this->normalizeUrl($finalUrl) !== $this->normalizeUrl($url)) {
