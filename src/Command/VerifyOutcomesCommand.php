@@ -121,6 +121,67 @@ class VerifyOutcomesCommand extends Command
             $output->writeln(">> {$ruleId} | {$url}");
             $output->writeln("   Fix implemented: {$fixDate} ({$daysAgo} days ago)");
 
+            // Deterministic field-level recheck path for foundational content rules.
+            if (strpos($ruleId, 'FC-') === 0) {
+                $fcResult = $this->verifyFcRuleOutcome($ruleId, $url);
+                $fcVerdict = match ($fcResult['verdict']) {
+                    'pass' => [
+                        'status' => 'PASS',
+                        'reason' => $fcResult['reason'],
+                        'metric' => 'field_recheck',
+                        'improvement_pct' => 100,
+                        'next_action' => 'No follow-up needed.',
+                        'classification' => 'verified',
+                    ],
+                    'fail' => [
+                        'status' => 'FAIL',
+                        'reason' => $fcResult['reason'],
+                        'metric' => 'field_recheck',
+                        'improvement_pct' => 0,
+                        'next_action' => 'Re-open and rework the fix; rule still fires on current page_facts.',
+                        'classification' => 'verified',
+                    ],
+                    default => [
+                        'status' => 'PARTIAL',
+                        'reason' => $fcResult['reason'],
+                        'metric' => 'field_recheck',
+                        'improvement_pct' => 0,
+                        'next_action' => 'Recrawl and sync page_facts, then re-run verify-outcomes.',
+                        'classification' => 'measurement_thin',
+                    ],
+                };
+
+                $changes = [
+                    'impressions' => ['before' => 0, 'after' => 0, 'delta' => 0, 'delta_pct' => 0],
+                    'clicks'      => ['before' => 0, 'after' => 0, 'delta' => 0, 'delta_pct' => 0],
+                    'position'    => ['before' => 0, 'after' => 0, 'delta' => 0, 'delta_pct' => 0],
+                    'ctr'         => ['before' => 0, 'after' => 0, 'delta' => 0, 'delta_pct' => 0],
+                ];
+
+                $icon = match($fcVerdict['status']) {
+                    'PASS'    => '[PASS]',
+                    'PARTIAL' => '[PARTIAL]',
+                    default   => '[FAIL]',
+                };
+
+                $output->writeln("   {$icon} Outcome: {$fcVerdict['status']}");
+                $output->writeln("   {$fcVerdict['reason']}");
+
+                $this->storeOutcome($review, $changes, $fcVerdict, $daysAgo);
+
+                $output->writeln('');
+                $output->writeln('   Next action: ' . $fcVerdict['next_action']);
+                $output->writeln('');
+
+                match($fcVerdict['status']) {
+                    'PASS'    => $totalPass++,
+                    'PARTIAL' => $totalPartial++,
+                    default   => $totalFail++,
+                };
+
+                continue;
+            }
+
             // Pull GSC data for this URL — before and after fix date
             $before = $this->getGscMetrics($url, $fixDate, 'before');
             $after  = $this->getGscMetrics($url, $fixDate, 'after');
@@ -940,6 +1001,93 @@ class VerifyOutcomesCommand extends Command
     // ─────────────────────────────────────────────
     //  ENSURE DB SCHEMA
     // ─────────────────────────────────────────────
+
+    private function verifyFcRuleOutcome(string $ruleId, string $url): array
+    {
+        $page = $this->db->fetchAssociative(
+            "SELECT * FROM page_facts WHERE url = ? LIMIT 1",
+            [$url]
+        );
+
+        if (!$page) {
+            return ['verdict' => 'inconclusive', 'reason' => 'No page_facts data found'];
+        }
+
+        $stillFiring = match($ruleId) {
+            'FC-R1' => $this->toBool($page['is_indexable'] ?? false)
+                && !$this->toBool($page['has_central_entity'] ?? false),
+
+            'FC-R3' => ($page['page_type'] ?? '') === 'core'
+                && (int)($page['word_count'] ?? 0) < 500,
+
+            'FC-R5' => ($page['page_type'] ?? '') === 'outer'
+                && !$this->toBool($page['has_core_link'] ?? false)
+                && (int)($page['target_query_impressions'] ?? 0) >= 50,
+
+            'FC-R7' => $this->toBool($page['is_indexable'] ?? false)
+                && (
+                    trim((string)($page['h1'] ?? '')) === ''
+                    || !$this->toBool($page['h1_matches_title'] ?? false)
+                ),
+
+            'FC-R8' => ($page['page_type'] ?? '') === 'core'
+                && (int)($page['h2_count'] ?? 0) < 1,
+
+            'FC-R9' => ($page['page_type'] ?? '') === 'core'
+                && $this->isSchemaMissing($page['schema_types'] ?? null),
+
+            'FC-R10' => ($page['page_type'] ?? '') === 'outer'
+                && !$this->toBool($page['has_core_link'] ?? false)
+                && (int)($page['target_query_impressions'] ?? 0) >= 100,
+
+            default => null,
+        };
+
+        if ($stillFiring === null) {
+            return ['verdict' => 'inconclusive', 'reason' => 'Unknown FC rule: ' . $ruleId];
+        }
+
+        if ($stillFiring) {
+            return ['verdict' => 'fail', 'reason' => 'Rule still fires — fix not verified'];
+        }
+
+        return ['verdict' => 'pass', 'reason' => 'Rule no longer fires — fix verified'];
+    }
+
+    private function toBool(mixed $value): bool
+    {
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if (is_string($value)) {
+            return in_array(strtolower(trim($value)), ['true', 't', '1', 'yes', 'y', 'on'], true);
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (float)$value !== 0.0;
+        }
+
+        return false;
+    }
+
+    private function isSchemaMissing(mixed $schemaTypes): bool
+    {
+        if (is_array($schemaTypes)) {
+            return empty($schemaTypes);
+        }
+
+        if (!is_string($schemaTypes) || trim($schemaTypes) === '') {
+            return true;
+        }
+
+        $decoded = json_decode($schemaTypes, true);
+        if (json_last_error() !== JSON_ERROR_NONE) {
+            return true;
+        }
+
+        return !is_array($decoded) || empty($decoded);
+    }
 
     private function ensureSchema(): void
     {
