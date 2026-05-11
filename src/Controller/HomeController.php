@@ -168,6 +168,42 @@ class HomeController extends AbstractController
         ]);
     }
 
+    #[Route('/api/task/{taskId}/avr-breakdown', name: 'task_avr_breakdown', methods: ['GET'])]
+    public function getTaskAvrBreakdown(int $taskId): JsonResponse
+    {
+        $task = $this->db->fetchAssociative(
+            "SELECT t.id, t.title, t.avr_score, t.source_violation_id FROM tasks t WHERE t.id = ?",
+            [$taskId]
+        );
+
+        if (!$task) {
+            return new JsonResponse(['error' => 'Task not found'], 404);
+        }
+
+        $breakdown = null;
+        $sourceViolationId = isset($task['source_violation_id']) ? (int) $task['source_violation_id'] : 0;
+        if ($sourceViolationId > 0) {
+            $row = $this->db->fetchAssociative(
+                "SELECT avr_breakdown_json FROM rule_violations WHERE id = ?",
+                [$sourceViolationId]
+            );
+            if ($row && !empty($row['avr_breakdown_json'])) {
+                $decoded = json_decode((string) $row['avr_breakdown_json'], true);
+                if (is_array($decoded)) {
+                    $breakdown = $decoded;
+                }
+            }
+        }
+
+        return new JsonResponse([
+            'task_id' => (int) $task['id'],
+            'title' => (string) ($task['title'] ?? ''),
+            'avr_score' => isset($task['avr_score']) ? (int) $task['avr_score'] : null,
+            'breakdown' => $breakdown,
+            'has_breakdown' => $breakdown !== null,
+        ]);
+    }
+
     // ─────────────────────────────────────────────
     //  CHAT
     // ─────────────────────────────────────────────
