@@ -182,6 +182,10 @@ class TaskSuggestionService
         $runId = isset($violation['run_id']) ? (int) $violation['run_id'] : 0;
         $avrScore = isset($violation['avr_score']) ? (int) $violation['avr_score'] : 0;
         $actionFamily = $this->getActionFamilyForRule($ruleId);
+        $ruleAssigned = $this->tableExists('seo_rules')
+            ? (string) ($this->db->fetchOne("SELECT assigned FROM seo_rules WHERE rule_id = ? LIMIT 1", [$ruleId]) ?: '')
+            : '';
+        [$resolvedAssignedTo, $resolvedAssignedRole] = $this->resolveAssignmentFromRule($ruleAssigned);
 
         // 1) Asset filter
         $assetReason = self::detectAssetUrl($candidateUrl);
@@ -265,7 +269,11 @@ class TaskSuggestionService
         }
 
         // 8) Role capacity gate
-        $assignedRole = strtolower(trim((string) ($aiTask['assigned_role'] ?? $aiTask['role'] ?? 'default')));
+        $assignedRoleRaw = (string) ($aiTask['assigned_role'] ?? $aiTask['role'] ?? '');
+        $assignedRole = strtolower(trim($assignedRoleRaw !== '' ? $assignedRoleRaw : $resolvedAssignedRole));
+        if ($assignedRole === '') {
+            $assignedRole = 'default';
+        }
         $capacityByRole = (array) $this->params->get('logiri.capacity_per_role_per_day');
         $capacity = isset($capacityByRole[$assignedRole]) ? (int) $capacityByRole[$assignedRole] : (int) ($capacityByRole['default'] ?? 5);
         $currentCount = (int) $this->db->fetchOne(
@@ -279,7 +287,10 @@ class TaskSuggestionService
 
         $activeViolation = $urlFragment !== null ? $this->findActiveViolation($urlFragment, $ruleId, $crawlData) : null;
         $priority = $this->resolvePriority($aiTask, $activeViolation);
-        $assignedTo = $aiTask['assigned_to'] ?? ($activeViolation['assignee'] ?? null);
+        $assignedTo = $aiTask['assigned_to'] ?? null;
+        if ($assignedTo === null || trim((string) $assignedTo) === '') {
+            $assignedTo = $resolvedAssignedTo ?: ($activeViolation['assignee'] ?? null);
+        }
         $description = isset($aiTask['description']) ? strip_tags((string) $aiTask['description']) : null;
 
         // 9) Insert task with avr_score
