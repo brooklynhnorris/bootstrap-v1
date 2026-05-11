@@ -234,6 +234,52 @@ class RuleEvaluationService
             );
         }
 
+        $violations = array_merge(
+            $violations,
+            $this->evaluateInternalLinkRules($page)
+        );
+
+        return $violations;
+    }
+
+    private function evaluateInternalLinkRules(array $page): array
+    {
+        $violations = [];
+        $url = (string) ($page['url'] ?? '');
+        $pageType = (string) ($page['page_type'] ?? '');
+
+        $excludedUrls = [
+            '/',
+            '/horse-trailers/',
+            '/gooseneck-horse-trailers/',
+            '/bumper-pull-horse-trailers/',
+            '/living-quarters-horse-trailers/',
+        ];
+
+        $linkCount = (int) ($page['body_internal_link_count'] ?? 0);
+        $confident = $this->toBool($page['body_link_extraction_confident'] ?? false);
+        $isNoindex = $this->toBool($page['is_noindex'] ?? false);
+
+        if (
+            $confident
+            && $linkCount > 3
+            && in_array($pageType, ['core', 'outer'], true)
+            && !$isNoindex
+            && !in_array($url, $excludedUrls, true)
+        ) {
+            $violations[] = $this->buildViolation(
+                'ILA-005',
+                'critical',
+                'Brad',
+                'Page exceeds internal link hard cap of 3.',
+                [
+                    'body_internal_link_count' => $linkCount,
+                    'maximum' => 3,
+                    'page_type' => $pageType,
+                ]
+            );
+        }
+
         return $violations;
     }
 

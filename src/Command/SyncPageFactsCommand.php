@@ -19,7 +19,7 @@ class SyncPageFactsCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $count = $this->pageFactsSyncService->sync();
-        $output->writeln("Synced {$count} page facts.");
+        $output->writeln("Synced {$count} page facts (including link extraction metadata).");
 
         return Command::SUCCESS;
     }

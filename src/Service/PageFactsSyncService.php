@@ -21,6 +21,7 @@ class PageFactsSyncService
             "SELECT p.url, p.page_type, p.is_noindex, p.word_count, p.h1, p.title_tag,
                     p.h1_matches_title, p.h2s, p.schema_types, p.schema_errors,
                     p.has_central_entity, p.has_core_link, p.internal_link_count,
+                    p.body_internal_link_count, p.body_link_extraction_confident,
                     p.target_query, p.target_query_impressions, p.target_query_clicks,
                     p.target_query_position, p.crawled_at
              FROM page_crawl_snapshots p
@@ -61,6 +62,7 @@ class PageFactsSyncService
                     url, page_type, page_subtype, is_indexable, word_count, h1, title_tag,
                     h1_matches_title, h2_count, schema_types, schema_errors,
                     has_central_entity, has_core_link, internal_link_count,
+                    body_internal_link_count, body_link_extraction_confident, is_noindex,
                     target_query, target_query_impressions, target_query_clicks, target_query_position,
                     sessions_28d, pageviews_28d, conversions_28d, bounce_rate_28d, avg_engagement_time_28d,
                     last_crawled_at, last_ga4_at, updated_at
@@ -68,6 +70,7 @@ class PageFactsSyncService
                     :url, :page_type, NULL, :is_indexable, :word_count, :h1, :title_tag,
                     :h1_matches_title, :h2_count, CAST(:schema_types AS JSONB), CAST(:schema_errors AS JSONB),
                     :has_central_entity, :has_core_link, :internal_link_count,
+                    :body_internal_link_count, :body_link_extraction_confident, :is_noindex,
                     :target_query, :target_query_impressions, :target_query_clicks, :target_query_position,
                     :sessions_28d, :pageviews_28d, :conversions_28d, :bounce_rate_28d, :avg_engagement_time_28d,
                     :last_crawled_at, :last_ga4_at, :updated_at
@@ -85,6 +88,9 @@ class PageFactsSyncService
                     has_central_entity = EXCLUDED.has_central_entity,
                     has_core_link = EXCLUDED.has_core_link,
                     internal_link_count = EXCLUDED.internal_link_count,
+                    body_internal_link_count = EXCLUDED.body_internal_link_count,
+                    body_link_extraction_confident = EXCLUDED.body_link_extraction_confident,
+                    is_noindex = EXCLUDED.is_noindex,
                     target_query = EXCLUDED.target_query,
                     target_query_impressions = EXCLUDED.target_query_impressions,
                     target_query_clicks = EXCLUDED.target_query_clicks,
@@ -111,6 +117,9 @@ class PageFactsSyncService
                     'has_central_entity' => $hasCentralEntity,
                     'has_core_link' => $hasCoreLink,
                     'internal_link_count' => $row['internal_link_count'] !== null ? (int) $row['internal_link_count'] : null,
+                    'body_internal_link_count' => $row['body_internal_link_count'] !== null ? (int) $row['body_internal_link_count'] : null,
+                    'body_link_extraction_confident' => $this->toNullableBool($row['body_link_extraction_confident'] ?? null),
+                    'is_noindex' => $this->toNullableBool($row['is_noindex'] ?? null),
                     'target_query' => $row['target_query'] ?? null,
                     'target_query_impressions' => $row['target_query_impressions'] !== null ? (int) $row['target_query_impressions'] : null,
                     'target_query_clicks' => $row['target_query_clicks'] !== null ? (int) $row['target_query_clicks'] : null,
@@ -129,6 +138,8 @@ class PageFactsSyncService
                     'h1_matches_title' => $h1MatchesTitle === null ? ParameterType::NULL : ParameterType::BOOLEAN,
                     'has_central_entity' => $hasCentralEntity === null ? ParameterType::NULL : ParameterType::BOOLEAN,
                     'has_core_link' => $hasCoreLink === null ? ParameterType::NULL : ParameterType::BOOLEAN,
+                    'body_link_extraction_confident' => ($row['body_link_extraction_confident'] ?? null) === null ? ParameterType::NULL : ParameterType::BOOLEAN,
+                    'is_noindex' => ($row['is_noindex'] ?? null) === null ? ParameterType::NULL : ParameterType::BOOLEAN,
                 ]
             );
         }
