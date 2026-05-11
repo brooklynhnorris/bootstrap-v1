@@ -46,7 +46,7 @@ class ResolveCanonicalUrlsCommand extends Command
             try {
                 $finalUrl = $this->resolveFinalUrl($url);
                 if ($finalUrl !== null) {
-                    // Normalize trailing slashes — /foo/ and /foo are the same page.
+                    // Normalize trailing slashes — /foo/ and /foo are the same page
                     if (rtrim($finalUrl, '/') === rtrim($url, '/')) {
                         $finalUrl = $url;
                     }
