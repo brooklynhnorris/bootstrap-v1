@@ -224,6 +224,7 @@ class HomeController extends AbstractController
         $allowedReasons = [
             'ASSET_URL',
             'INVALID_URL',
+            'URL_REDIRECTED',
             'URL_EVIDENCE_MISMATCH',
             'EXISTING_OPEN_TASK',
             'CROSS_RULE_COLLISION',
@@ -271,6 +272,7 @@ class HomeController extends AbstractController
         $allowed = [
             'ASSET_URL',
             'INVALID_URL',
+            'URL_REDIRECTED',
             'URL_EVIDENCE_MISMATCH',
             'EXISTING_OPEN_TASK',
             'CROSS_RULE_COLLISION',

@@ -196,14 +196,26 @@ class TaskSuggestionService
             return null;
         }
 
-        // 3) Evidence URL match
+        // 3) Redirect-source suppression (candidate URL differs from canonical URL)
+        $canonicalUrl = $this->lookupCanonicalUrl($normalizedUrl);
+        if ($canonicalUrl !== null && $canonicalUrl !== $normalizedUrl) {
+            $this->recordSuppression(
+                $aiTask + ['source_violation_id' => $sourceViolationId],
+                $normalizedUrl,
+                'URL_REDIRECTED',
+                "candidate={$normalizedUrl};canonical={$canonicalUrl}"
+            );
+            return null;
+        }
+
+        // 4) Evidence URL match
         $evidenceUrl = $this->normalizeUrl((string) ($violation['url'] ?? ''));
         if ($evidenceUrl === '' || $evidenceUrl !== $normalizedUrl) {
             $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'URL_EVIDENCE_MISMATCH', "evidence_url={$evidenceUrl}");
             return null;
         }
 
-        // 4) Existing task / idempotency
+        // 5) Existing task / idempotency
         $idempotencyKey = (string) ($violation['candidate_hash'] ?? '');
         if ($idempotencyKey !== '') {
             $existingByKey = $this->db->fetchAssociative(
@@ -226,7 +238,7 @@ class TaskSuggestionService
             return null;
         }
 
-        // 5) Cross-rule collision: one task per (run_id, normalized_url, action_family)
+        // 6) Cross-rule collision: one task per (run_id, normalized_url, action_family)
         if ($runId > 0) {
             $collision = $this->db->fetchAssociative(
                 "SELECT t.id
@@ -245,14 +257,14 @@ class TaskSuggestionService
             }
         }
 
-        // 6) Low AVR score
+        // 7) Low AVR score
         $avrFloor = (int) $this->params->get('logiri.avr_floor');
         if ($avrScore < $avrFloor) {
             $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'LOW_AVR_SCORE', "avr_score={$avrScore};floor={$avrFloor}");
             return null;
         }
 
-        // 7) Role capacity gate
+        // 8) Role capacity gate
         $assignedRole = strtolower(trim((string) ($aiTask['assigned_role'] ?? $aiTask['role'] ?? 'default')));
         $capacityByRole = (array) $this->params->get('logiri.capacity_per_role_per_day');
         $capacity = isset($capacityByRole[$assignedRole]) ? (int) $capacityByRole[$assignedRole] : (int) ($capacityByRole['default'] ?? 5);
@@ -270,7 +282,7 @@ class TaskSuggestionService
         $assignedTo = $aiTask['assigned_to'] ?? ($activeViolation['assignee'] ?? null);
         $description = isset($aiTask['description']) ? strip_tags((string) $aiTask['description']) : null;
 
-        // 8) Insert task with avr_score
+        // 9) Insert task with avr_score
         $this->db->insert('tasks', [
             'title' => $title,
             'description' => $description,
@@ -292,7 +304,7 @@ class TaskSuggestionService
             'created_at' => date('Y-m-d H:i:s'),
         ]);
 
-        // 9) Mark violation promoted
+        // 10) Mark violation promoted
         if ($this->tableExists('rule_violations') && $this->tableHasColumn('rule_violations', 'decision')) {
             $this->db->update('rule_violations', ['decision' => 'promoted'], ['id' => $sourceViolationId]);
         }
@@ -472,6 +484,27 @@ class TaskSuggestionService
             [$normalizedUrl]
         );
         return $count > 0;
+    }
+
+    private function lookupCanonicalUrl(string $normalizedUrl): ?string
+    {
+        if (!$this->tableExists('page_facts') || !$this->tableHasColumn('page_facts', 'canonical_url')) {
+            return null;
+        }
+
+        $value = $this->db->fetchOne(
+            "SELECT canonical_url
+             FROM page_facts
+             WHERE LOWER(TRIM(TRAILING '/' FROM url)) = ?
+             LIMIT 1",
+            [$normalizedUrl]
+        );
+
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+
+        return $this->normalizeUrl($value);
     }
 
     private function fetchViolationById(int $id): ?array
