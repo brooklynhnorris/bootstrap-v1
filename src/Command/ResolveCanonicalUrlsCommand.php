@@ -5,6 +5,7 @@ namespace App\Command;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
+use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Output\OutputInterface;
 
@@ -19,18 +20,28 @@ class ResolveCanonicalUrlsCommand extends Command
         $this->siteBaseUrl = rtrim((string) ($_ENV['GSC_SITE_URL'] ?? ''), '/');
     }
 
+    protected function configure(): void
+    {
+        $this->addOption('force', null, InputOption::VALUE_NONE, 'Re-resolve all URLs including ones already resolved');
+    }
+
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        $rows = $this->db->fetchAllAssociative(
-            "SELECT url FROM page_facts
-             WHERE canonical_url IS NULL
-               AND canonical_resolved_at IS NULL
-             ORDER BY url ASC"
-        );
+        $force = (bool) $input->getOption('force');
+        $resolvedCount = (int) $this->db->fetchOne('SELECT COUNT(*) FROM page_facts WHERE canonical_resolved_at IS NOT NULL');
+
+        $sql = "SELECT url FROM page_facts";
+        if (!$force) {
+            $sql .= " WHERE canonical_resolved_at IS NULL";
+        }
+        $sql .= " ORDER BY url ASC";
+
+        $rows = $this->db->fetchAllAssociative($sql);
 
         $total = count($rows);
+        $output->writeln("Found {$total} unresolved URLs ({$resolvedCount} already resolved, use --force to re-run all)");
+
         if ($total === 0) {
-            $output->writeln('No unresolved canonical URLs found.');
             return Command::SUCCESS;
         }
 
