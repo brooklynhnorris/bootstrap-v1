@@ -1051,6 +1051,96 @@
             border-color: var(--accent-blue);
             color: var(--accent-blue);
         }
+        .suppression-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            margin: 8px 0 26px;
+            overflow: hidden;
+        }
+        .suppression-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 14px;
+            cursor: pointer;
+            background: var(--bg-secondary);
+        }
+        .suppression-panel-title { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+        .suppression-panel-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+        .suppression-chevron {
+            font-size: 12px;
+            color: var(--text-muted);
+            transition: transform 0.15s ease;
+        }
+        .suppression-panel.open .suppression-chevron { transform: rotate(180deg); }
+        .suppression-panel-body { display: none; padding: 8px 12px 12px; }
+        .suppression-panel.open .suppression-panel-body { display: block; }
+        .suppression-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            width: 100%;
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            background: #fff;
+            padding: 8px 10px;
+            margin-top: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            text-align: left;
+        }
+        .suppression-row:hover {
+            border-color: var(--accent-blue-border);
+            background: var(--accent-blue-dim);
+        }
+        .suppression-reason {
+            font-family: var(--font-mono);
+            color: var(--text-primary);
+            font-size: 11px;
+        }
+        .suppression-count {
+            font-variant-numeric: tabular-nums;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+        #suppression-drill-modal .modal-box {
+            width: 920px;
+            max-width: 96vw;
+            max-height: 82vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        #suppression-drill-list {
+            overflow-y: auto;
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        .suppression-drill-row {
+            padding: 10px 12px;
+            border-bottom: 1px solid var(--border-subtle);
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+        .suppression-drill-row:last-child { border-bottom: none; }
+        .suppression-drill-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 4px;
+        }
+        .suppression-drill-url {
+            font-family: var(--font-mono);
+            font-size: 11px;
+            color: var(--accent-blue);
+            word-break: break-all;
+        }
 
         /* Results grid */
         .results-grid {
@@ -1730,6 +1820,19 @@
                 <button onclick="switchView('board')">View all plays →</button>
             </div>
 
+            <div id="dash-suppression-panel" class="suppression-panel">
+                <div class="suppression-panel-header" onclick="toggleSuppressionPanel()">
+                    <div>
+                        <div class="suppression-panel-title">Today's Suppressions</div>
+                        <div class="suppression-panel-sub" id="dash-suppression-summary">Loading…</div>
+                    </div>
+                    <div class="suppression-chevron">▼</div>
+                </div>
+                <div class="suppression-panel-body" id="dash-suppression-body">
+                    <div class="dash-empty">No suppression data yet.</div>
+                </div>
+            </div>
+
             <!-- Recent Results -->
             <div class="dash-section-title">Recent Verification Results <span class="dash-badge">Last 7 days</span></div>
             <div class="results-grid" id="dash-results-grid">
@@ -1786,6 +1889,21 @@
                 </div>
             </div>
 
+        </div>
+    </div>
+
+    <div id="suppression-drill-modal" style="display:none;position:fixed;inset:0;z-index:260;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+        <div class="modal-box">
+            <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;">
+                <div>
+                    <div class="modal-title" id="suppression-drill-title" style="margin-bottom:2px;">Suppression Drill-down</div>
+                    <div style="font-size:12px;color:var(--text-muted);" id="suppression-drill-sub">Loading…</div>
+                </div>
+                <button class="modal-cancel" onclick="closeSuppressionDrillDown()" style="padding:6px 10px;">Close</button>
+            </div>
+            <div id="suppression-drill-list">
+                <div class="dash-empty">Loading…</div>
+            </div>
         </div>
     </div>
 
@@ -3714,7 +3832,7 @@
         if (doneBtn) doneBtn.style.display = 'none';
 
         // Hide sub-sections within dashboard container
-        const dashSections = ['reviewer-summary-panel','dash-focus-cards','dash-view-all-plays','dash-results-grid','dash-proposals-title','dash-proposals-list'];
+        const dashSections = ['reviewer-summary-panel','dash-focus-cards','dash-view-all-plays','dash-suppression-panel','dash-results-grid','dash-proposals-title','dash-proposals-list'];
         const resultsContent = document.getElementById('results-view-content');
         const rulesContent = document.getElementById('rules-view-content');
 
@@ -4103,9 +4221,121 @@
         }
     }
 
+    let suppressionPanelOpen = false;
+    let suppressionSummaryCache = null;
+
+    function toggleSuppressionPanel(forceOpen = null) {
+        const panel = document.getElementById('dash-suppression-panel');
+        if (!panel) return;
+        suppressionPanelOpen = forceOpen === null ? !suppressionPanelOpen : !!forceOpen;
+        panel.classList.toggle('open', suppressionPanelOpen);
+    }
+
+    function renderSuppressionPanel(data) {
+        const summaryEl = document.getElementById('dash-suppression-summary');
+        const bodyEl = document.getElementById('dash-suppression-body');
+        if (!summaryEl || !bodyEl) return;
+
+        const safe = data && typeof data === 'object' ? data : {};
+        const runsToday = Number(safe.runs_today || 0);
+        const totals = safe.totals && typeof safe.totals === 'object' ? safe.totals : {};
+        const promoted = Number(totals.promoted || 0);
+        const suppressed = Number(totals.suppressed || 0);
+        const byReason = safe.by_reason && typeof safe.by_reason === 'object' ? safe.by_reason : {};
+        suppressionSummaryCache = safe;
+
+        if (runsToday === 0) {
+            summaryEl.textContent = 'No runs yet today';
+            bodyEl.innerHTML = '<div class="dash-empty">No completed runs yet today.</div>';
+            return;
+        }
+
+        summaryEl.textContent = 'Today: ' + promoted + ' promoted · ' + suppressed + ' suppressed (across ' + runsToday + ' runs)';
+        const rows = Object.entries(byReason)
+            .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+            .map(([code, count]) => {
+                return '<button class="suppression-row" onclick="event.stopPropagation();renderSuppressionDrillDown(\'' + escapeHtml(String(code).replace(/'/g, "\\'")) + '\')">' +
+                    '<span class="suppression-reason">' + escapeHtml(code) + '</span>' +
+                    '<span class="suppression-count">' + Number(count || 0).toLocaleString() + '</span>' +
+                '</button>';
+            });
+
+        bodyEl.innerHTML = rows.length > 0
+            ? rows.join('')
+            : '<div class="dash-empty">No suppression reasons recorded yet.</div>';
+    }
+
+    async function loadTodaysSuppressions() {
+        const summaryEl = document.getElementById('dash-suppression-summary');
+        const bodyEl = document.getElementById('dash-suppression-body');
+        try {
+            const r = await fetch('/api/suppressions/today');
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            const data = await r.json();
+            renderSuppressionPanel(data);
+        } catch (e) {
+            console.warn('Failed to load suppressions:', e);
+            if (summaryEl) summaryEl.textContent = 'Suppression data unavailable';
+            if (bodyEl) bodyEl.innerHTML = '<div class="dash-empty">Could not load suppression summary.</div>';
+        }
+    }
+
+    function closeSuppressionDrillDown() {
+        const modal = document.getElementById('suppression-drill-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async function renderSuppressionDrillDown(reasonCode) {
+        const modal = document.getElementById('suppression-drill-modal');
+        const title = document.getElementById('suppression-drill-title');
+        const sub = document.getElementById('suppression-drill-sub');
+        const list = document.getElementById('suppression-drill-list');
+        if (!modal || !title || !sub || !list) return;
+
+        modal.style.display = 'flex';
+        title.textContent = 'Suppression Drill-down · ' + reasonCode;
+        sub.textContent = 'Loading…';
+        list.innerHTML = '<div class="dash-empty">Loading…</div>';
+
+        try {
+            const r = await fetch('/api/suppressions/today/' + encodeURIComponent(reasonCode));
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+
+            const items = Array.isArray(data.items) ? data.items : [];
+            sub.textContent = (data.count || items.length || 0) + ' row(s) shown (max 50)';
+            if (items.length === 0) {
+                list.innerHTML = '<div class="dash-empty">No rows found for this reason.</div>';
+                return;
+            }
+
+            list.innerHTML = items.map((row) => {
+                const avrRaw = Number(row.avr_score);
+                const avr = Number.isFinite(avrRaw) ? avrRaw : '—';
+                const assigned = row.assigned ? escapeHtml(String(row.assigned)) : '—';
+                const priority = row.priority ? escapeHtml(String(row.priority)) : '—';
+                const text = row.suppression_reason_text ? escapeHtml(String(row.suppression_reason_text)) : '—';
+                return '<div class="suppression-drill-row">' +
+                    '<div class="suppression-drill-top">' +
+                        '<strong>' + escapeHtml(String(row.rule_id || '—')) + '</strong>' +
+                        '<span style="font-size:11px;color:var(--text-muted);">AVR ' + avr + '</span>' +
+                    '</div>' +
+                    '<div class="suppression-drill-url">' + escapeHtml(String(row.url || '—')) + '</div>' +
+                    '<div style="margin-top:4px;font-size:11px;color:var(--text-muted);">assigned: ' + assigned + ' · priority: ' + priority + ' · run: ' + escapeHtml(String(row.run_id || '—')) + '</div>' +
+                    '<div style="margin-top:4px;font-size:11px;color:var(--text-secondary);">' + text + '</div>' +
+                '</div>';
+            }).join('');
+        } catch (e) {
+            console.error('Suppression drill-down failed:', e);
+            sub.textContent = 'Could not load';
+            list.innerHTML = '<div class="dash-empty">Could not load drill-down data.</div>';
+        }
+    }
+
     async function loadDashboardData() {
         try {
             loadReviewerSummary();
+            loadTodaysSuppressions();
 
             // Fetch persona-scoped tasks for dashboard stats + focus cards.
             // The top-bar counters rendered by Twig are assignee-specific, so

@@ -204,6 +204,105 @@ class HomeController extends AbstractController
         ]);
     }
 
+    #[Route('/api/suppressions/today', name: 'suppressions_today', methods: ['GET'])]
+    public function getTodaysSuppressions(): JsonResponse
+    {
+        $runs = $this->db->fetchAllAssociative(
+            "SELECT id, summary_json, violations_recorded, tasks_promoted,
+                    tasks_suppressed, started_at, ended_at
+             FROM rule_runs
+             WHERE started_at::date = CURRENT_DATE
+               AND status = 'completed'
+             ORDER BY id DESC"
+        );
+
+        $reasonTotals = [];
+        $totalViolations = 0;
+        $totalPromoted = 0;
+        $totalSuppressed = 0;
+        $runIds = [];
+        $allowedReasons = [
+            'ASSET_URL',
+            'INVALID_URL',
+            'URL_EVIDENCE_MISMATCH',
+            'EXISTING_OPEN_TASK',
+            'CROSS_RULE_COLLISION',
+            'LOW_AVR_SCORE',
+            'ROLE_CAPACITY_EXCEEDED',
+        ];
+
+        foreach ($runs as $run) {
+            $totalViolations += (int) ($run['violations_recorded'] ?? 0);
+            $totalPromoted += (int) ($run['tasks_promoted'] ?? 0);
+            $totalSuppressed += (int) ($run['tasks_suppressed'] ?? 0);
+            $runIds[] = (int) $run['id'];
+
+            $summary = json_decode((string) ($run['summary_json'] ?? '{}'), true);
+            $reasons = is_array($summary) ? ($summary['suppressed_by_reason'] ?? []) : [];
+            if (!is_array($reasons)) {
+                continue;
+            }
+            foreach ($reasons as $code => $count) {
+                if (!in_array((string) $code, $allowedReasons, true)) {
+                    continue;
+                }
+                $reasonTotals[(string) $code] = ($reasonTotals[(string) $code] ?? 0) + (int) $count;
+            }
+        }
+
+        arsort($reasonTotals);
+
+        return new JsonResponse([
+            'date' => date('Y-m-d'),
+            'runs_today' => count($runs),
+            'run_ids' => $runIds,
+            'totals' => [
+                'violations' => $totalViolations,
+                'promoted' => $totalPromoted,
+                'suppressed' => $totalSuppressed,
+            ],
+            'by_reason' => $reasonTotals,
+        ]);
+    }
+
+    #[Route('/api/suppressions/today/{reasonCode}', name: 'suppressions_today_drill', methods: ['GET'])]
+    public function getTodaysSuppressionsByReason(string $reasonCode): JsonResponse
+    {
+        $allowed = [
+            'ASSET_URL',
+            'INVALID_URL',
+            'URL_EVIDENCE_MISMATCH',
+            'EXISTING_OPEN_TASK',
+            'CROSS_RULE_COLLISION',
+            'LOW_AVR_SCORE',
+            'ROLE_CAPACITY_EXCEEDED',
+        ];
+        if (!in_array($reasonCode, $allowed, true)) {
+            return new JsonResponse(['error' => 'Unknown reason code'], 400);
+        }
+
+        $rows = $this->db->fetchAllAssociative(
+            "SELECT rv.id, rv.url, rv.rule_id, rv.suppression_reason_text,
+                    rv.avr_score, rv.run_id, r.assigned, r.priority
+             FROM rule_violations rv
+             LEFT JOIN seo_rules r ON r.rule_id = rv.rule_id
+             WHERE rv.suppression_reason_code = ?
+               AND rv.run_id IN (
+                 SELECT id FROM rule_runs
+                 WHERE started_at::date = CURRENT_DATE AND status = 'completed'
+               )
+             ORDER BY rv.avr_score DESC NULLS LAST, rv.id DESC
+             LIMIT 50",
+            [$reasonCode]
+        );
+
+        return new JsonResponse([
+            'reason_code' => $reasonCode,
+            'count' => count($rows),
+            'items' => $rows,
+        ]);
+    }
+
     // ─────────────────────────────────────────────
     //  CHAT
     // ─────────────────────────────────────────────
