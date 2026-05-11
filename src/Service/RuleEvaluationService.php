@@ -7,6 +7,8 @@ use Doctrine\DBAL\Connection;
 class RuleEvaluationService
 {
     private array $ruleMetaCache = [];
+    /** @var array<string, bool> */
+    private array $columnExistsCache = [];
 
     public function __construct(
         private Connection $db,
@@ -284,12 +286,19 @@ class RuleEvaluationService
 
     private function tableHasColumn(string $tableName, string $columnName): bool
     {
+        $key = $tableName . '.' . $columnName;
+        if (array_key_exists($key, $this->columnExistsCache)) {
+            return $this->columnExistsCache[$key];
+        }
+
         $columns = $this->db->fetchFirstColumn(
             "SELECT column_name FROM information_schema.columns WHERE table_schema = 'public' AND table_name = ? AND column_name = ?",
             [$tableName, $columnName]
         );
+        $exists = !empty($columns);
+        $this->columnExistsCache[$key] = $exists;
 
-        return !empty($columns);
+        return $exists;
     }
 
     private function openRuleRun(string $triggeredBy): int
