@@ -919,6 +919,119 @@ class CrawlPagesCommand extends Command
             $imageCount = $imgNodes->length;
         }
 
+        // Populate page_image_assets (MAO rules data source)
+        try {
+            $imageRows = [];
+            $crawledAt = date('Y-m-d H:i:s');
+            $host = (string) (parse_url($fullUrl, PHP_URL_HOST) ?? '');
+            $scheme = (string) (parse_url($fullUrl, PHP_URL_SCHEME) ?? 'https');
+            $basePath = (string) (parse_url($fullUrl, PHP_URL_PATH) ?? '/');
+            $baseDir = rtrim(str_replace('\\', '/', dirname($basePath)), '/');
+            if ($baseDir === '' || $baseDir === '.') {
+                $baseDir = '';
+            }
+
+            $resolveImageSrc = function (string $src) use ($scheme, $host, $baseDir): string {
+                $src = trim($src);
+                if ($src === '') {
+                    return '';
+                }
+                if (preg_match('#^https?://#i', $src) === 1) {
+                    return $src;
+                }
+                if (str_starts_with($src, '//')) {
+                    return $scheme . ':' . $src;
+                }
+                if (str_starts_with($src, '/')) {
+                    return $host !== '' ? "{$scheme}://{$host}{$src}" : $src;
+                }
+
+                $relativePath = ($baseDir !== '' ? $baseDir . '/' : '/') . ltrim($src, '/');
+                $relativePath = preg_replace('#/+#', '/', $relativePath) ?: $relativePath;
+                return $host !== '' ? "{$scheme}://{$host}{$relativePath}" : $relativePath;
+            };
+
+            if ($imgNodes) {
+                $imgIndex = 0;
+                foreach ($imgNodes as $img) {
+                    if (!$img instanceof \DOMElement) {
+                        continue;
+                    }
+
+                    $imgIndex++;
+
+                    $rawSrc = trim((string) $img->getAttribute('src'));
+                    if ($rawSrc === '') {
+                        $rawSrc = trim((string) $img->getAttribute('data-src'));
+                    }
+                    if ($rawSrc === '' || str_starts_with(strtolower($rawSrc), 'data:')) {
+                        continue;
+                    }
+
+                    $imageSrc = $resolveImageSrc($rawSrc);
+                    if ($imageSrc === '') {
+                        continue;
+                    }
+
+                    $widthRaw = trim((string) $img->getAttribute('width'));
+                    $heightRaw = trim((string) $img->getAttribute('height'));
+                    $width = ctype_digit($widthRaw) ? (int) $widthRaw : null;
+                    $height = ctype_digit($heightRaw) ? (int) $heightRaw : null;
+                    if ($width === 1 && $height === 1) {
+                        continue;
+                    }
+
+                    $hasAltAttribute = $img->hasAttribute('alt');
+                    $altText = $hasAltAttribute ? (string) $img->getAttribute('alt') : null;
+                    $altTextTrimmed = trim((string) ($altText ?? ''));
+                    $altTextLength = strlen($altTextTrimmed);
+                    $altLower = strtolower($altTextTrimmed);
+
+                    $pathPart = (string) (parse_url($imageSrc, PHP_URL_PATH) ?? '');
+                    $ext = strtolower((string) pathinfo($pathPart, PATHINFO_EXTENSION));
+                    $imageFormat = in_array($ext, ['jpg', 'jpeg', 'png', 'webp', 'svg', 'gif'], true) ? $ext : ($ext !== '' ? $ext : null);
+
+                    $classAttr = strtolower((string) $img->getAttribute('class'));
+                    $hasBrandTerm = $altLower !== '' && (
+                        str_contains($altLower, 'double d trailers')
+                        || str_contains($altLower, 'z-frame')
+                        || str_contains($altLower, 'safetack')
+                        || str_contains($altLower, 'safebump')
+                        || str_contains($altLower, 'safekick')
+                    );
+
+                    $isHeroImage = $imgIndex === 1
+                        || str_contains($classAttr, 'hero')
+                        || str_contains($classAttr, 'banner');
+
+                    $loadingAttr = strtolower(trim((string) $img->getAttribute('loading')));
+                    $isLazyLoaded = $loadingAttr === 'lazy' || $img->hasAttribute('data-src');
+
+                    $imageRows[] = [
+                        'page_url' => $path,
+                        'image_src' => $imageSrc,
+                        'alt_text' => $altText,
+                        'alt_text_length' => $altTextLength,
+                        'file_size_kb' => null,
+                        'image_format' => $imageFormat,
+                        'width' => $width,
+                        'height' => $height,
+                        'is_lazy_loaded' => $isLazyLoaded ? 1 : 0,
+                        'is_hero_image' => $isHeroImage ? 1 : 0,
+                        'has_brand_term' => $hasBrandTerm ? 1 : 0,
+                        'crawled_at' => $crawledAt,
+                    ];
+                }
+            }
+
+            $this->db->executeStatement('DELETE FROM page_image_assets WHERE page_url = ?', [$path]);
+            foreach ($imageRows as $row) {
+                $this->db->insert('page_image_assets', $row);
+            }
+        } catch (\Throwable $e) {
+            $output->writeln('  [WARN] page_image_assets extraction failed for ' . $path . ': ' . substr($e->getMessage(), 0, 140));
+        }
+
         // Internal link count — body-only links (not nav/footer), counted after dedup
         // (calculated below after internalLinks array is built)
 
