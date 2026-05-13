@@ -297,6 +297,7 @@ class TaskSuggestionService
         $this->db->insert('tasks', [
             'title' => $title,
             'description' => $description,
+            'rule_id' => $ruleId !== '' ? $ruleId : null,
             'assigned_to' => $assignedTo,
             'assigned_role' => $assignedRole,
             'status' => 'pending',
