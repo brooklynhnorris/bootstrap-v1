@@ -234,6 +234,15 @@ class RuleEvaluationService
             );
         }
 
+        // PR #17 — ILA-005 deactivated. The deterministic version over-fires
+        // (640 violations/night, ~75% of corpus). Threshold of >3 internal
+        // links doesn't match the actual content profile of this site. Method
+        // definition kept for future reactivation with proper threshold.
+        // $violations = array_merge(
+        //     $violations,
+        //     $this->evaluateInternalLinkRules($page)
+        // );
+
         return $violations;
     }
 
