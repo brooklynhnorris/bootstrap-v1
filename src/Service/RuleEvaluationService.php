@@ -234,11 +234,6 @@ class RuleEvaluationService
             );
         }
 
-        $violations = array_merge(
-            $violations,
-            $this->evaluateInternalLinkRules($page)
-        );
-
         return $violations;
     }
 
