@@ -75,7 +75,12 @@ BEGIN
     SELECT trigger_sql INTO old_trigger_sql FROM seo_rules WHERE rule_id = 'ETA-05';
 
     IF old_trigger_sql IS NOT NULL AND btrim(old_trigger_sql) <> '' THEN
-        EXECUTE format('SELECT COUNT(*) FROM (%s) old_q', old_trigger_sql) INTO old_count;
+        BEGIN
+            EXECUTE format('SELECT COUNT(*) FROM (%s) old_q', old_trigger_sql) INTO old_count;
+        EXCEPTION WHEN OTHERS THEN
+            old_count := -1;
+            RAISE NOTICE 'ETA-05 old_trigger_sql eval failed: %', SQLERRM;
+        END;
     END IF;
 
     WITH latest AS (
@@ -282,7 +287,12 @@ BEGIN
     SELECT trigger_sql INTO old_trigger_sql FROM seo_rules WHERE rule_id = 'DDT-EEAT-07';
 
     IF old_trigger_sql IS NOT NULL AND btrim(old_trigger_sql) <> '' THEN
-        EXECUTE format('SELECT COUNT(*) FROM (%s) old_q', old_trigger_sql) INTO old_count;
+        BEGIN
+            EXECUTE format('SELECT COUNT(*) FROM (%s) old_q', old_trigger_sql) INTO old_count;
+        EXCEPTION WHEN OTHERS THEN
+            old_count := -1;
+            RAISE NOTICE 'DDT-EEAT-07 old_trigger_sql eval failed: %', SQLERRM;
+        END;
     END IF;
 
     WITH latest AS (
@@ -501,7 +511,12 @@ BEGIN
     SELECT trigger_sql INTO old_trigger_sql FROM seo_rules WHERE rule_id = 'FC-R7';
 
     IF old_trigger_sql IS NOT NULL AND btrim(old_trigger_sql) <> '' THEN
-        EXECUTE format('SELECT COUNT(*) FROM (%s) old_q', old_trigger_sql) INTO old_count;
+        BEGIN
+            EXECUTE format('SELECT COUNT(*) FROM (%s) old_q', old_trigger_sql) INTO old_count;
+        EXCEPTION WHEN OTHERS THEN
+            old_count := -1;
+            RAISE NOTICE 'FC-R7 old_trigger_sql eval failed: %', SQLERRM;
+        END;
     END IF;
 
     WITH latest AS (
