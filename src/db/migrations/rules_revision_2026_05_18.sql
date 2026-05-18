@@ -227,19 +227,28 @@ would_fire AS (
       AND p.body_text_snippet NOT LIKE '%SafeTack%'
       AND p.body_text_snippet NOT LIKE '%SafeBump%'
       AND p.body_text_snippet NOT LIKE '%SafeKick%'
-      AND p.url NOT LIKE '/blog/%'
-      AND p.url NOT LIKE '%-tips/'
-      AND p.url NOT LIKE '%-guide/'
-      AND p.url NOT LIKE '%-mistakes%'
-      AND p.url NOT LIKE '%-explained/'
-      AND p.url NOT LIKE '%-101%'
-      AND p.url NOT LIKE '/horse-trailer-safety%'
-      AND p.url NOT LIKE '/horse-trailer-accident%'
-      AND p.url NOT LIKE '/how-to-%'
-      AND p.url NOT LIKE '/why-%'
-      AND p.url NOT LIKE '/what-%'
-      AND p.url NOT LIKE '/can-%'
-      AND p.url NOT LIKE '%-vs-%'
+      AND (
+            p.url ILIKE '%trailer%'
+         OR p.url ILIKE '%tow%'
+         OR p.url ILIKE '%safetack%'
+         OR p.url ILIKE '%safebump%'
+         OR p.url ILIKE '%safekick%'
+         OR p.url ILIKE '%z-frame%'
+         OR p.url ILIKE '%/factory-direct%'
+         OR p.url ILIKE '%/about%'
+      )
+      AND p.url NOT ILIKE '%-laws/%'
+      AND p.url NOT ILIKE '%-types/%'
+      AND p.url NOT ILIKE '%-cost/%'
+      AND p.url NOT ILIKE '%-mistakes%'
+      AND p.url NOT ILIKE '%-tips/%'
+      AND p.url NOT ILIKE '%-guide/%'
+      AND p.url NOT ILIKE '%-explained/%'
+      AND p.url NOT ILIKE '%-101%'
+      AND p.url NOT ILIKE '%/how-to-%'
+      AND p.url NOT ILIKE '%/why-%'
+      AND p.url NOT ILIKE '%/what-%'
+      AND p.url NOT ILIKE '%-vs-%'
 )
 SELECT 'DDT-EEAT-07 PRECHECK COUNT' AS section, COUNT(*) AS firing_count FROM would_fire;
 
@@ -258,19 +267,28 @@ would_fire AS (
       AND p.body_text_snippet NOT LIKE '%SafeTack%'
       AND p.body_text_snippet NOT LIKE '%SafeBump%'
       AND p.body_text_snippet NOT LIKE '%SafeKick%'
-      AND p.url NOT LIKE '/blog/%'
-      AND p.url NOT LIKE '%-tips/'
-      AND p.url NOT LIKE '%-guide/'
-      AND p.url NOT LIKE '%-mistakes%'
-      AND p.url NOT LIKE '%-explained/'
-      AND p.url NOT LIKE '%-101%'
-      AND p.url NOT LIKE '/horse-trailer-safety%'
-      AND p.url NOT LIKE '/horse-trailer-accident%'
-      AND p.url NOT LIKE '/how-to-%'
-      AND p.url NOT LIKE '/why-%'
-      AND p.url NOT LIKE '/what-%'
-      AND p.url NOT LIKE '/can-%'
-      AND p.url NOT LIKE '%-vs-%'
+      AND (
+            p.url ILIKE '%trailer%'
+         OR p.url ILIKE '%tow%'
+         OR p.url ILIKE '%safetack%'
+         OR p.url ILIKE '%safebump%'
+         OR p.url ILIKE '%safekick%'
+         OR p.url ILIKE '%z-frame%'
+         OR p.url ILIKE '%/factory-direct%'
+         OR p.url ILIKE '%/about%'
+      )
+      AND p.url NOT ILIKE '%-laws/%'
+      AND p.url NOT ILIKE '%-types/%'
+      AND p.url NOT ILIKE '%-cost/%'
+      AND p.url NOT ILIKE '%-mistakes%'
+      AND p.url NOT ILIKE '%-tips/%'
+      AND p.url NOT ILIKE '%-guide/%'
+      AND p.url NOT ILIKE '%-explained/%'
+      AND p.url NOT ILIKE '%-101%'
+      AND p.url NOT ILIKE '%/how-to-%'
+      AND p.url NOT ILIKE '%/why-%'
+      AND p.url NOT ILIKE '%/what-%'
+      AND p.url NOT ILIKE '%-vs-%'
 )
 SELECT 'DDT-EEAT-07 PRECHECK SAMPLE' AS section, url, page_type, word_count
 FROM would_fire
@@ -310,19 +328,28 @@ BEGIN
       AND p.body_text_snippet NOT LIKE '%SafeTack%'
       AND p.body_text_snippet NOT LIKE '%SafeBump%'
       AND p.body_text_snippet NOT LIKE '%SafeKick%'
-      AND p.url NOT LIKE '/blog/%'
-      AND p.url NOT LIKE '%-tips/'
-      AND p.url NOT LIKE '%-guide/'
-      AND p.url NOT LIKE '%-mistakes%'
-      AND p.url NOT LIKE '%-explained/'
-      AND p.url NOT LIKE '%-101%'
-      AND p.url NOT LIKE '/horse-trailer-safety%'
-      AND p.url NOT LIKE '/horse-trailer-accident%'
-      AND p.url NOT LIKE '/how-to-%'
-      AND p.url NOT LIKE '/why-%'
-      AND p.url NOT LIKE '/what-%'
-      AND p.url NOT LIKE '/can-%'
-      AND p.url NOT LIKE '%-vs-%';
+      AND (
+            p.url ILIKE '%trailer%'
+         OR p.url ILIKE '%tow%'
+         OR p.url ILIKE '%safetack%'
+         OR p.url ILIKE '%safebump%'
+         OR p.url ILIKE '%safekick%'
+         OR p.url ILIKE '%z-frame%'
+         OR p.url ILIKE '%/factory-direct%'
+         OR p.url ILIKE '%/about%'
+      )
+      AND p.url NOT ILIKE '%-laws/%'
+      AND p.url NOT ILIKE '%-types/%'
+      AND p.url NOT ILIKE '%-cost/%'
+      AND p.url NOT ILIKE '%-mistakes%'
+      AND p.url NOT ILIKE '%-tips/%'
+      AND p.url NOT ILIKE '%-guide/%'
+      AND p.url NOT ILIKE '%-explained/%'
+      AND p.url NOT ILIKE '%-101%'
+      AND p.url NOT ILIKE '%/how-to-%'
+      AND p.url NOT ILIKE '%/why-%'
+      AND p.url NOT ILIKE '%/what-%'
+      AND p.url NOT ILIKE '%-vs-%';
 
     IF new_count BETWEEN 30 AND 80 THEN
         UPDATE seo_rules
@@ -345,19 +372,28 @@ WHERE p.rn = 1
   AND p.body_text_snippet NOT LIKE '%SafeTack%'
   AND p.body_text_snippet NOT LIKE '%SafeBump%'
   AND p.body_text_snippet NOT LIKE '%SafeKick%'
-  AND p.url NOT LIKE '/blog/%'
-  AND p.url NOT LIKE '%-tips/'
-  AND p.url NOT LIKE '%-guide/'
-  AND p.url NOT LIKE '%-mistakes%'
-  AND p.url NOT LIKE '%-explained/'
-  AND p.url NOT LIKE '%-101%'
-  AND p.url NOT LIKE '/horse-trailer-safety%'
-  AND p.url NOT LIKE '/horse-trailer-accident%'
-  AND p.url NOT LIKE '/how-to-%'
-  AND p.url NOT LIKE '/why-%'
-  AND p.url NOT LIKE '/what-%'
-  AND p.url NOT LIKE '/can-%'
-  AND p.url NOT LIKE '%-vs-%'
+  AND (
+        p.url ILIKE '%trailer%'
+     OR p.url ILIKE '%tow%'
+     OR p.url ILIKE '%safetack%'
+     OR p.url ILIKE '%safebump%'
+     OR p.url ILIKE '%safekick%'
+     OR p.url ILIKE '%z-frame%'
+     OR p.url ILIKE '%/factory-direct%'
+     OR p.url ILIKE '%/about%'
+  )
+  AND p.url NOT ILIKE '%-laws/%'
+  AND p.url NOT ILIKE '%-types/%'
+  AND p.url NOT ILIKE '%-cost/%'
+  AND p.url NOT ILIKE '%-mistakes%'
+  AND p.url NOT ILIKE '%-tips/%'
+  AND p.url NOT ILIKE '%-guide/%'
+  AND p.url NOT ILIKE '%-explained/%'
+  AND p.url NOT ILIKE '%-101%'
+  AND p.url NOT ILIKE '%/how-to-%'
+  AND p.url NOT ILIKE '%/why-%'
+  AND p.url NOT ILIKE '%/what-%'
+  AND p.url NOT ILIKE '%-vs-%'
 $sql$,
             updated_at = NOW(),
             updated_by = 'Brook'
@@ -385,19 +421,28 @@ now_firing AS (
       AND p.body_text_snippet NOT LIKE '%SafeTack%'
       AND p.body_text_snippet NOT LIKE '%SafeBump%'
       AND p.body_text_snippet NOT LIKE '%SafeKick%'
-      AND p.url NOT LIKE '/blog/%'
-      AND p.url NOT LIKE '%-tips/'
-      AND p.url NOT LIKE '%-guide/'
-      AND p.url NOT LIKE '%-mistakes%'
-      AND p.url NOT LIKE '%-explained/'
-      AND p.url NOT LIKE '%-101%'
-      AND p.url NOT LIKE '/horse-trailer-safety%'
-      AND p.url NOT LIKE '/horse-trailer-accident%'
-      AND p.url NOT LIKE '/how-to-%'
-      AND p.url NOT LIKE '/why-%'
-      AND p.url NOT LIKE '/what-%'
-      AND p.url NOT LIKE '/can-%'
-      AND p.url NOT LIKE '%-vs-%'
+      AND (
+            p.url ILIKE '%trailer%'
+         OR p.url ILIKE '%tow%'
+         OR p.url ILIKE '%safetack%'
+         OR p.url ILIKE '%safebump%'
+         OR p.url ILIKE '%safekick%'
+         OR p.url ILIKE '%z-frame%'
+         OR p.url ILIKE '%/factory-direct%'
+         OR p.url ILIKE '%/about%'
+      )
+      AND p.url NOT ILIKE '%-laws/%'
+      AND p.url NOT ILIKE '%-types/%'
+      AND p.url NOT ILIKE '%-cost/%'
+      AND p.url NOT ILIKE '%-mistakes%'
+      AND p.url NOT ILIKE '%-tips/%'
+      AND p.url NOT ILIKE '%-guide/%'
+      AND p.url NOT ILIKE '%-explained/%'
+      AND p.url NOT ILIKE '%-101%'
+      AND p.url NOT ILIKE '%/how-to-%'
+      AND p.url NOT ILIKE '%/why-%'
+      AND p.url NOT ILIKE '%/what-%'
+      AND p.url NOT ILIKE '%-vs-%'
 )
 SELECT 'DDT-EEAT-07 VERIFY COUNT' AS section, COUNT(*) AS firing_count FROM now_firing;
 
@@ -416,19 +461,28 @@ now_firing AS (
       AND p.body_text_snippet NOT LIKE '%SafeTack%'
       AND p.body_text_snippet NOT LIKE '%SafeBump%'
       AND p.body_text_snippet NOT LIKE '%SafeKick%'
-      AND p.url NOT LIKE '/blog/%'
-      AND p.url NOT LIKE '%-tips/'
-      AND p.url NOT LIKE '%-guide/'
-      AND p.url NOT LIKE '%-mistakes%'
-      AND p.url NOT LIKE '%-explained/'
-      AND p.url NOT LIKE '%-101%'
-      AND p.url NOT LIKE '/horse-trailer-safety%'
-      AND p.url NOT LIKE '/horse-trailer-accident%'
-      AND p.url NOT LIKE '/how-to-%'
-      AND p.url NOT LIKE '/why-%'
-      AND p.url NOT LIKE '/what-%'
-      AND p.url NOT LIKE '/can-%'
-      AND p.url NOT LIKE '%-vs-%'
+      AND (
+            p.url ILIKE '%trailer%'
+         OR p.url ILIKE '%tow%'
+         OR p.url ILIKE '%safetack%'
+         OR p.url ILIKE '%safebump%'
+         OR p.url ILIKE '%safekick%'
+         OR p.url ILIKE '%z-frame%'
+         OR p.url ILIKE '%/factory-direct%'
+         OR p.url ILIKE '%/about%'
+      )
+      AND p.url NOT ILIKE '%-laws/%'
+      AND p.url NOT ILIKE '%-types/%'
+      AND p.url NOT ILIKE '%-cost/%'
+      AND p.url NOT ILIKE '%-mistakes%'
+      AND p.url NOT ILIKE '%-tips/%'
+      AND p.url NOT ILIKE '%-guide/%'
+      AND p.url NOT ILIKE '%-explained/%'
+      AND p.url NOT ILIKE '%-101%'
+      AND p.url NOT ILIKE '%/how-to-%'
+      AND p.url NOT ILIKE '%/why-%'
+      AND p.url NOT ILIKE '%/what-%'
+      AND p.url NOT ILIKE '%-vs-%'
 )
 SELECT 'DDT-EEAT-07 VERIFY SAMPLE' AS section, url, page_type, word_count
 FROM now_firing
@@ -466,7 +520,7 @@ would_fire AS (
       AND (p.h1_matches_title IS NOT TRUE OR p.h1 IS NULL OR p.h1 = '')
       AND p.page_type != 'core'
       AND p.url NOT IN ('/','/horse-trailers/','/gooseneck-horse-trailers/','/bumper-pull-horse-trailers/','/living-quarters-horse-trailers/')
-      AND COALESCE(g.weighted_pos, 99) >= 5
+      AND COALESCE(g.weighted_pos, 99) >= 12
       AND COALESCE(g.total_impr, 0) >= 50
 )
 SELECT 'FC-R7 PRECHECK COUNT' AS section, COUNT(*) AS firing_count FROM would_fire;
@@ -493,7 +547,7 @@ would_fire AS (
       AND (p.h1_matches_title IS NOT TRUE OR p.h1 IS NULL OR p.h1 = '')
       AND p.page_type != 'core'
       AND p.url NOT IN ('/','/horse-trailers/','/gooseneck-horse-trailers/','/bumper-pull-horse-trailers/','/living-quarters-horse-trailers/')
-      AND COALESCE(g.weighted_pos, 99) >= 5
+      AND COALESCE(g.weighted_pos, 99) >= 12
       AND COALESCE(g.total_impr, 0) >= 50
 )
 SELECT 'FC-R7 PRECHECK SAMPLE' AS section, url, page_type, impressions, weighted_pos
@@ -540,7 +594,7 @@ BEGIN
       AND (p.h1_matches_title IS NOT TRUE OR p.h1 IS NULL OR p.h1 = '')
       AND p.page_type != 'core'
       AND p.url NOT IN ('/','/horse-trailers/','/gooseneck-horse-trailers/','/bumper-pull-horse-trailers/','/living-quarters-horse-trailers/')
-      AND COALESCE(g.weighted_pos, 99) >= 5
+      AND COALESCE(g.weighted_pos, 99) >= 12
       AND COALESCE(g.total_impr, 0) >= 50;
 
     IF new_count BETWEEN 20 AND 50 THEN
@@ -568,7 +622,7 @@ WHERE p.rn = 1
   AND (p.h1_matches_title IS NOT TRUE OR p.h1 IS NULL OR p.h1 = '')
   AND p.page_type != 'core'
   AND p.url NOT IN ('/','/horse-trailers/','/gooseneck-horse-trailers/','/bumper-pull-horse-trailers/','/living-quarters-horse-trailers/')
-  AND COALESCE(g.weighted_pos, 99) >= 5
+  AND COALESCE(g.weighted_pos, 99) >= 12
   AND COALESCE(g.total_impr, 0) >= 50
 $sql$,
             updated_at = NOW(),
@@ -604,7 +658,7 @@ now_firing AS (
       AND (p.h1_matches_title IS NOT TRUE OR p.h1 IS NULL OR p.h1 = '')
       AND p.page_type != 'core'
       AND p.url NOT IN ('/','/horse-trailers/','/gooseneck-horse-trailers/','/bumper-pull-horse-trailers/','/living-quarters-horse-trailers/')
-      AND COALESCE(g.weighted_pos, 99) >= 5
+      AND COALESCE(g.weighted_pos, 99) >= 12
       AND COALESCE(g.total_impr, 0) >= 50
 )
 SELECT 'FC-R7 VERIFY COUNT' AS section, COUNT(*) AS firing_count FROM now_firing;
@@ -630,7 +684,7 @@ now_firing AS (
       AND (p.h1_matches_title IS NOT TRUE OR p.h1 IS NULL OR p.h1 = '')
       AND p.page_type != 'core'
       AND p.url NOT IN ('/','/horse-trailers/','/gooseneck-horse-trailers/','/bumper-pull-horse-trailers/','/living-quarters-horse-trailers/')
-      AND COALESCE(g.weighted_pos, 99) >= 5
+      AND COALESCE(g.weighted_pos, 99) >= 12
       AND COALESCE(g.total_impr, 0) >= 50
 )
 SELECT 'FC-R7 VERIFY SAMPLE' AS section, url, page_type, impressions, weighted_pos
