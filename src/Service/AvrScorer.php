@@ -74,7 +74,21 @@ final class AvrScorer
         $impressionSignal = min(1.0, log10($impressions + 1) / 4.0);
         $pageTypeWeight = $this->resolvePageTypeWeight((string) ($pageFacts['page_type'] ?? ''));
 
-        return (0.4 * $tierWeight) + (0.4 * $impressionSignal) + (0.2 * $pageTypeWeight);
+        // Rebalanced 2026-05-19: dropped impressions weight from 0.4 to 0.15 to break
+        // survivorship bias (broken pages can't earn impressions, so they scored low
+        // and got suppressed). Tier rises 0.4 -> 0.5 and page_type rises 0.2 -> 0.35.
+        // Weights still sum to 1.0.
+        $base = (0.5 * $tierWeight) + (0.15 * $impressionSignal) + (0.35 * $pageTypeWeight);
+
+        // Severity boost: rules whose action_family indicates a fundamental fix
+        // (page missing entity, missing schema, technical structural issue) get +0.10.
+        // This prevents the scorer from treating "page is broken" the same as
+        // "page is polish-able."
+        $fundamentalActionFamilies = ['content_expand', 'schema_impl', 'technical_fix'];
+        $actionFamily = strtolower((string) ($rule['action_family'] ?? ''));
+        $severityBoost = in_array($actionFamily, $fundamentalActionFamilies, true) ? 0.10 : 0.0;
+
+        return min(1.0, $base + $severityBoost);
     }
 
     private function computeConfidence(array $pageFacts, array $violation): float
@@ -105,7 +119,17 @@ final class AvrScorer
     private function computeRevenueProximity(array $pageFacts, array $rule): float
     {
         $moneyPage = $this->resolvePageTypeWeight((string) ($pageFacts['page_type'] ?? ''));
-        $conversionSignal = ((int) ($pageFacts['conversions_28d'] ?? 0) > 0) ? 1.0 : 0.0;
+
+        // Rebalanced 2026-05-19: replaced binary 1.0/0.0 conversion signal with a
+        // softer scale. Broken pages can't convert (because they can't rank), so
+        // the binary version dropped 0.30 from revenue_proximity for the very
+        // pages that most need attention. New version uses 0.3 floor for
+        // non-converters and log-scaled credit for converters.
+        $conversions = (int) ($pageFacts['conversions_28d'] ?? 0);
+        $conversionSignal = $conversions > 0
+            ? min(1.0, log10($conversions + 1) / 2.0)
+            : 0.3;
+
         $businessMultiplier = (float) ($rule['business_multiplier'] ?? 1.0);
         $normalizedBusinessMultiplier = min(1.0, max(0.0, $businessMultiplier / 2.0));
 
