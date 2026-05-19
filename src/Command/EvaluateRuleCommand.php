@@ -1840,12 +1840,37 @@ PROMPT;
     {
         $schemaTypes = (string) ($page['schema_types'] ?? '[]');
         $canonicalUrl = (string) ($page['canonical_url'] ?? 'unknown');
+        $targetQuery = (string) ($page['target_query'] ?? 'NONE');
+
+        // Look up page-aggregate 28d impressions from gsc_snapshots (latest snapshot).
+        // This is separate from target_query_impressions, which is per-query.
+        $pageTotalImpressions28d = 'unknown';
+        $url = (string) ($page['url'] ?? '');
+        if ($url !== '') {
+            try {
+                $row = $this->db->fetchAssociative(
+                    "SELECT impressions FROM gsc_snapshots
+                     WHERE page LIKE CONCAT('%', ?)
+                       AND query = '__PAGE_AGGREGATE__'
+                       AND date_range = '28d'
+                     ORDER BY fetched_at DESC
+                     LIMIT 1",
+                    [$url]
+                );
+                if (is_array($row) && isset($row['impressions'])) {
+                    $pageTotalImpressions28d = (string) (int) $row['impressions'];
+                }
+            } catch (\Exception $e) {
+                // Leave as 'unknown' on lookup failure
+            }
+        }
 
         $lines = [
             '- page_type: ' . ($page['page_type'] ?? 'unknown'),
             '- word_count: ' . (int) ($page['word_count'] ?? 0),
-            '- target_query: ' . ($page['target_query'] ?? 'NONE'),
-            '- target_query_impressions: ' . (int) ($page['target_query_impressions'] ?? 0),
+            '- target_query: ' . $targetQuery,
+            '- target_query_impressions_28d (this query only, NOT page total): ' . (int) ($page['target_query_impressions'] ?? 0),
+            '- page_total_impressions_28d (all queries, latest snapshot): ' . $pageTotalImpressions28d,
             '- target_query_position: ' . ($page['target_query_position'] ?? 'unknown'),
             '- schema_types: ' . $schemaTypes,
             '- canonical_url: ' . $canonicalUrl,
@@ -2328,14 +2353,15 @@ PROMPT;
                 $needsJoin = str_contains($triggerSource, 'gsc_snapshots');
 
                 if ($needsJoin) {
-                    // JOIN query for rules that need GSC data
+                    // JOIN query for rules that need GSC data.
+                    // date_range filter in ON clause (not WHERE) to preserve LEFT JOIN semantics.
                     return $this->filterNonActionableRows($this->db->fetchAllAssociative($this->applyLatestSnapshotScope(
                         "SELECT p.url, p.page_type, p.word_count, p.h1, p.title_tag, p.has_central_entity,
                                 p.central_entity_count, p.schema_types, p.h1_matches_title, p.h2s,
                                 p.has_core_link, p.canonical_url, p.is_noindex,
                                 g.impressions, g.clicks, g.position, g.ctr
                          FROM page_crawl_snapshots p
-                         LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url)
+                         LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) AND g.date_range = '28d'
                          WHERE {$where}
                          LIMIT 15"
                     )), $ruleId === 'MAO-R6');
@@ -2596,7 +2622,7 @@ PROMPT;
 
             // Schema & Structured Data
             'DDT-SD-002' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url = '/' AND schema_types NOT LIKE '%Organization%' AND is_noindex = FALSE LIMIT 1",
-            'DDT-SD-003' => "SELECT p.url, p.page_type, p.word_count, p.schema_types, p.h1, p.target_query, g.impressions FROM page_crawl_snapshots p LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.word_count >= 1000 AND p.schema_types NOT LIKE '%FAQPage%' AND p.is_noindex = FALSE AND p.is_utility = FALSE AND g.impressions > 800 ORDER BY g.impressions DESC LIMIT 15",
+            'DDT-SD-003' => "SELECT p.url, p.page_type, p.word_count, p.schema_types, p.h1, p.target_query, g.impressions FROM page_crawl_snapshots p LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.word_count >= 1000 AND p.schema_types NOT LIKE '%FAQPage%' AND p.is_noindex = FALSE AND p.is_utility = FALSE AND g.impressions > 800 AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 15",
             'DDT-SD-004' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count <= 500 AND schema_types NOT LIKE '%AggregateRating%' AND is_noindex = FALSE LIMIT 15",
             'DDT-SD-005' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url != '/' AND page_type NOT IN ('utility') AND schema_types NOT LIKE '%BreadcrumbList%' AND is_noindex = FALSE AND is_utility = FALSE {$relevanceFilter} LIMIT 15",
             'DDT-SD-006' => "SELECT {$cols} FROM page_crawl_snapshots WHERE url IN ('/', '/horse-trailers/', '/gooseneck-horse-trailers/', '/bumper-pull-horse-trailers/', '/living-quarters-horse-trailers/') AND schema_types NOT LIKE '%ProductGroup%' LIMIT 15",
@@ -2609,30 +2635,30 @@ PROMPT;
             'DDT-LOCAL-05' => "SELECT {$cols} FROM page_crawl_snapshots WHERE (url LIKE '%dealer%' OR url LIKE '%location%') AND is_noindex = FALSE AND is_utility = FALSE LIMIT 15",
 
             // User Signals & Engagement (GSC joins — already have impressions filter = relevance built in)
-            'USE-R1' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.h1_matches_title, p.has_central_entity, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'core' AND p.is_utility = FALSE AND g.impressions >= 500 AND g.position <= 15 AND g.ctr < 0.08 ORDER BY g.impressions DESC LIMIT 15",
-            'USE-R2' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND g.impressions >= 1000 AND g.ctr < 0.01 ORDER BY g.impressions DESC LIMIT 15",
-            'USE-R3' => "SELECT p.url, p.page_type, p.word_count, p.has_central_entity, p.h1_matches_title, p.target_query, g.position, g.clicks, g.impressions FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'core' AND g.position <= 10 AND g.clicks >= 5 AND p.word_count < 150 ORDER BY g.clicks DESC LIMIT 15",
-            'USE-R4' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.h2s, p.target_query, g.impressions, g.clicks, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND p.word_count < 1000 AND g.impressions >= 500 AND g.position <= 30 ORDER BY g.impressions DESC LIMIT 15",
-            'USE-R5' => "SELECT p.url, p.page_type, p.word_count, p.h2s, p.h1_matches_title, p.target_query, g.impressions FROM page_crawl_snapshots p LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type IN ('core', 'outer') AND p.is_utility = FALSE AND (p.h2s IS NULL OR p.h2s = '[]' OR p.h2s = '') AND p.word_count > 300 AND p.is_noindex = FALSE ORDER BY g.impressions DESC NULLS LAST LIMIT 15",
-            'USE-R6' => "SELECT p.url, p.page_type, p.h1, p.title_tag, p.meta_description, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND g.impressions >= 300 AND g.position <= 20 AND g.ctr < 0.025 ORDER BY g.impressions DESC LIMIT 15",
-            'USE-R7' => "SELECT p.url, p.page_type, p.has_central_entity, p.word_count, p.schema_types, p.h1_matches_title, p.target_query, g.impressions, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.has_central_entity = FALSE AND g.impressions >= 200 AND g.position <= 20 AND p.page_type IN ('core', 'outer') AND p.is_noindex = FALSE AND p.is_utility = FALSE AND p.url NOT LIKE '/scripts/%' AND p.url NOT LIKE '/api/%' AND p.url NOT LIKE '/cgi-bin/%' ORDER BY g.impressions DESC LIMIT 15",
+            'USE-R1' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.h1_matches_title, p.has_central_entity, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'core' AND p.is_utility = FALSE AND g.impressions >= 500 AND g.position <= 15 AND g.ctr < 0.08 AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 15",
+            'USE-R2' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND g.impressions >= 1000 AND g.ctr < 0.01 AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 15",
+            'USE-R3' => "SELECT p.url, p.page_type, p.word_count, p.has_central_entity, p.h1_matches_title, p.target_query, g.position, g.clicks, g.impressions FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'core' AND g.position <= 10 AND g.clicks >= 5 AND p.word_count < 150 AND g.date_range = '28d' ORDER BY g.clicks DESC LIMIT 15",
+            'USE-R4' => "SELECT p.url, p.page_type, p.word_count, p.h1, p.h2s, p.target_query, g.impressions, g.clicks, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND p.word_count < 1000 AND g.impressions >= 500 AND g.position <= 30 AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 15",
+            'USE-R5' => "SELECT p.url, p.page_type, p.word_count, p.h2s, p.h1_matches_title, p.target_query, g.impressions FROM page_crawl_snapshots p LEFT JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) AND g.date_range = '28d' WHERE p.page_type IN ('core', 'outer') AND p.is_utility = FALSE AND (p.h2s IS NULL OR p.h2s = '[]' OR p.h2s = '') AND p.word_count > 300 AND p.is_noindex = FALSE ORDER BY g.impressions DESC NULLS LAST LIMIT 15",
+            'USE-R6' => "SELECT p.url, p.page_type, p.h1, p.title_tag, p.meta_description, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND g.impressions >= 300 AND g.position <= 20 AND g.ctr < 0.025 AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 15",
+            'USE-R7' => "SELECT p.url, p.page_type, p.has_central_entity, p.word_count, p.schema_types, p.h1_matches_title, p.target_query, g.impressions, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.has_central_entity = FALSE AND g.impressions >= 200 AND g.position <= 20 AND p.page_type IN ('core', 'outer') AND p.is_noindex = FALSE AND p.is_utility = FALSE AND p.url NOT LIKE '/scripts/%' AND p.url NOT LIKE '/api/%' AND p.url NOT LIKE '/cgi-bin/%' AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 15",
 
             // Keyword & Intent Alignment (GSC)
-            'KIA-R2' => "SELECT g.query, COUNT(DISTINCT p.url) AS page_count, SUM(g.impressions) AS total_imp, AVG(g.position) AS avg_pos FROM gsc_snapshots g JOIN page_crawl_snapshots p ON g.page LIKE CONCAT('%', p.url) WHERE g.position <= 20 AND p.page_type = 'outer' AND p.is_noindex = FALSE AND p.is_utility = FALSE AND (p.canonical_url IS NULL OR p.canonical_url = '' OR LOWER(TRIM(TRAILING '/' FROM p.canonical_url)) <> LOWER(TRIM(TRAILING '/' FROM CONCAT('https://www.doubledtrailers.com', p.url)))) GROUP BY g.query HAVING COUNT(DISTINCT p.url) > 1 AND SUM(g.impressions) > 100 ORDER BY total_imp DESC LIMIT 15",
+            'KIA-R2' => "SELECT g.query, COUNT(DISTINCT p.url) AS page_count, SUM(g.impressions) AS total_imp, AVG(g.position) AS avg_pos FROM gsc_snapshots g JOIN page_crawl_snapshots p ON g.page LIKE CONCAT('%', p.url) WHERE g.position <= 20 AND p.page_type = 'outer' AND p.is_noindex = FALSE AND p.is_utility = FALSE AND (p.canonical_url IS NULL OR p.canonical_url = '' OR LOWER(TRIM(TRAILING '/' FROM p.canonical_url)) <> LOWER(TRIM(TRAILING '/' FROM CONCAT('https://www.doubledtrailers.com', p.url)))) AND g.date_range = '28d' GROUP BY g.query HAVING COUNT(DISTINCT p.url) > 1 AND SUM(g.impressions) > 100 ORDER BY total_imp DESC LIMIT 15",
             'KIA-R3' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND (word_count = 0 OR has_central_entity = FALSE OR h1_matches_title = FALSE) AND is_noindex = FALSE LIMIT 15",
-            'KIA-R4' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE g.impressions > 5000 AND g.position > 10 AND (g.query LIKE '%horse trailer%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%z-frame%' OR g.query LIKE '%safetack%') GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
-            'KIA-R5' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%2 horse%' OR g.query LIKE '%3 horse%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%safetack%') AND g.impressions > 100 AND g.position > 30 GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
+            'KIA-R4' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE g.impressions > 5000 AND g.position > 10 AND g.date_range = '28d' AND (g.query LIKE '%horse trailer%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%z-frame%' OR g.query LIKE '%safetack%') GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
+            'KIA-R5' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%2 horse%' OR g.query LIKE '%3 horse%' OR g.query LIKE '%gooseneck%' OR g.query LIKE '%safetack%') AND g.impressions > 100 AND g.position > 30 AND g.date_range = '28d' GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
             'KIA-R6' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'outer' AND word_count < 1000 AND word_count > 0 AND is_noindex = FALSE AND is_utility = FALSE AND h1 IS NOT NULL AND h1 <> '' AND title_tag IS NOT NULL AND title_tag <> '' AND body_text_snippet IS NOT NULL AND body_text_snippet <> '' {$relevanceFilter} LIMIT 15",
-            'KIA-R7' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%benefits%' OR g.query LIKE '%vs%' OR g.query LIKE '%safetack%') AND g.impressions > 500 AND g.position > 20 GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
+            'KIA-R7' => "SELECT g.query, SUM(g.impressions) as total_imp, AVG(g.position) as avg_pos FROM gsc_snapshots g WHERE (g.query LIKE '%benefits%' OR g.query LIKE '%vs%' OR g.query LIKE '%safetack%') AND g.impressions > 500 AND g.position > 20 AND g.date_range = '28d' GROUP BY g.query ORDER BY total_imp DESC LIMIT 15",
             'KIA-R8' => "SELECT {$cols} FROM page_crawl_snapshots WHERE page_type = 'core' AND internal_link_count > 3 AND is_noindex = FALSE ORDER BY internal_link_count DESC LIMIT 15",
 
             // Competitive Intelligence (mostly GSC-based — already filtered by impressions)
-            'CI-R1' => "SELECT g.query, g.page, g.position, g.impressions, g.clicks, g.ctr FROM gsc_snapshots g JOIN page_crawl_snapshots p ON g.page LIKE CONCAT('%', p.url) WHERE g.position > 10 AND g.impressions > 500 AND p.page_type = 'core' ORDER BY g.impressions DESC LIMIT 15",
-            'CI-R4' => "SELECT g.query, g.page, g.position, g.impressions, g.clicks FROM gsc_snapshots g WHERE g.impressions > 1000 ORDER BY g.impressions DESC LIMIT 15",
-            'CI-R6' => "SELECT p.url, p.title_tag, p.meta_description, p.page_type, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE g.impressions > 5000 AND g.position < 10 AND g.ctr < 0.05 AND p.page_type IN ('core', 'outer') AND p.is_utility = FALSE ORDER BY g.impressions DESC LIMIT 15",
+            'CI-R1' => "SELECT g.query, g.page, g.position, g.impressions, g.clicks, g.ctr FROM gsc_snapshots g JOIN page_crawl_snapshots p ON g.page LIKE CONCAT('%', p.url) WHERE g.position > 10 AND g.impressions > 500 AND p.page_type = 'core' AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 15",
+            'CI-R4' => "SELECT g.query, g.page, g.position, g.impressions, g.clicks FROM gsc_snapshots g WHERE g.impressions > 1000 AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 15",
+            'CI-R6' => "SELECT p.url, p.title_tag, p.meta_description, p.page_type, p.target_query, g.impressions, g.clicks, g.ctr, g.position FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE g.impressions > 5000 AND g.position < 10 AND g.ctr < 0.05 AND p.page_type IN ('core', 'outer') AND p.is_utility = FALSE AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 15",
 
             // Content Freshness (already filtered by impressions)
-            'CFL-04' => "SELECT p.url, p.word_count, p.page_type, p.target_query, g.impressions, g.clicks, g.position, g.ctr FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND p.word_count >= 1000 AND p.is_noindex = FALSE AND g.impressions > 1000 AND g.position > 15 AND g.ctr < 0.02 ORDER BY g.impressions DESC LIMIT 15",
+            'CFL-04' => "SELECT p.url, p.word_count, p.page_type, p.target_query, g.impressions, g.clicks, g.position, g.ctr FROM page_crawl_snapshots p JOIN gsc_snapshots g ON g.page LIKE CONCAT('%', p.url) WHERE p.page_type = 'outer' AND p.is_utility = FALSE AND p.word_count >= 1000 AND p.is_noindex = FALSE AND g.impressions > 1000 AND g.position > 15 AND g.ctr < 0.02 AND g.date_range = '28d' ORDER BY g.impressions DESC LIMIT 15",
 
             // Media & Asset Optimization
             'MAO-R1' => "SELECT {$cols}, images_without_alt FROM page_crawl_snapshots WHERE page_type = 'core' AND word_count > 0 AND images_without_alt > 0 AND is_noindex = FALSE ORDER BY images_without_alt DESC LIMIT 15",
