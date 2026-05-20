@@ -32,12 +32,20 @@ final class AvrScorer
         $confidence = $this->computeConfidence($pageFacts, $violation);
         $urgency = $this->computeUrgency($violation);
         $revenueProximity = $this->computeRevenueProximity($pageFacts, $rule);
-        $effort = $this->resolveEffort((string) ($rule['action_family'] ?? 'general_fix'));
+        $actionFamily = (string) ($rule['action_family'] ?? 'general_fix');
+        $effort = $this->resolveEffort($actionFamily);
 
         $product = $impact * $confidence * $urgency * $revenueProximity;
         $geometricMean = $product > 0.0 ? pow($product, 0.25) : 0.0;
-        $effortDivisor = max(1.0, $effort * 0.5);
+        $effortDivisor = max(1.0, 0.7 + ($effort * 0.15));
         $adjusted = $geometricMean / $effortDivisor;
+
+        // Rebalanced 2026-05-20: apply severity boost after effort divisor so it
+        // is not swallowed by effort penalties for fundamental fixes.
+        $fundamentalActionFamilies = ['content_expand', 'schema_impl', 'technical_fix'];
+        $severityBoost = in_array(strtolower($actionFamily), $fundamentalActionFamilies, true) ? 0.10 : 0.0;
+        $adjusted = min(1.0, $adjusted + $severityBoost);
+
         $avrScore = (int) round(max(0.0, min(1.0, $adjusted)) * 100);
 
         return [
@@ -78,17 +86,7 @@ final class AvrScorer
         // survivorship bias (broken pages can't earn impressions, so they scored low
         // and got suppressed). Tier rises 0.4 -> 0.5 and page_type rises 0.2 -> 0.35.
         // Weights still sum to 1.0.
-        $base = (0.5 * $tierWeight) + (0.15 * $impressionSignal) + (0.35 * $pageTypeWeight);
-
-        // Severity boost: rules whose action_family indicates a fundamental fix
-        // (page missing entity, missing schema, technical structural issue) get +0.10.
-        // This prevents the scorer from treating "page is broken" the same as
-        // "page is polish-able."
-        $fundamentalActionFamilies = ['content_expand', 'schema_impl', 'technical_fix'];
-        $actionFamily = strtolower((string) ($rule['action_family'] ?? ''));
-        $severityBoost = in_array($actionFamily, $fundamentalActionFamilies, true) ? 0.10 : 0.0;
-
-        return min(1.0, $base + $severityBoost);
+        return (0.5 * $tierWeight) + (0.15 * $impressionSignal) + (0.35 * $pageTypeWeight);
     }
 
     private function computeConfidence(array $pageFacts, array $violation): float
