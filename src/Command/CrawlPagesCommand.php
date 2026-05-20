@@ -139,12 +139,37 @@ class CrawlPagesCommand extends Command
             } else {
                 $result = $this->applyOverrides($result, $overrides);
                 try {
-                    $this->db->executeStatement('DELETE FROM page_crawl_snapshots WHERE url = ?', [$path]);
-                    $this->db->insert('page_crawl_snapshots', $result);
+                    $httpStatus = (int) ($result['http_status'] ?? 0);
+                    $is2xx = $httpStatus >= 200 && $httpStatus < 300;
+
+                    if ($is2xx) {
+                        // 2xx responses keep existing behavior: full snapshot overwrite.
+                        $this->db->executeStatement('DELETE FROM page_crawl_snapshots WHERE url = ?', [$path]);
+                        $this->db->insert('page_crawl_snapshots', $result);
+                    } else {
+                        // Non-2xx responses preserve last good content if the row exists.
+                        $existing = $this->db->fetchAssociative(
+                            'SELECT id FROM page_crawl_snapshots WHERE url = ? LIMIT 1',
+                            [$path]
+                        );
+
+                        if ($existing === false || !isset($existing['id'])) {
+                            // Never-valid URL: skip write entirely to avoid polluting snapshots.
+                            $output->writeln("  SKIP | Non-2xx ({$httpStatus}) and no prior snapshot: {$path}");
+                            $failed++;
+                            continue;
+                        }
+
+                        $this->db->executeStatement(
+                            'UPDATE page_crawl_snapshots SET http_status = ?, crawled_at = ? WHERE id = ?',
+                            [$httpStatus, date('Y-m-d H:i:s'), (int) $existing['id']]
+                        );
+                    }
 
                     $overrideNote = isset($overrides[$path]) ? ' [OVERRIDE]' : '';
+                    $statusNote = !$is2xx ? " [NON-2XX {$httpStatus}; preserved content]" : '';
                     $output->writeln(
-                        "  OK{$overrideNote} | H1: " . ($result['h1'] ?? '(none)') .
+                        "  OK{$overrideNote}{$statusNote} | H1: " . ($result['h1'] ?? '(none)') .
                         " | Words: {$result['word_count']}" .
                         " | Entity: " . ($result['has_central_entity'] ? 'YES' : 'NO') .
                         " | Core link: " . ($result['has_core_link'] ? 'YES' : 'NO') .
