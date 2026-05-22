@@ -506,6 +506,109 @@ class HomeController extends AbstractController
     //  CHAT
     // ─────────────────────────────────────────────
 
+    #[Route('/api/pilot-gate', name: 'api_pilot_gate', methods: ['GET'])]
+    public function getPilotGateMetrics(Request $request): JsonResponse
+    {
+        $windowKey = strtolower((string) $request->query->get('window', '7d'));
+        $windowDays = match ($windowKey) {
+            '14d' => 14,
+            '28d' => 28,
+            default => 7,
+        };
+        $windowLabel = $windowDays . 'd';
+        $windowEnd = (new \DateTimeImmutable('today'))->format('Y-m-d 00:00:00');
+        $windowStart = (new \DateTimeImmutable('today'))->modify("-{$windowDays} days")->format('Y-m-d 00:00:00');
+
+        $calibrationCodes = ['wont_fix', 'audit_suspended', 'no_active_violation', 'system_investigation', 'rule_misfire', 'reviewer_reject'];
+        $calibrationCodeSql = "'" . implode("','", array_map(static fn(string $c) => str_replace("'", "''", $c), $calibrationCodes)) . "'";
+
+        $metrics = $this->db->fetchAssociative(
+            "SELECT
+                COUNT(*)::INT AS total_tasks,
+                COUNT(*) FILTER (
+                    WHERE t.status = 'done'
+                      AND NOT EXISTS (SELECT 1 FROM task_rejections tr WHERE tr.task_id = t.id)
+                )::INT AS shipped,
+                COUNT(*) FILTER (
+                    WHERE t.status = 'closed'
+                      AND (
+                        EXISTS (
+                          SELECT 1 FROM task_rejections tr
+                          WHERE tr.task_id = t.id
+                            AND COALESCE(tr.reason_code, '') IN ({$calibrationCodeSql})
+                        )
+                        OR EXISTS (SELECT 1 FROM task_rejections tr2 WHERE tr2.task_id = t.id)
+                      )
+                )::INT AS wont_fix,
+                COUNT(*) FILTER (
+                    WHERE COALESCE(t.lifecycle_state, '') = 'invalid' OR t.status = 'rejected'
+                )::INT AS invalid,
+                COUNT(*) FILTER (WHERE t.status = 'pending')::INT AS pending
+             FROM tasks t
+             WHERE t.created_at >= :window_start AND t.created_at < :window_end",
+            ['window_start' => $windowStart, 'window_end' => $windowEnd]
+        ) ?: [];
+
+        $total = (int) ($metrics['total_tasks'] ?? 0);
+        $shipped = (int) ($metrics['shipped'] ?? 0);
+        $wontFix = (int) ($metrics['wont_fix'] ?? 0);
+        $invalid = (int) ($metrics['invalid'] ?? 0);
+        $pending = (int) ($metrics['pending'] ?? 0);
+        $resolved = $shipped + $wontFix + $invalid;
+
+        $pct = static fn(int $value, int $base): float => $base > 0 ? round(($value * 100.0) / $base, 1) : 0.0;
+        $shippedPct = $pct($shipped, $total);
+        $wontFixPct = $pct($wontFix, $total);
+        $invalidPct = $pct($invalid, $total);
+        $pendingPct = $pct($pending, $total);
+        $resolutionPct = $pct($resolved, $total);
+
+        $trustSignal = 'balanced';
+        if ($invalidPct > 10.0) {
+            $trustSignal = 'junky';
+        } elseif ($shippedPct >= 50.0) {
+            $trustSignal = 'high_value';
+        } elseif ($shippedPct < 50.0 && $wontFixPct >= 30.0) {
+            $trustSignal = 'low_value_high_calibration';
+        }
+
+        $oldMetricValue = $pct($resolved, $total);
+        $reasonDistribution = $this->db->fetchAllAssociative(
+            "SELECT COALESCE(NULLIF(reason_code, ''), 'unknown') AS reason_code, COUNT(*)::INT AS count
+             FROM task_rejections
+             GROUP BY COALESCE(NULLIF(reason_code, ''), 'unknown')
+             ORDER BY COUNT(*) DESC"
+        );
+
+        return $this->safeJson([
+            'window' => $windowLabel,
+            'window_start' => $windowStart,
+            'window_end' => $windowEnd,
+            'total_tasks' => $total,
+            'shipped' => $shipped,
+            'wont_fix' => $wontFix,
+            'invalid' => $invalid,
+            'pending' => $pending,
+            'shipped_pct' => $shippedPct,
+            'wont_fix_pct' => $wontFixPct,
+            'invalid_pct' => $invalidPct,
+            'pending_pct' => $pendingPct,
+            'total_resolved' => $resolved,
+            'resolution_pct' => $resolutionPct,
+            'interpretation' => [
+                'headline' => $shippedPct . '% shipped real value, ' . $wontFixPct . '% closed as calibration signal, ' . $invalidPct . '% junk',
+                'trust_signal' => $trustSignal,
+                'old_metric_value' => $oldMetricValue,
+                'old_metric_was_misleading' => ($wontFix > 0 || $invalid > 0),
+            ],
+            'calibration_reason_codes' => $calibrationCodes,
+            'reason_code_distribution' => array_map(static fn(array $r) => [
+                'reason_code' => (string) ($r['reason_code'] ?? 'unknown'),
+                'count' => (int) ($r['count'] ?? 0),
+            ], $reasonDistribution),
+        ]);
+    }
+
     #[Route('/chat', name: 'chat', methods: ['POST'])]
     public function chat(Request $request): JsonResponse
     {

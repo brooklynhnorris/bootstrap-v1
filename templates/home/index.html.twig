@@ -1412,6 +1412,41 @@
             border-color: var(--accent-blue-border);
             background: var(--accent-blue-dim);
         }
+        .pilot-window-selector {
+            display: inline-flex;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        .pilot-window-btn {
+            padding: 5px 10px;
+            border: 1px solid var(--border-subtle);
+            border-radius: 999px;
+            background: var(--bg-secondary);
+            color: var(--text-muted);
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .pilot-window-btn.active {
+            background: var(--accent-blue-dim);
+            border-color: var(--accent-blue-border);
+            color: var(--accent-blue);
+            font-weight: 600;
+        }
+        .pilot-gate-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        .pilot-gate-cell {
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            background: var(--bg-secondary);
+            padding: 10px;
+        }
+        .pilot-gate-name { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+        .pilot-gate-value { font-size: 18px; font-weight: 700; color: var(--text-primary); }
+        .pilot-gate-count { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
 
         /* Results grid */
         .results-grid {
@@ -2163,6 +2198,18 @@
 
             <!-- ═══ RUNS VIEW (shown when Runs tab active) ═══ -->
             <div id="runs-view-content" style="display:none;">
+                <div class="runs-summary-card" id="pilot-gate-card">
+                    <div class="runs-section-title">Pilot Gate — Last 7 Days</div>
+                    <div class="pilot-window-selector">
+                        <button class="pilot-window-btn active" data-window="7d" onclick="setPilotGateWindow('7d')">7d</button>
+                        <button class="pilot-window-btn" data-window="14d" onclick="setPilotGateWindow('14d')">14d</button>
+                        <button class="pilot-window-btn" data-window="28d" onclick="setPilotGateWindow('28d')">28d</button>
+                    </div>
+                    <div id="pilot-gate-body">
+                        <div class="dash-empty">Loading pilot gate metrics…</div>
+                    </div>
+                </div>
+
                 <div class="runs-strip" id="runs-strip">
                     <div class="dash-empty">Loading recent runs…</div>
                 </div>
@@ -4894,6 +4941,58 @@
     let runsViewLoaded = false;
     let runsListCache = [];
     let selectedRunId = null;
+    let pilotGateWindow = '7d';
+
+    function setPilotGateWindow(windowKey) {
+        const key = ['7d', '14d', '28d'].includes(String(windowKey)) ? String(windowKey) : '7d';
+        pilotGateWindow = key;
+        document.querySelectorAll('.pilot-window-btn').forEach((btn) => {
+            btn.classList.toggle('active', btn.dataset.window === key);
+        });
+        loadPilotGateMetrics();
+    }
+
+    function renderPilotGateMetrics(data) {
+        const body = document.getElementById('pilot-gate-body');
+        if (!body) return;
+        const safe = data && typeof data === 'object' ? data : {};
+        const total = Number(safe.total_tasks || 0);
+        const shipped = Number(safe.shipped || 0);
+        const wontFix = Number(safe.wont_fix || 0);
+        const invalid = Number(safe.invalid || 0);
+        const pending = Number(safe.pending || 0);
+        const shippedPct = Number(safe.shipped_pct || 0).toFixed(1);
+        const wontFixPct = Number(safe.wont_fix_pct || 0).toFixed(1);
+        const invalidPct = Number(safe.invalid_pct || 0).toFixed(1);
+        const interpretation = safe.interpretation && typeof safe.interpretation === 'object' ? safe.interpretation : {};
+        const trustSignal = String(interpretation.trust_signal || 'balanced').replace(/_/g, ' ');
+        const headline = interpretation.headline ? String(interpretation.headline) : '';
+        const oldMetric = Number(interpretation.old_metric_value || 0).toFixed(1);
+        const misleading = interpretation.old_metric_was_misleading === true;
+
+        body.innerHTML =
+            '<div class="pilot-gate-grid">' +
+                '<div class="pilot-gate-cell"><div class="pilot-gate-name">Shipped value</div><div class="pilot-gate-value">' + shippedPct + '%</div><div class="pilot-gate-count">(' + shipped.toLocaleString() + ' tasks)</div></div>' +
+                '<div class="pilot-gate-cell"><div class="pilot-gate-name">Calibration</div><div class="pilot-gate-value">' + wontFixPct + '%</div><div class="pilot-gate-count">(' + wontFix.toLocaleString() + ' tasks)</div></div>' +
+                '<div class="pilot-gate-cell"><div class="pilot-gate-name">Junk</div><div class="pilot-gate-value">' + invalidPct + '%</div><div class="pilot-gate-count">(' + invalid.toLocaleString() + ' tasks)</div></div>' +
+            '</div>' +
+            '<div class="runs-kv-line">' + pending.toLocaleString() + ' tasks still pending · ' + total.toLocaleString() + ' created in window</div>' +
+            '<div class="runs-kv-line"><strong>Headline:</strong> ' + escapeHtml(headline || trustSignal) + '</div>' +
+            '<div class="runs-kv-line"><strong>Old metric:</strong> ' + oldMetric + '% execution' + (misleading ? ' (misleading — wont_fix/invalid counted as success)' : '') + '</div>';
+    }
+
+    async function loadPilotGateMetrics() {
+        const body = document.getElementById('pilot-gate-body');
+        if (body) body.innerHTML = '<div class="dash-empty">Loading pilot gate metrics…</div>';
+        try {
+            const r = await fetch('/api/pilot-gate?window=' + encodeURIComponent(pilotGateWindow));
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+            renderPilotGateMetrics(data);
+        } catch (err) {
+            if (body) body.innerHTML = '<div class="dash-empty">Could not load pilot gate metrics.</div>';
+        }
+    }
 
     function formatRunClock(value) {
         if (!value) return '—';
@@ -5038,6 +5137,7 @@
         const strip = document.getElementById('runs-strip');
         if (strip) strip.innerHTML = '<div class="dash-empty">Loading recent runs…</div>';
         try {
+            await loadPilotGateMetrics();
             const r = await fetch('/api/runs?limit=20');
             const data = await r.json();
             if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
