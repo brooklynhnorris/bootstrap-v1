@@ -519,33 +519,52 @@ class HomeController extends AbstractController
         $windowEnd = (new \DateTimeImmutable('today'))->format('Y-m-d 00:00:00');
         $windowStart = (new \DateTimeImmutable('today'))->modify("-{$windowDays} days")->format('Y-m-d 00:00:00');
 
-        $calibrationCodes = ['wont_fix', 'audit_suspended', 'no_active_violation', 'system_investigation', 'rule_misfire', 'reviewer_reject'];
+        $invalidReasonCodes = ['invalid', 'malformed_task_url', 'duplicate'];
+        $calibrationCodes = ['wont_fix', 'audit_suspended', 'no_active_violation', 'system_investigation', 'rule_misfire', 'reviewer_reject', 'false_positive', 'not_applicable', 'operator_board_clear', 'asset_url_false_positive'];
+        $invalidCodeSql = "'" . implode("','", array_map(static fn(string $c) => str_replace("'", "''", $c), $invalidReasonCodes)) . "'";
         $calibrationCodeSql = "'" . implode("','", array_map(static fn(string $c) => str_replace("'", "''", $c), $calibrationCodes)) . "'";
 
         $metrics = $this->db->fetchAssociative(
-            "SELECT
+            "WITH task_flags AS (
+                SELECT
+                    t.id,
+                    t.status,
+                    COALESCE(t.lifecycle_state, '') AS lifecycle_state,
+                    EXISTS (SELECT 1 FROM task_rejections tr WHERE tr.task_id = t.id) AS has_rejection,
+                    EXISTS (
+                        SELECT 1 FROM task_rejections tr
+                        WHERE tr.task_id = t.id
+                          AND COALESCE(tr.reason_code, '') IN ({$invalidCodeSql})
+                    ) AS has_invalid_reason,
+                    EXISTS (
+                        SELECT 1 FROM task_rejections tr
+                        WHERE tr.task_id = t.id
+                          AND COALESCE(tr.reason_code, '') IN ({$calibrationCodeSql})
+                    ) AS has_explicit_calibration_reason
+                FROM tasks t
+                WHERE t.created_at >= :window_start AND t.created_at < :window_end
+            ),
+            classified AS (
+                SELECT
+                    id,
+                    CASE
+                        WHEN status = 'pending' THEN 'pending'
+                        WHEN lifecycle_state = 'invalid' OR status = 'rejected' OR has_invalid_reason THEN 'invalid'
+                        WHEN status = 'done' AND NOT has_rejection THEN 'shipped'
+                        WHEN has_explicit_calibration_reason THEN 'wont_fix'
+                        WHEN status = 'closed' AND has_rejection THEN 'wont_fix'
+                        ELSE 'uncategorized'
+                    END AS bucket
+                FROM task_flags
+            )
+            SELECT
                 COUNT(*)::INT AS total_tasks,
-                COUNT(*) FILTER (
-                    WHERE t.status = 'done'
-                      AND NOT EXISTS (SELECT 1 FROM task_rejections tr WHERE tr.task_id = t.id)
-                )::INT AS shipped,
-                COUNT(*) FILTER (
-                    WHERE t.status = 'closed'
-                      AND (
-                        EXISTS (
-                          SELECT 1 FROM task_rejections tr
-                          WHERE tr.task_id = t.id
-                            AND COALESCE(tr.reason_code, '') IN ({$calibrationCodeSql})
-                        )
-                        OR EXISTS (SELECT 1 FROM task_rejections tr2 WHERE tr2.task_id = t.id)
-                      )
-                )::INT AS wont_fix,
-                COUNT(*) FILTER (
-                    WHERE COALESCE(t.lifecycle_state, '') = 'invalid' OR t.status = 'rejected'
-                )::INT AS invalid,
-                COUNT(*) FILTER (WHERE t.status = 'pending')::INT AS pending
-             FROM tasks t
-             WHERE t.created_at >= :window_start AND t.created_at < :window_end",
+                COUNT(*) FILTER (WHERE bucket = 'shipped')::INT AS shipped,
+                COUNT(*) FILTER (WHERE bucket = 'wont_fix')::INT AS wont_fix,
+                COUNT(*) FILTER (WHERE bucket = 'invalid')::INT AS invalid,
+                COUNT(*) FILTER (WHERE bucket = 'pending')::INT AS pending,
+                COUNT(*) FILTER (WHERE bucket = 'uncategorized')::INT AS uncategorized
+            FROM classified",
             ['window_start' => $windowStart, 'window_end' => $windowEnd]
         ) ?: [];
 
@@ -554,6 +573,7 @@ class HomeController extends AbstractController
         $wontFix = (int) ($metrics['wont_fix'] ?? 0);
         $invalid = (int) ($metrics['invalid'] ?? 0);
         $pending = (int) ($metrics['pending'] ?? 0);
+        $uncategorized = (int) ($metrics['uncategorized'] ?? 0);
         $resolved = $shipped + $wontFix + $invalid;
 
         $pct = static fn(int $value, int $base): float => $base > 0 ? round(($value * 100.0) / $base, 1) : 0.0;
@@ -589,6 +609,7 @@ class HomeController extends AbstractController
             'wont_fix' => $wontFix,
             'invalid' => $invalid,
             'pending' => $pending,
+            'uncategorized' => $uncategorized,
             'shipped_pct' => $shippedPct,
             'wont_fix_pct' => $wontFixPct,
             'invalid_pct' => $invalidPct,
@@ -601,6 +622,7 @@ class HomeController extends AbstractController
                 'old_metric_value' => $oldMetricValue,
                 'old_metric_was_misleading' => ($wontFix > 0 || $invalid > 0),
             ],
+            'invalid_reason_codes' => $invalidReasonCodes,
             'calibration_reason_codes' => $calibrationCodes,
             'reason_code_distribution' => array_map(static fn(array $r) => [
                 'reason_code' => (string) ($r['reason_code'] ?? 'unknown'),
