@@ -13,7 +13,8 @@ class TaskSuggestionService
     public function __construct(
         private Connection $db,
         private ViolationSnapshotService $violationSnapshotService,
-        private ParameterBagInterface $params
+        private ParameterBagInterface $params,
+        private AssetUrlClassifier $assetUrlClassifier
     )
     {
     }
@@ -69,7 +70,7 @@ class TaskSuggestionService
 
         return [
             'title' => $title,
-            'description' => (string) ($rule['action_output'] ?? $rule['diagnosis'] ?? ''),
+            'description' => $this->buildDescriptionFromRuleAndViolation($rule, $violation),
             'assigned_to' => $assignedTo,
             'assigned_role' => $assignedRole,
             'priority' => $priority,
@@ -84,6 +85,65 @@ class TaskSuggestionService
         ];
     }
 
+    private function buildDescriptionFromRuleAndViolation(array $rule, array $violation): string
+    {
+        $template = trim((string) ($rule['action_output'] ?? $rule['diagnosis'] ?? ''));
+        $url = (string) ($violation['url'] ?? '');
+
+        $rawEvidence = $violation['evidence_json'] ?? null;
+        $evidence = [];
+        if (is_string($rawEvidence) && $rawEvidence !== '') {
+            $decoded = json_decode($rawEvidence, true);
+            if (is_array($decoded)) {
+                $evidence = $decoded;
+            }
+        } elseif (is_array($rawEvidence)) {
+            $evidence = $rawEvidence;
+        }
+
+        $lines = [];
+        $lines[] = 'CURRENT STATE for ' . ($url !== '' ? $url : 'this URL') . ':';
+
+        if (array_key_exists('h1', $evidence)) {
+            $lines[] = '- H1: ' . $this->quoteEvidenceValue($evidence['h1']);
+        }
+        if (array_key_exists('title_tag', $evidence)) {
+            $lines[] = '- Title tag: ' . $this->quoteEvidenceValue($evidence['title_tag']);
+        }
+        if (array_key_exists('h1_matches_title', $evidence)) {
+            $lines[] = '- H1 matches title: ' . ($this->toBool($evidence['h1_matches_title']) ? 'YES' : 'NO');
+        }
+        if (array_key_exists('page_type', $evidence)) {
+            $lines[] = '- Page type: ' . (string) $evidence['page_type'];
+        }
+        if (array_key_exists('word_count', $evidence)) {
+            $lines[] = '- Word count: ' . (string) $evidence['word_count'];
+        }
+        if (array_key_exists('target_query_impressions', $evidence) && (int) $evidence['target_query_impressions'] > 0) {
+            $lines[] = '- Target query impressions (28d): ' . (string) ((int) $evidence['target_query_impressions']);
+        }
+        if (array_key_exists('weighted_position', $evidence)) {
+            $lines[] = '- Weighted position: ' . (string) $evidence['weighted_position'];
+        }
+
+        $context = implode("\n", $lines);
+        if ($template === '') {
+            return $context;
+        }
+
+        return $context . "\n\n" . $template;
+    }
+
+    private function quoteEvidenceValue(mixed $value): string
+    {
+        if ($value === null) {
+            return 'null';
+        }
+
+        $text = (string) $value;
+        return '"' . str_replace('"', '\"', $text) . '"';
+    }
+
     /**
      * Promote pending violations from a completed run into tasks using existing gates.
      */
@@ -96,7 +156,7 @@ class TaskSuggestionService
         ];
 
         $pending = $this->db->fetchAllAssociative(
-            "SELECT rv.id, rv.url, rv.rule_id, rv.run_id, rv.avr_score, rv.candidate_hash, rv.action_family,
+            "SELECT rv.id, rv.url, rv.rule_id, rv.run_id, rv.avr_score, rv.candidate_hash, rv.action_family, rv.evidence_json,
                     r.name AS rule_name, r.diagnosis, r.action_output, r.assigned, r.priority, r.tier
              FROM rule_violations rv
              LEFT JOIN seo_rules r ON r.rule_id = rv.rule_id
@@ -123,6 +183,7 @@ class TaskSuggestionService
                 'avr_score' => (int) ($row['avr_score'] ?? 0),
                 'candidate_hash' => $row['candidate_hash'],
                 'action_family' => $row['action_family'],
+                'evidence_json' => $row['evidence_json'] ?? null,
             ];
 
             $aiTask = $this->synthesizeTaskFromViolation($violation, $rule);
@@ -188,7 +249,7 @@ class TaskSuggestionService
         [$resolvedAssignedTo, $resolvedAssignedRole] = $this->resolveAssignmentFromRule($ruleAssigned);
 
         // 1) Asset filter
-        $assetReason = self::detectAssetUrl($candidateUrl);
+        $assetReason = $this->assetUrlClassifier->isAssetUrl($candidateUrl);
         if ($assetReason !== null) {
             $this->recordSuppression($aiTask + ['source_violation_id' => $sourceViolationId], $normalizedUrl, 'ASSET_URL', $assetReason);
             return null;
@@ -331,32 +392,8 @@ class TaskSuggestionService
 
     public static function detectAssetUrl(string $url): ?string
     {
-        $u = self::normalizeUrlForFilterStatic($url);
-
-        $parsed = parse_url($u);
-        $path = isset($parsed['path']) && is_string($parsed['path']) ? $parsed['path'] : $u;
-
-        if (preg_match('#^/wp-content/uploads/#i', $path) === 1) {
-            return 'wp-content-uploads-prefix';
-        }
-        if (preg_match('#^/scripts/.*\.html$#i', $path) === 1) {
-            return 'scripts-html-suffix';
-        }
-
-        $blockedExt = [
-            'jpg', 'jpeg', 'png', 'webp', 'gif', 'svg',
-            'pdf', 'doc', 'docx', 'xls', 'xlsx',
-            'zip',
-            'mp4', 'webm',
-        ];
-        if (preg_match('/\.([a-z0-9]+)$/i', $path, $m) === 1) {
-            $ext = strtolower((string) ($m[1] ?? ''));
-            if (in_array($ext, $blockedExt, true)) {
-                return 'extension-' . $ext;
-            }
-        }
-
-        return null;
+        // Kept for backwards compatibility with any static call sites.
+        return (new AssetUrlClassifier())->isAssetUrl($url);
     }
 
     private function extractUrlFragment(string $title): ?string
@@ -707,12 +744,30 @@ class TaskSuggestionService
     {
         $url = trim($url);
         $url = strtolower($url);
-        return rtrim($url, '/');
+        $parsedPath = parse_url($url, PHP_URL_PATH);
+        if (is_string($parsedPath) && $parsedPath !== '') {
+            $url = $parsedPath;
+        }
+        if (!str_starts_with($url, '/')) {
+            $url = '/' . $url;
+        }
+        $url = preg_replace('#/+#', '/', $url) ?? $url;
+        return $url === '/' ? '/' : rtrim($url, '/');
     }
 
     private function normalizeUrlForFilter(string $url): string
     {
         return self::normalizeUrlForFilterStatic($url);
+    }
+
+    private function toBool(mixed $value): bool
+    {
+        return $value === true
+            || $value === 1
+            || $value === '1'
+            || $value === 't'
+            || $value === 'true'
+            || $value === 'yes';
     }
 
     private static function normalizeUrlForFilterStatic(string $url): string

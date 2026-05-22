@@ -38,6 +38,7 @@ class RuleEvaluationService
         $rulesAttempted = 0;
         $rulesSucceeded = 0;
         $rulesFailed = 0;
+        $evaluatedRuleIds = [];
 
         $promotionStats = [
             'promoted' => 0,
@@ -61,7 +62,7 @@ class RuleEvaluationService
 
                     $row = [
                         'rule_id' => $violation['rule_id'],
-                        'url' => $page['url'],
+                        'url' => $normalizedUrl,
                         'status' => $status,
                         'severity' => $violation['severity'],
                         'assignee' => $violation['assignee'],
@@ -104,7 +105,78 @@ class RuleEvaluationService
                     $this->db->insert('rule_violations', $row);
                     $inserted++;
                     $rulesSucceeded++;
+                    $evaluatedRuleIds[$violation['rule_id']] = true;
                 }
+            }
+
+            // SQL-backed deterministic rules (Finding 1): evaluate rows directly from seo_rules.trigger_sql.
+            // This keeps high-volume non-FC rules in the same rule_violations + promotion pipeline.
+            $sqlRuleRows = $this->evaluateSqlBackedRules(['ETA-05', 'DDT-EEAT-07']);
+            foreach ($sqlRuleRows as $sqlRow) {
+                $ruleId = (string) ($sqlRow['rule_id'] ?? '');
+                $url = (string) ($sqlRow['url'] ?? '');
+                if ($ruleId === '' || $url === '') {
+                    continue;
+                }
+
+                $status = 'fail';
+                if ($suppressionTable && $this->isSuppressed($url, $ruleId)) {
+                    $status = 'suppressed';
+                }
+
+                $normalizedUrl = $this->normalizeUrl($url);
+                $candidateHash = $runId !== null
+                    ? hash('sha256', $ruleId . '|' . $normalizedUrl . '|' . $runId)
+                    : null;
+
+                $pageFacts = $this->getPageFactsForUrl($normalizedUrl);
+                $ruleMeta = $this->getRuleMetadata($ruleId);
+                $violationForScore = [
+                    'rule_id' => $ruleId,
+                    'consecutive_violation_count' => $this->getConsecutiveViolationCount($ruleId, $url),
+                    'position_delta' => $this->getPositionDelta($url, (float) ($pageFacts['target_query_position'] ?? 0.0)),
+                    'open_task_age_days' => $this->getOpenTaskAgeDays($ruleId, $url),
+                    'asset_filter_clean' => true,
+                ];
+                $score = $this->avrScorer->score($violationForScore, $pageFacts, $ruleMeta);
+
+                $row = [
+                    'rule_id' => $ruleId,
+                    'url' => $normalizedUrl,
+                    'status' => $status,
+                    'severity' => (string) ($sqlRow['severity'] ?? 'medium'),
+                    'assignee' => (string) ($sqlRow['assignee'] ?? 'Brook'),
+                    'triage' => $this->determineTriage((int) ($pageFacts['target_query_impressions'] ?? 0)),
+                    'evidence_json' => json_encode($sqlRow['evidence'] ?? [], JSON_UNESCAPED_SLASHES),
+                    'explanation_short' => (string) ($sqlRow['message'] ?? 'Rule triggered from SQL-backed evaluator'),
+                    'detected_at' => date('Y-m-d H:i:s'),
+                    'snapshot_version' => $snapshotVersion,
+                ];
+
+                if ($runId !== null && $this->tableHasColumn('rule_violations', 'run_id')) {
+                    $row['run_id'] = $runId;
+                }
+                if ($this->tableHasColumn('rule_violations', 'candidate_hash')) {
+                    $row['candidate_hash'] = $candidateHash;
+                }
+                if ($this->tableHasColumn('rule_violations', 'decision')) {
+                    $row['decision'] = 'pending';
+                }
+                if ($this->tableHasColumn('rule_violations', 'avr_score')) {
+                    $row['avr_score'] = $score['avr_score'];
+                }
+                if ($this->tableHasColumn('rule_violations', 'avr_breakdown_json')) {
+                    $row['avr_breakdown_json'] = json_encode([
+                        'breakdown' => $score['breakdown'],
+                        'inputs' => $score['inputs'],
+                    ], JSON_UNESCAPED_SLASHES);
+                }
+
+                $rulesAttempted++;
+                $this->db->insert('rule_violations', $row);
+                $inserted++;
+                $rulesSucceeded++;
+                $evaluatedRuleIds[$ruleId] = true;
             }
 
             if ($runId !== null) {
@@ -133,6 +205,7 @@ class RuleEvaluationService
                 'tasks_promoted' => $promotionStats['promoted'] ?? 0,
                 'tasks_suppressed' => $promotionStats['suppressed'] ?? 0,
                 'suppressed_by_reason' => $promotionStats['suppressed_by_reason'] ?? [],
+                'evaluated_rule_ids' => array_values(array_keys($evaluatedRuleIds)),
             ]);
         }
 
@@ -287,6 +360,115 @@ class RuleEvaluationService
         return $violations;
     }
 
+    private function evaluateSqlBackedRules(array $ruleIds): array
+    {
+        if (!$this->tableExists('seo_rules')) {
+            return [];
+        }
+
+        $results = [];
+        foreach ($ruleIds as $ruleId) {
+            $rule = $this->db->fetchAssociative(
+                "SELECT rule_id, name, diagnosis, priority, assigned, trigger_sql
+                 FROM seo_rules
+                 WHERE rule_id = ? AND is_active = TRUE
+                 LIMIT 1",
+                [$ruleId]
+            );
+            if (!is_array($rule) || empty($rule['trigger_sql']) || !is_string($rule['trigger_sql'])) {
+                continue;
+            }
+
+            $sql = trim($rule['trigger_sql']);
+            if (!preg_match('/^\s*SELECT\s/i', $sql)) {
+                continue;
+            }
+            if (!preg_match('/\sLIMIT\s+\d+/i', $sql)) {
+                $sql .= ' LIMIT 500';
+            }
+            $sql = $this->applyLatestSnapshotScope($sql);
+
+            $rows = $this->db->fetchAllAssociative($sql);
+            $seen = [];
+            foreach ($rows as $row) {
+                $url = isset($row['url']) ? trim((string) $row['url']) : '';
+                if ($url === '') {
+                    continue;
+                }
+                $norm = $this->normalizeUrl($url);
+                if (isset($seen[$norm])) {
+                    continue;
+                }
+                $seen[$norm] = true;
+
+                $results[] = [
+                    'rule_id' => (string) $rule['rule_id'],
+                    'url' => $url,
+                    'severity' => $this->priorityToSeverity((string) ($rule['priority'] ?? 'medium')),
+                    'assignee' => $this->resolveAssignee((string) ($rule['assigned'] ?? 'Brook')),
+                    'message' => (string) ($rule['diagnosis'] ?? $rule['name'] ?? 'Rule triggered'),
+                    'evidence' => $row,
+                ];
+            }
+        }
+
+        return $results;
+    }
+
+    private function applyLatestSnapshotScope(string $sql): string
+    {
+        if (!str_contains($sql, 'page_crawl_snapshots') || str_contains($sql, 'latest_page_crawl_snapshots')) {
+            return $sql;
+        }
+
+        $scopedSql = str_replace('page_crawl_snapshots', 'latest_page_crawl_snapshots', $sql);
+
+        return "WITH latest_page_crawl_snapshots AS (
+                    SELECT *
+                    FROM (
+                        SELECT pcs.*,
+                               ROW_NUMBER() OVER (PARTITION BY pcs.url ORDER BY pcs.crawled_at DESC, pcs.id DESC) AS rn
+                        FROM page_crawl_snapshots pcs
+                    ) ranked
+                    WHERE rn = 1
+                )
+                {$scopedSql}";
+    }
+
+    private function priorityToSeverity(string $priority): string
+    {
+        $p = strtolower(trim($priority));
+        return match ($p) {
+            'critical', 'urgent' => 'critical',
+            'high' => 'high',
+            'low' => 'low',
+            default => 'medium',
+        };
+    }
+
+    private function resolveAssignee(string $assigned): string
+    {
+        if (preg_match('/\b(Brook|Brad|Kalib|Jeanne)\b/i', $assigned, $m) === 1) {
+            return ucfirst(strtolower((string) $m[1]));
+        }
+
+        return 'Brook';
+    }
+
+    private function getPageFactsForUrl(string $normalizedUrl): array
+    {
+        if (!$this->tableExists('page_facts')) {
+            return ['url' => $normalizedUrl];
+        }
+
+        $row = $this->db->fetchAssociative(
+            "SELECT * FROM page_facts WHERE LOWER(TRIM(TRAILING '/' FROM url)) = ? LIMIT 1",
+            [$normalizedUrl]
+        );
+
+        return is_array($row) ? $row : ['url' => $normalizedUrl];
+    }
+
     private function buildViolation(string $ruleId, string $severity, string $assignee, string $message, array $evidence): array
     {
         return [
@@ -382,7 +564,15 @@ class RuleEvaluationService
     {
         $url = trim($url);
         $url = strtolower($url);
-        return rtrim($url, '/');
+        $parsedPath = parse_url($url, PHP_URL_PATH);
+        if (is_string($parsedPath) && $parsedPath !== '') {
+            $url = $parsedPath;
+        }
+        if (!str_starts_with($url, '/')) {
+            $url = '/' . $url;
+        }
+        $url = preg_replace('#/+#', '/', $url) ?? $url;
+        return $url === '/' ? '/' : rtrim($url, '/');
     }
 
     private function getRuleMetadata(string $ruleId): array
