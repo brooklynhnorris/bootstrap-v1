@@ -1303,7 +1303,7 @@ class HomeController extends AbstractController
     {
         $task = $this->db->fetchAssociative(
             "SELECT id, title, rule_id, status, priority, avr_score, lifecycle_state, idempotency_key,
-                    assigned_to, assigned_role, created_at, completed_at, source_violation_id
+                    assigned_to, assigned_role, created_at, completed_at, source_violation_id, description
              FROM tasks
              WHERE id = ?",
             [$id]
@@ -1325,20 +1325,7 @@ class HomeController extends AbstractController
             );
         }
 
-        if (!$violation) {
-            $ruleId = (string) ($task['rule_id'] ?? '');
-            if ($ruleId !== '') {
-                $violation = $this->db->fetchAssociative(
-                    "SELECT id, rule_id, url, evidence_json, explanation_short, detected_at, snapshot_version,
-                            run_id, decision, avr_breakdown_json
-                     FROM rule_violations
-                     WHERE rule_id = ?
-                     ORDER BY detected_at DESC, id DESC
-                     LIMIT 1",
-                    [$ruleId]
-                );
-            }
-        }
+        $isVerificationTask = $sourceViolationId <= 0 || !$violation;
 
         $rule = null;
         $siblings = [];
@@ -1346,19 +1333,19 @@ class HomeController extends AbstractController
         $avrBreakdown = null;
         $avrInputs = null;
 
-        if ($violation) {
-            $ruleId = (string) ($violation['rule_id'] ?? '');
-            if ($ruleId !== '') {
-                $rule = $this->db->fetchAssociative(
-                    "SELECT rule_id, name, tier, action_family, diagnosis, action_output, trigger_sql,
-                            updated_at, updated_by
-                     FROM seo_rules
-                     WHERE rule_id = ?
-                     LIMIT 1",
-                    [$ruleId]
-                );
-            }
+        $taskRuleId = (string) ($task['rule_id'] ?? '');
+        if ($taskRuleId !== '') {
+            $rule = $this->db->fetchAssociative(
+                "SELECT rule_id, name, tier, action_family, diagnosis, action_output, trigger_sql,
+                        updated_at, updated_by
+                 FROM seo_rules
+                 WHERE rule_id = ?
+                 LIMIT 1",
+                [$taskRuleId]
+            );
+        }
 
+        if ($violation) {
             $runId = isset($violation['run_id']) ? (int) $violation['run_id'] : 0;
             $violationUrl = (string) ($violation['url'] ?? '');
             if ($runId > 0 && $violationUrl !== '') {
@@ -1421,7 +1408,7 @@ class HomeController extends AbstractController
                 'created_at' => $task['created_at'] ? (string) $task['created_at'] : null,
                 'completed_at' => $task['completed_at'] ? (string) $task['completed_at'] : null,
             ],
-            'violation' => $violation ? [
+            'violation' => $isVerificationTask ? null : ($violation ? [
                 'id' => (int) $violation['id'],
                 'rule_id' => (string) ($violation['rule_id'] ?? ''),
                 'url' => (string) ($violation['url'] ?? ''),
@@ -1431,7 +1418,7 @@ class HomeController extends AbstractController
                 'snapshot_version' => isset($violation['snapshot_version']) ? (int) $violation['snapshot_version'] : null,
                 'run_id' => isset($violation['run_id']) ? (int) $violation['run_id'] : null,
                 'decision' => $violation['decision'] ? (string) $violation['decision'] : null,
-            ] : null,
+            ] : null),
             'rule' => $rule ? [
                 'rule_id' => (string) ($rule['rule_id'] ?? ''),
                 'name' => (string) ($rule['name'] ?? ''),
@@ -1443,9 +1430,13 @@ class HomeController extends AbstractController
                 'updated_at' => $rule['updated_at'] ? (string) $rule['updated_at'] : null,
                 'updated_by' => $rule['updated_by'] ? (string) $rule['updated_by'] : null,
             ] : null,
-            'avr_breakdown' => $avrBreakdown,
-            'avr_inputs' => $avrInputs,
-            'siblings_suppressed' => array_map(static fn(array $s) => [
+            'is_verification_task' => $isVerificationTask,
+            'verification_content' => $isVerificationTask ? [
+                'description_text' => (string) ($task['description'] ?? ''),
+            ] : null,
+            'avr_breakdown' => $isVerificationTask ? null : $avrBreakdown,
+            'avr_inputs' => $isVerificationTask ? null : $avrInputs,
+            'siblings_suppressed' => $isVerificationTask ? null : array_map(static fn(array $s) => [
                 'violation_id' => (int) ($s['violation_id'] ?? 0),
                 'rule_id' => (string) ($s['rule_id'] ?? ''),
                 'decision' => $s['decision'] ? (string) $s['decision'] : null,
@@ -1453,7 +1444,7 @@ class HomeController extends AbstractController
                 'suppression_reason_text' => $s['suppression_reason_text'] ? (string) $s['suppression_reason_text'] : null,
                 'detected_at' => $s['detected_at'] ? (string) $s['detected_at'] : null,
             ], $siblings),
-            'page_snapshot' => $pageSnapshot ? [
+            'page_snapshot' => $isVerificationTask ? null : ($pageSnapshot ? [
                 'id' => (int) $pageSnapshot['id'],
                 'url' => (string) ($pageSnapshot['url'] ?? ''),
                 'page_type' => (string) ($pageSnapshot['page_type'] ?? ''),
@@ -1463,7 +1454,7 @@ class HomeController extends AbstractController
                 'word_count' => isset($pageSnapshot['word_count']) ? (int) $pageSnapshot['word_count'] : null,
                 'is_noindex' => $pageSnapshot['is_noindex'] !== null ? (bool) $pageSnapshot['is_noindex'] : null,
                 'crawled_at' => $pageSnapshot['crawled_at'] ? (string) $pageSnapshot['crawled_at'] : null,
-            ] : null,
+            ] : null),
         ]);
     }
 

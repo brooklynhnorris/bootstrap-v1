@@ -4022,6 +4022,10 @@
         if (!panel || !backdrop || !titleEl || !scoreEl || !bodyEl) return;
 
         const task = payload && payload.task ? payload.task : {};
+        if (payload && payload.is_verification_task) {
+            renderVerificationWhyPanel(payload, panel, backdrop, titleEl, scoreEl, bodyEl);
+            return;
+        }
         const violation = payload && payload.violation ? payload.violation : null;
         const evidence = violation && violation.evidence_json ? violation.evidence_json : null;
         const rule = payload && payload.rule ? payload.rule : null;
@@ -4127,6 +4131,42 @@
                 window.open(full, '_blank', 'noopener');
             };
         }
+
+        panel.classList.add('open');
+        panel.setAttribute('aria-hidden', 'false');
+        backdrop.classList.add('open');
+    }
+
+    function renderVerificationWhyPanel(payload, panel, backdrop, titleEl, scoreEl, bodyEl) {
+        const task = payload && payload.task ? payload.task : {};
+        const rule = payload && payload.rule ? payload.rule : null;
+        const verification = payload && payload.verification_content ? payload.verification_content : null;
+        const descriptionText = verification && verification.description_text ? String(verification.description_text) : 'No verification details captured.';
+
+        titleEl.textContent = '#' + formatMaybe(task.id, '?') + ' ' + formatMaybe(task.title, 'Verification Task');
+        scoreEl.textContent = 'Verification';
+
+        let html = '';
+        html += '<div class="why-section why-drift">' +
+            '<div class="why-section-title" style="color:#1d4ed8;">📊 Verification Task</div>' +
+            '<div class="why-kv">This task measures the outcome of a previously-shipped fix.</div>' +
+        '</div>';
+        html += '<div class="why-section"><div class="why-section-title">Rule</div>' +
+            '<div class="why-kv"><strong>' + escapeHtml(formatMaybe(rule && rule.rule_id, task.rule_id || '')) + '</strong> (' + escapeHtml(formatMaybe(rule && rule.tier, '—')) + ') — ' + escapeHtml(formatMaybe(rule && rule.action_family, '—')) + '</div>' +
+            '<div class="why-kv">' + escapeHtml(formatMaybe(rule && rule.diagnosis, 'No diagnosis text.')) + '</div>' +
+            '</div>';
+        html += '<div class="why-section"><div class="why-section-title">Verification Result</div>' +
+            '<pre style="white-space:pre-wrap;font-family:var(--font-mono);font-size:12px;line-height:1.5;background:var(--bg-secondary);border:1px solid var(--border-subtle);border-radius:8px;padding:10px;max-height:340px;overflow:auto;">' + escapeHtml(descriptionText) + '</pre>' +
+            '</div>';
+
+        bodyEl.innerHTML = html;
+
+        const doneBtn = document.getElementById('why-btn-done');
+        const closeBtn = document.getElementById('why-btn-close');
+        const openBtn = document.getElementById('why-btn-open-url');
+        if (doneBtn) doneBtn.onclick = () => completeTask(task.id);
+        if (closeBtn) closeBtn.onclick = () => showDismissModal(task.id);
+        if (openBtn) openBtn.onclick = () => {};
 
         panel.classList.add('open');
         panel.setAttribute('aria-hidden', 'false');
