@@ -2,6 +2,7 @@
 
 namespace App\Command;
 
+use App\Service\AssetUrlClassifier;
 use Doctrine\DBAL\Connection;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Symfony\Component\Console\Command\Command;
@@ -68,7 +69,10 @@ class CrawlPagesCommand extends Command
         'equine trailer', 'livestock trailer', 'horse hauler',
     ];
 
-    public function __construct(private Connection $db)
+    public function __construct(
+        private Connection $db,
+        private AssetUrlClassifier $assetUrlClassifier
+    )
     {
         parent::__construct();
     }
@@ -121,10 +125,16 @@ class CrawlPagesCommand extends Command
         $failed  = 0;
         $total   = count($urls);
 
-        foreach ($urls as $path) {
+        $seenNormalizedPaths = [];
+        foreach ($urls as $rawPath) {
+            $path = $this->normalizeCrawlPath((string) $rawPath);
+            if ($path === '' || isset($seenNormalizedPaths[$path])) {
+                continue;
+            }
+            $seenNormalizedPaths[$path] = true;
             // Skip media assets — they're not pages and shouldn't be in page signals
-            if (str_contains($path, '/wp-content/uploads/') || str_contains($path, '/wp-content/themes/') ||
-                preg_match('/\.(jpg|jpeg|png|gif|webp|svg|mp4|mp3|zip|css|js)$/i', $path)) {
+            if ($this->assetUrlClassifier->isAssetUrl($path) !== null || str_contains($path, '/wp-content/themes/') ||
+                preg_match('/\.(mp3|css|js)$/i', $path)) {
                 continue;
             }
 
