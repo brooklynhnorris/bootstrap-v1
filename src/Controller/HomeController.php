@@ -485,6 +485,8 @@ class HomeController extends AbstractController
             'reason_code' => $reasonCode,
             'total' => $total,
             'count' => $total,
+            'limit' => $limit,
+            'offset' => $offset,
             'items' => array_map(static fn(array $r) => [
                 'violation_id' => (int) ($r['violation_id'] ?? 0),
                 'rule_id' => (string) ($r['rule_id'] ?? ''),

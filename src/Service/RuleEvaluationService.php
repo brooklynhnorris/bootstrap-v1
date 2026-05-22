@@ -13,7 +13,8 @@ class RuleEvaluationService
     public function __construct(
         private Connection $db,
         private AvrScorer $avrScorer,
-        private TaskSuggestionService $taskSuggestionService
+        private TaskSuggestionService $taskSuggestionService,
+        private AssetUrlClassifier $assetUrlClassifier
     )
     {
     }
@@ -56,6 +57,9 @@ class RuleEvaluationService
                     }
 
                     $normalizedUrl = $this->normalizeUrl((string) $page['url']);
+                    if ($this->assetUrlClassifier->isAssetUrl($normalizedUrl) !== null) {
+                        continue;
+                    }
                     $candidateHash = $runId !== null
                         ? hash('sha256', $violation['rule_id'] . '|' . $normalizedUrl . '|' . $runId)
                         : null;
@@ -125,6 +129,9 @@ class RuleEvaluationService
                 }
 
                 $normalizedUrl = $this->normalizeUrl($url);
+                if ($this->assetUrlClassifier->isAssetUrl($normalizedUrl) !== null) {
+                    continue;
+                }
                 $candidateHash = $runId !== null
                     ? hash('sha256', $ruleId . '|' . $normalizedUrl . '|' . $runId)
                     : null;
@@ -400,6 +407,9 @@ class RuleEvaluationService
                     continue;
                 }
                 $seen[$norm] = true;
+                if ($this->assetUrlClassifier->isAssetUrl($norm) !== null) {
+                    continue;
+                }
 
                 $results[] = [
                     'rule_id' => (string) $rule['rule_id'],
