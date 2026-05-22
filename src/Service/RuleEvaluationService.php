@@ -106,9 +106,10 @@ class RuleEvaluationService
                     }
 
                     $rulesAttempted++;
-                    $this->db->insert('rule_violations', $row);
-                    $inserted++;
-                    $rulesSucceeded++;
+                    if ($this->insertViolationIfNew($row)) {
+                        $inserted++;
+                        $rulesSucceeded++;
+                    }
                     $evaluatedRuleIds[$violation['rule_id']] = true;
                 }
             }
@@ -180,9 +181,10 @@ class RuleEvaluationService
                 }
 
                 $rulesAttempted++;
-                $this->db->insert('rule_violations', $row);
-                $inserted++;
-                $rulesSucceeded++;
+                if ($this->insertViolationIfNew($row)) {
+                    $inserted++;
+                    $rulesSucceeded++;
+                }
                 $evaluatedRuleIds[$ruleId] = true;
             }
 
@@ -232,6 +234,19 @@ class RuleEvaluationService
         }
 
         return ['snapshot_version' => $snapshotVersion, 'inserted' => $inserted];
+    }
+
+    private function insertViolationIfNew(array $row): bool
+    {
+        $cols = array_keys($row);
+        $colSql = implode(', ', $cols);
+        $placeholders = implode(', ', array_map(static fn(string $c): string => ':' . $c, $cols));
+
+        $sql = "INSERT INTO rule_violations ({$colSql}) VALUES ({$placeholders})
+                ON CONFLICT (snapshot_version, rule_id, url) DO NOTHING";
+
+        $affected = $this->db->executeStatement($sql, $row);
+        return $affected > 0;
     }
 
     private function determineViolationsForPage(array $page): array

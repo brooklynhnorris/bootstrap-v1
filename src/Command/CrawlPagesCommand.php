@@ -674,31 +674,59 @@ class CrawlPagesCommand extends Command
         $schemaNodes = $xpath->query('//*[@type="application/ld+json"]');
         $schemaTypes = [];
         $schemaErrors = [];
+        $schemaParseStatus = 'no_schema_found';
+        $successfulSchemaParses = 0;
+        $failedSchemaParses = 0;
         foreach ($schemaNodes as $node) {
-            $json = json_decode($node->textContent, true);
-            if (!$json) {
-                $schemaErrors[] = 'Invalid JSON-LD: parse error';
+            $jsonText = trim((string) $node->textContent);
+            if ($jsonText === '') {
                 continue;
             }
+            $json = json_decode($jsonText, true);
+            if ($json === null) {
+                $failedSchemaParses++;
+                $parseError = json_last_error_msg();
+                $schemaErrors[] = 'Invalid JSON-LD: ' . $parseError;
+                if ($debug) {
+                    $output->writeln('[WARN] JSON-LD parse failed for ' . $path . ': ' . $parseError . ' | snippet=' . substr($jsonText, 0, 180));
+                }
 
-            // Collect all schema items (top-level and @graph)
-            $items = [];
-            if (isset($json['@type'])) {
-                $items[] = $json;
-                $schemaTypes[] = is_array($json['@type']) ? implode(',', $json['@type']) : $json['@type'];
+                $cleaned = preg_replace('/[\x00-\x1F\x7F]/u', ' ', $jsonText);
+                $json = json_decode((string) $cleaned, true);
+                if ($json === null) {
+                    $schemaErrors[] = 'Invalid JSON-LD after cleanup: ' . json_last_error_msg();
+                    continue;
+                }
             }
-            if (isset($json['@graph']) && is_array($json['@graph'])) {
-                foreach ($json['@graph'] as $item) {
-                    if (isset($item['@type'])) {
+
+            $successfulSchemaParses++;
+
+            // Collect schema items from top-level, @graph arrays, or array roots.
+            $items = [];
+            if (is_array($json) && array_is_list($json)) {
+                foreach ($json as $item) {
+                    if (is_array($item)) {
                         $items[] = $item;
-                        $schemaTypes[] = is_array($item['@type']) ? implode(',', $item['@type']) : $item['@type'];
+                    }
+                }
+            } elseif (is_array($json)) {
+                $items[] = $json;
+                if (isset($json['@graph']) && is_array($json['@graph'])) {
+                    foreach ($json['@graph'] as $item) {
+                        if (is_array($item)) {
+                            $items[] = $item;
+                        }
                     }
                 }
             }
 
+            foreach ($items as $item) {
+                $schemaTypes = $this->collectSchemaTypes($item, $schemaTypes);
+            }
+
             // Validate required fields per schema type
             foreach ($items as $item) {
-                $type = is_array($item['@type']) ? $item['@type'][0] : ($item['@type'] ?? '');
+                $type = is_array($item['@type'] ?? null) ? (string) (($item['@type'][0] ?? '')) : (string) ($item['@type'] ?? '');
 
                 if ($type === 'Product') {
                     if (empty($item['name'])) $schemaErrors[] = 'Product: missing "name"';
@@ -746,6 +774,14 @@ class CrawlPagesCommand extends Command
         }
         $schemaTypes = array_values(array_unique($schemaTypes));
         $schemaErrors = array_values(array_unique($schemaErrors));
+        if ($successfulSchemaParses === 0) {
+            $schemaParseStatus = $failedSchemaParses > 0 ? 'parse_failed' : 'no_schema_found';
+        } else {
+            $schemaParseStatus = $failedSchemaParses > 0 ? 'partial' : 'ok';
+            if (empty($schemaTypes) && $failedSchemaParses === 0) {
+                $schemaParseStatus = 'no_schema_found';
+            }
+        }
 
         // ── ACCURATE word count — strip nav/header/footer/aside/scripts/styles first ──
         $wordCount = 0;
@@ -1549,6 +1585,7 @@ class CrawlPagesCommand extends Command
             'core_links_found'     => json_encode($coreLinksFound),
             'h1_matches_title'     => $h1MatchesTitle ? 1 : 0,
             'schema_types'         => json_encode($schemaTypes),
+            'schema_parse_status'  => $schemaParseStatus,
             'canonical_url'        => $canonicalUrl ? substr($canonicalUrl, 0, 500) : null,
             'is_noindex'           => $isNoindex ? 1 : 0,
             'page_type'            => $pageType,
@@ -2108,6 +2145,45 @@ class CrawlPagesCommand extends Command
             || preg_match('/\.(mp4|webm|mov)$/i', $src) === 1;
     }
 
+    private function collectSchemaTypes(mixed $node, array $types = []): array
+    {
+        if (!is_array($node)) {
+            return array_values(array_unique($types));
+        }
+
+        if (array_key_exists('@type', $node)) {
+            $rawType = $node['@type'];
+            if (is_string($rawType) && $rawType !== '') {
+                $types[] = $rawType;
+            } elseif (is_array($rawType)) {
+                foreach ($rawType as $t) {
+                    if (is_string($t) && $t !== '') {
+                        $types[] = $t;
+                    }
+                }
+            }
+        }
+
+        foreach ($node as $value) {
+            if (!is_array($value)) {
+                continue;
+            }
+
+            if (array_is_list($value)) {
+                foreach ($value as $entry) {
+                    if (is_array($entry)) {
+                        $types = $this->collectSchemaTypes($entry, $types);
+                    }
+                }
+                continue;
+            }
+
+            $types = $this->collectSchemaTypes($value, $types);
+        }
+
+        return array_values(array_unique($types));
+    }
+
     private function ensureSchema(): void
     {
         $tables = $this->db->fetchFirstColumn(
@@ -2132,6 +2208,7 @@ class CrawlPagesCommand extends Command
                     core_links_found        TEXT DEFAULT NULL,
                     h1_matches_title        BOOLEAN DEFAULT FALSE,
                     schema_types            TEXT DEFAULT NULL,
+                    schema_parse_status     VARCHAR(20) DEFAULT 'ok',
                     canonical_url           TEXT DEFAULT NULL,
                     is_noindex              BOOLEAN DEFAULT FALSE,
                     page_type               VARCHAR(20) DEFAULT NULL,
@@ -2170,6 +2247,7 @@ class CrawlPagesCommand extends Command
                 'has_faq_section'     => 'BOOLEAN DEFAULT FALSE',
                 'has_product_image'   => 'BOOLEAN DEFAULT FALSE',
                 'schema_errors'       => 'TEXT DEFAULT NULL',
+                'schema_parse_status' => "VARCHAR(20) DEFAULT 'ok'",
                 // Perplexity-inspired columns
                 'content_category'    => "VARCHAR(30) DEFAULT NULL",
                 'h1_count'            => 'INT DEFAULT 0',
