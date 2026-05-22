@@ -895,6 +895,137 @@
             font-style: italic;
             margin-top: 4px;
         }
+        .why-panel-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.35);
+            z-index: 420;
+            display: none;
+        }
+        .why-panel-backdrop.open { display: block; }
+        .why-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: min(540px, 92vw);
+            background: var(--bg-card);
+            border-left: 1px solid var(--border-medium);
+            box-shadow: var(--shadow-lg);
+            z-index: 430;
+            transform: translateX(100%);
+            transition: transform 0.18s ease;
+            display: flex;
+            flex-direction: column;
+        }
+        .why-panel.open { transform: translateX(0); }
+        .why-panel-header {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+        }
+        .why-panel-title {
+            flex: 1;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1.45;
+        }
+        .why-panel-score {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--accent-green);
+            white-space: nowrap;
+        }
+        .why-panel-close {
+            background: transparent;
+            border: none;
+            color: var(--text-muted);
+            font-size: 16px;
+            cursor: pointer;
+        }
+        .why-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 14px 16px 20px;
+        }
+        .why-section {
+            border: 1px solid var(--border-subtle);
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+            background: var(--bg-secondary);
+        }
+        .why-section-title {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.6px;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+        }
+        .why-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 12px;
+            color: var(--text-secondary);
+            padding: 2px 0;
+        }
+        .why-row strong { color: var(--text-primary); }
+        .why-kv {
+            font-size: 12px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
+            line-height: 1.45;
+            word-break: break-word;
+        }
+        .why-drift {
+            background: #fff7ed;
+            border: 1px solid #fdba74;
+            color: #9a3412;
+        }
+        .why-factor-row {
+            display: grid;
+            grid-template-columns: 1fr auto auto;
+            align-items: center;
+            gap: 10px;
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+        .why-dots {
+            font-family: var(--font-mono);
+            letter-spacing: 1px;
+            font-size: 11px;
+        }
+        .why-dots.high { color: #16a34a; }
+        .why-dots.medium { color: #d97706; }
+        .why-dots.low { color: #dc2626; }
+        .why-actions {
+            border-top: 1px solid var(--border-subtle);
+            padding: 10px 12px;
+            display: flex;
+            gap: 8px;
+            background: var(--bg-primary);
+        }
+        .why-btn {
+            flex: 1;
+            border: 1px solid var(--border-subtle);
+            border-radius: 8px;
+            padding: 8px 10px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+        }
+        .why-btn.primary {
+            background: var(--accent-green-dim);
+            border-color: #6ee7b7;
+            color: #065f46;
+        }
         #panel-actions { padding: 14px 18px; border-top: 1px solid var(--border-subtle); display: flex; gap: 8px; }
         .panel-btn {
             flex: 1; padding: 9px; border-radius: var(--radius-sm);
@@ -2035,6 +2166,23 @@
 </div>
 
 <!-- ── RECHECK CONFIRMATION MODAL ────────────────── -->
+<div id="why-panel-backdrop" class="why-panel-backdrop"></div>
+<aside id="why-panel" class="why-panel" aria-hidden="true">
+    <div class="why-panel-header">
+        <div class="why-panel-title" id="why-panel-title">Task Details</div>
+        <div class="why-panel-score" id="why-panel-score"></div>
+        <button type="button" class="why-panel-close" onclick="closeWhyPanel()" aria-label="Close">✕</button>
+    </div>
+    <div class="why-panel-body" id="why-panel-body">
+        <div class="dash-empty">Loading task detail…</div>
+    </div>
+    <div class="why-actions">
+        <button class="why-btn primary" id="why-btn-done" type="button">Mark Done</button>
+        <button class="why-btn" id="why-btn-close" type="button">Close as wont_fix</button>
+        <button class="why-btn" id="why-btn-open-url" type="button">Open URL</button>
+    </div>
+</aside>
+
 <div id="recheck-confirm-modal" style="display:none;position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.5);z-index:9999;justify-content:center;align-items:center;">
     <div style="background:var(--bg-primary, #fff);border-radius:12px;padding:28px;max-width:420px;width:90%;box-shadow:0 8px 32px rgba(0,0,0,0.2);">
         <div style="font-size:16px;font-weight:600;margin-bottom:6px;">Mark as Done</div>
@@ -3581,6 +3729,205 @@
         }
     }
 
+    let currentWhyTaskId = null;
+
+    function closeWhyPanel() {
+        const panel = document.getElementById('why-panel');
+        const backdrop = document.getElementById('why-panel-backdrop');
+        if (panel) {
+            panel.classList.remove('open');
+            panel.setAttribute('aria-hidden', 'true');
+        }
+        if (backdrop) backdrop.classList.remove('open');
+        currentWhyTaskId = null;
+    }
+
+    function dotMeter(value) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return '○○○○○';
+        const filled = Math.max(0, Math.min(5, Math.round(num * 5)));
+        return '●'.repeat(filled) + '○'.repeat(5 - filled);
+    }
+
+    function factorTier(value) {
+        const num = Number(value);
+        if (!Number.isFinite(num)) return 'low';
+        if (num >= 0.7) return 'high';
+        if (num >= 0.4) return 'medium';
+        return 'low';
+    }
+
+    function formatMaybe(value, fallback) {
+        if (value === null || value === undefined || value === '') return fallback || '—';
+        return String(value);
+    }
+
+    function parseDateMaybe(value) {
+        if (!value) return null;
+        const d = new Date(value);
+        return Number.isNaN(d.getTime()) ? null : d;
+    }
+
+    function hasDataDrift(payload) {
+        const violation = payload && payload.violation ? payload.violation : null;
+        const evidence = violation && violation.evidence_json ? violation.evidence_json : null;
+        const snap = payload && payload.page_snapshot ? payload.page_snapshot : null;
+        if (!violation || !evidence || !snap) return false;
+
+        if (evidence.h1_matches_title !== undefined && snap.h1_matches_title !== undefined && snap.h1_matches_title !== null) {
+            const ev = String(evidence.h1_matches_title).toLowerCase();
+            const sv = String(snap.h1_matches_title).toLowerCase();
+            if (ev !== sv) return true;
+        }
+
+        const detected = parseDateMaybe(violation.detected_at);
+        const crawled = parseDateMaybe(snap.crawled_at);
+        if (detected && crawled) {
+            const diffMs = crawled.getTime() - detected.getTime();
+            const diffDays = diffMs / 86400000;
+            if (diffDays >= 7) return true;
+        }
+
+        return false;
+    }
+
+    function renderWhyPanel(payload) {
+        const panel = document.getElementById('why-panel');
+        const backdrop = document.getElementById('why-panel-backdrop');
+        const titleEl = document.getElementById('why-panel-title');
+        const scoreEl = document.getElementById('why-panel-score');
+        const bodyEl = document.getElementById('why-panel-body');
+        if (!panel || !backdrop || !titleEl || !scoreEl || !bodyEl) return;
+
+        const task = payload && payload.task ? payload.task : {};
+        const violation = payload && payload.violation ? payload.violation : null;
+        const evidence = violation && violation.evidence_json ? violation.evidence_json : null;
+        const rule = payload && payload.rule ? payload.rule : null;
+        const snap = payload && payload.page_snapshot ? payload.page_snapshot : null;
+        const siblings = Array.isArray(payload && payload.siblings_suppressed) ? payload.siblings_suppressed : [];
+        const avrBreakdown = payload && payload.avr_breakdown ? payload.avr_breakdown : null;
+        const avrInputs = payload && payload.avr_inputs ? payload.avr_inputs : null;
+        const drift = hasDataDrift(payload);
+
+        titleEl.textContent = '#' + formatMaybe(task.id, '?') + ' ' + formatMaybe(task.title, 'Task');
+        scoreEl.textContent = Number.isFinite(Number(task.avr_score)) ? ('AVR ' + Number(task.avr_score)) : 'AVR —';
+
+        let html = '';
+        if (drift) {
+            html += '<div class="why-section why-drift">' +
+                '<div class="why-section-title" style="color:#9a3412;">⚠ Data Drift Detected</div>' +
+                '<div class="why-kv">Violation evidence appears older or inconsistent with the latest snapshot. Live page may already be fixed.</div>' +
+            '</div>';
+        }
+
+        if (avrBreakdown) {
+            html += '<div class="why-section"><div class="why-section-title">AVR Breakdown</div>';
+            ['impact', 'confidence', 'urgency', 'revenue_proximity'].forEach((key) => {
+                const v = Number(avrBreakdown[key]);
+                const tier = factorTier(v);
+                html += '<div class="why-factor-row">' +
+                    '<div>' + escapeHtml(key.replace('_', ' ')) + '</div>' +
+                    '<div class="why-dots ' + tier + '">' + dotMeter(v) + '</div>' +
+                    '<div><strong>' + (Number.isFinite(v) ? v.toFixed(2) : '0.00') + '</strong></div>' +
+                '</div>';
+            });
+            html += '<div class="why-row"><span>effort</span><strong>' + formatMaybe(avrBreakdown.effort, '—') + '</strong></div></div>';
+        } else {
+            html += '<div class="why-section"><div class="why-section-title">AVR</div><div class="why-kv">Not scored (legacy task).</div></div>';
+        }
+
+        html += '<div class="why-section"><div class="why-section-title">Rule</div>' +
+            '<div class="why-kv"><strong>' + escapeHtml(formatMaybe(rule && rule.rule_id, task.rule_id || '')) + '</strong> (' + escapeHtml(formatMaybe(rule && rule.tier, '—')) + ') — ' + escapeHtml(formatMaybe(rule && rule.action_family, '—')) + '</div>' +
+            '<div class="why-kv">Updated ' + escapeHtml(formatMaybe(rule && rule.updated_at, '—')) + ' by ' + escapeHtml(formatMaybe(rule && rule.updated_by, '—')) + '</div>' +
+            '<div class="why-kv">' + escapeHtml(formatMaybe(rule && rule.diagnosis, 'No diagnosis text.')) + '</div>' +
+            '</div>';
+
+        html += '<div class="why-section"><div class="why-section-title">Evidence From Violation</div>';
+        if (evidence) {
+            if (Object.prototype.hasOwnProperty.call(evidence, 'h1')) html += '<div class="why-kv">H1: <strong>' + escapeHtml(formatMaybe(evidence.h1, '')) + '</strong></div>';
+            if (Object.prototype.hasOwnProperty.call(evidence, 'title_tag')) html += '<div class="why-kv">Title: <strong>' + escapeHtml(formatMaybe(evidence.title_tag, '')) + '</strong></div>';
+            if (Object.prototype.hasOwnProperty.call(evidence, 'h1_matches_title')) html += '<div class="why-kv">H1 matches title: <strong>' + escapeHtml(String(evidence.h1_matches_title).toUpperCase()) + '</strong></div>';
+            if (Object.prototype.hasOwnProperty.call(evidence, 'page_type')) html += '<div class="why-kv">Page type: <strong>' + escapeHtml(formatMaybe(evidence.page_type, '')) + '</strong></div>';
+            html += '<div class="why-kv">Detected: ' + escapeHtml(formatMaybe(violation && violation.detected_at, '—')) + '</div>';
+        } else {
+            html += '<div class="why-kv">No evidence captured.</div>';
+        }
+        html += '</div>';
+
+        html += '<div class="why-section"><div class="why-section-title">Current Page State (Live Snapshot)</div>';
+        if (snap) {
+            html += '<div class="why-kv">H1: <strong>' + escapeHtml(formatMaybe(snap.h1, '')) + '</strong></div>';
+            html += '<div class="why-kv">Title: <strong>' + escapeHtml(formatMaybe(snap.title_tag, '')) + '</strong></div>';
+            html += '<div class="why-kv">H1 matches title: <strong>' + escapeHtml(String(snap.h1_matches_title).toUpperCase()) + '</strong></div>';
+            html += '<div class="why-kv">Page type: <strong>' + escapeHtml(formatMaybe(snap.page_type, '')) + '</strong></div>';
+            html += '<div class="why-kv">Crawled: ' + escapeHtml(formatMaybe(snap.crawled_at, '—')) + '</div>';
+        } else {
+            html += '<div class="why-kv">No current snapshot — URL may have been deleted from crawl.</div>';
+        }
+        html += '</div>';
+
+        html += '<div class="why-section"><div class="why-section-title">Other Rules That Fired On This URL</div>';
+        if (siblings.length === 0) {
+            html += '<div class="why-kv">No other rules fired on this URL.</div>';
+        } else {
+            siblings.forEach((s) => {
+                html += '<div class="why-kv">• <strong>' + escapeHtml(formatMaybe(s.rule_id, '')) + '</strong> → ' +
+                    escapeHtml(formatMaybe(s.decision, '')) +
+                    (s.suppression_reason_code ? ' (' + escapeHtml(s.suppression_reason_code) + ')' : '') +
+                    '</div>';
+            });
+        }
+        html += '</div>';
+
+        html += '<div class="why-section"><div class="why-section-title">Page Context</div>';
+        if (avrInputs) {
+            html += '<div class="why-row"><span>Target query impressions (28d)</span><strong>' + escapeHtml(formatMaybe(avrInputs.target_query_impressions, '0')) + '</strong></div>';
+            html += '<div class="why-row"><span>Position delta</span><strong>' + escapeHtml(formatMaybe(avrInputs.position_delta, '0')) + '</strong></div>';
+            html += '<div class="why-row"><span>Conversions (28d)</span><strong>' + escapeHtml(formatMaybe(avrInputs.conversions_28d, '0')) + '</strong></div>';
+            html += '<div class="why-row"><span>Last crawled</span><strong>' + escapeHtml(formatMaybe(avrInputs.last_crawled_at, '—')) + '</strong></div>';
+        } else {
+            html += '<div class="why-kv">No AVR inputs captured.</div>';
+        }
+        html += '</div>';
+
+        bodyEl.innerHTML = html;
+
+        const doneBtn = document.getElementById('why-btn-done');
+        const closeBtn = document.getElementById('why-btn-close');
+        const openBtn = document.getElementById('why-btn-open-url');
+        if (doneBtn) doneBtn.onclick = () => completeTask(task.id);
+        if (closeBtn) closeBtn.onclick = () => showDismissModal(task.id);
+        if (openBtn) {
+            openBtn.onclick = () => {
+                const taskUrl = (violation && violation.url) ? violation.url : (snap && snap.url ? snap.url : null);
+                if (!taskUrl) return;
+                const full = taskUrl.startsWith('http') ? taskUrl : ('https://www.doubledtrailers.com' + taskUrl);
+                window.open(full, '_blank', 'noopener');
+            };
+        }
+
+        panel.classList.add('open');
+        panel.setAttribute('aria-hidden', 'false');
+        backdrop.classList.add('open');
+    }
+
+    async function openWhyPanel(taskId) {
+        currentWhyTaskId = Number(taskId || 0);
+        if (!currentWhyTaskId) return;
+        try {
+            const res = await fetch('/api/tasks/' + encodeURIComponent(currentWhyTaskId) + '/why');
+            if (res.status === 404) {
+                showNotification('Task not found.', 'red');
+                return;
+            }
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            const payload = await res.json();
+            renderWhyPanel(payload);
+        } catch (err) {
+            showNotification('Could not load task details: ' + (err.message || err), 'red');
+        }
+    }
+
     function updateStatCounters(tasks) {
         const pending  = tasks.filter(t => t.status === 'pending').length;
         const active   = tasks.filter(t => t.status === 'in_progress').length;
@@ -3695,11 +4042,12 @@
             verifyBadge +
             (!isDone ? '<button class="board-card-run" data-id="' + task.id + '" data-title="' + (task.title||'').replace(/"/g,'\'') + '" onclick="event.stopPropagation();runPlay(this)">\u25b6 Run this Play</button>' : '<div class="board-card-done-badge">\u2713 Complete</div>');
 
-        if (!isDone) {
-            card.addEventListener('click', () => {
-                showChatForTask(task.id, task.title || '');
-            });
-        }
+        card.addEventListener('click', (event) => {
+            if (event.target && event.target.closest && event.target.closest('.avr-badge-clickable')) {
+                return;
+            }
+            openWhyPanel(task.id);
+        });
 
         return card;
     }
@@ -3796,6 +4144,19 @@
             renderAvrBreakdownPopover(badge, data);
         } catch (err) {
             console.error('Failed to load AVR breakdown:', err);
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        const backdrop = document.getElementById('why-panel-backdrop');
+        if (!backdrop || !backdrop.classList.contains('open')) return;
+        if (e.target === backdrop) closeWhyPanel();
+    });
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+            closeWhyPanel();
+            removeAvrBreakdownPopover();
         }
     });
 

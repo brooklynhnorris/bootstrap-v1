@@ -52,6 +52,18 @@ class HomeController extends AbstractController
         return $response;
     }
 
+    private function decodeJsonColumn(mixed $value): ?array
+    {
+        if (is_array($value)) {
+            return $value;
+        }
+        if (!is_string($value) || trim($value) === '') {
+            return null;
+        }
+        $decoded = json_decode($value, true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
     #[Route('/api/admin/clear-slate', name: 'clear_slate', methods: ['POST'])]
     public function clearSlate(): JsonResponse
     {
@@ -974,6 +986,175 @@ class HomeController extends AbstractController
         $task = $this->db->fetchAssociative('SELECT * FROM tasks WHERE id = ?', [$id]);
         if (!$task) return new JsonResponse(['error' => 'Not found'], 404);
         return new JsonResponse($task);
+    }
+
+    #[Route('/api/tasks/{id}/why', name: 'api_task_why', methods: ['GET'])]
+    public function getTaskWhy(int $id): JsonResponse
+    {
+        $task = $this->db->fetchAssociative(
+            "SELECT id, title, rule_id, status, priority, avr_score, lifecycle_state, idempotency_key,
+                    assigned_to, assigned_role, created_at, completed_at, source_violation_id
+             FROM tasks
+             WHERE id = ?",
+            [$id]
+        );
+
+        if (!$task) {
+            return $this->safeJson(['error' => 'Task not found'], 404);
+        }
+
+        $sourceViolationId = (int) ($task['source_violation_id'] ?? 0);
+        $violation = null;
+        if ($sourceViolationId > 0) {
+            $violation = $this->db->fetchAssociative(
+                "SELECT id, rule_id, url, evidence_json, explanation_short, detected_at, snapshot_version,
+                        run_id, decision, avr_breakdown_json
+                 FROM rule_violations
+                 WHERE id = ?",
+                [$sourceViolationId]
+            );
+        }
+
+        if (!$violation) {
+            $ruleId = (string) ($task['rule_id'] ?? '');
+            if ($ruleId !== '') {
+                $violation = $this->db->fetchAssociative(
+                    "SELECT id, rule_id, url, evidence_json, explanation_short, detected_at, snapshot_version,
+                            run_id, decision, avr_breakdown_json
+                     FROM rule_violations
+                     WHERE rule_id = ?
+                     ORDER BY detected_at DESC, id DESC
+                     LIMIT 1",
+                    [$ruleId]
+                );
+            }
+        }
+
+        $rule = null;
+        $siblings = [];
+        $pageSnapshot = null;
+        $avrBreakdown = null;
+        $avrInputs = null;
+
+        if ($violation) {
+            $ruleId = (string) ($violation['rule_id'] ?? '');
+            if ($ruleId !== '') {
+                $rule = $this->db->fetchAssociative(
+                    "SELECT rule_id, name, tier, action_family, diagnosis, action_output, trigger_sql,
+                            updated_at, updated_by
+                     FROM seo_rules
+                     WHERE rule_id = ?
+                     LIMIT 1",
+                    [$ruleId]
+                );
+            }
+
+            $runId = isset($violation['run_id']) ? (int) $violation['run_id'] : 0;
+            $violationUrl = (string) ($violation['url'] ?? '');
+            if ($runId > 0 && $violationUrl !== '') {
+                $siblings = $this->db->fetchAllAssociative(
+                    "SELECT id AS violation_id, rule_id, decision, suppression_reason_code,
+                            suppression_reason_text, detected_at
+                     FROM rule_violations
+                     WHERE LOWER(TRIM(TRAILING '/' FROM url)) = LOWER(TRIM(TRAILING '/' FROM ?))
+                       AND run_id = ?
+                       AND id != ?
+                     ORDER BY detected_at ASC",
+                    [$violationUrl, $runId, (int) ($violation['id'] ?? 0)]
+                );
+            }
+
+            if ($violationUrl !== '') {
+                $pageSnapshot = $this->db->fetchAssociative(
+                    "SELECT id, url, page_type, h1, title_tag, h1_matches_title, word_count, is_noindex, crawled_at
+                     FROM page_crawl_snapshots
+                     WHERE LOWER(TRIM(TRAILING '/' FROM url)) = LOWER(TRIM(TRAILING '/' FROM ?))
+                     ORDER BY crawled_at DESC, id DESC
+                     LIMIT 1",
+                    [$violationUrl]
+                );
+            }
+
+            $avrPayload = $this->decodeJsonColumn($violation['avr_breakdown_json'] ?? null);
+            if (is_array($avrPayload)) {
+                $breakdownNode = $avrPayload['breakdown'] ?? null;
+                if (is_array($breakdownNode)) {
+                    $avrBreakdown = is_array($breakdownNode['breakdown'] ?? null)
+                        ? $breakdownNode['breakdown']
+                        : $breakdownNode;
+                }
+                $avrInputs = is_array($avrPayload['inputs'] ?? null) ? $avrPayload['inputs'] : null;
+            }
+
+            $violation['evidence_json'] = $this->decodeJsonColumn($violation['evidence_json'] ?? null);
+        }
+
+        if ($rule) {
+            $rule['trigger_sql_len'] = isset($rule['trigger_sql']) && is_string($rule['trigger_sql'])
+                ? strlen($rule['trigger_sql'])
+                : 0;
+            unset($rule['trigger_sql']);
+        }
+
+        return $this->safeJson([
+            'task' => [
+                'id' => (int) $task['id'],
+                'title' => (string) ($task['title'] ?? ''),
+                'rule_id' => $task['rule_id'] ? (string) $task['rule_id'] : null,
+                'status' => (string) ($task['status'] ?? ''),
+                'priority' => (string) ($task['priority'] ?? ''),
+                'avr_score' => isset($task['avr_score']) ? (int) $task['avr_score'] : null,
+                'lifecycle_state' => $task['lifecycle_state'] ? (string) $task['lifecycle_state'] : null,
+                'idempotency_key' => $task['idempotency_key'] ? (string) $task['idempotency_key'] : null,
+                'assigned_to' => $task['assigned_to'] ? (string) $task['assigned_to'] : null,
+                'assigned_role' => $task['assigned_role'] ? (string) $task['assigned_role'] : null,
+                'created_at' => $task['created_at'] ? (string) $task['created_at'] : null,
+                'completed_at' => $task['completed_at'] ? (string) $task['completed_at'] : null,
+            ],
+            'violation' => $violation ? [
+                'id' => (int) $violation['id'],
+                'rule_id' => (string) ($violation['rule_id'] ?? ''),
+                'url' => (string) ($violation['url'] ?? ''),
+                'evidence_json' => is_array($violation['evidence_json']) ? $violation['evidence_json'] : null,
+                'explanation_short' => (string) ($violation['explanation_short'] ?? ''),
+                'detected_at' => $violation['detected_at'] ? (string) $violation['detected_at'] : null,
+                'snapshot_version' => isset($violation['snapshot_version']) ? (int) $violation['snapshot_version'] : null,
+                'run_id' => isset($violation['run_id']) ? (int) $violation['run_id'] : null,
+                'decision' => $violation['decision'] ? (string) $violation['decision'] : null,
+            ] : null,
+            'rule' => $rule ? [
+                'rule_id' => (string) ($rule['rule_id'] ?? ''),
+                'name' => (string) ($rule['name'] ?? ''),
+                'tier' => (string) ($rule['tier'] ?? ''),
+                'action_family' => (string) ($rule['action_family'] ?? ''),
+                'diagnosis' => (string) ($rule['diagnosis'] ?? ''),
+                'action_output' => (string) ($rule['action_output'] ?? ''),
+                'trigger_sql_len' => (int) ($rule['trigger_sql_len'] ?? 0),
+                'updated_at' => $rule['updated_at'] ? (string) $rule['updated_at'] : null,
+                'updated_by' => $rule['updated_by'] ? (string) $rule['updated_by'] : null,
+            ] : null,
+            'avr_breakdown' => $avrBreakdown,
+            'avr_inputs' => $avrInputs,
+            'siblings_suppressed' => array_map(static fn(array $s) => [
+                'violation_id' => (int) ($s['violation_id'] ?? 0),
+                'rule_id' => (string) ($s['rule_id'] ?? ''),
+                'decision' => $s['decision'] ? (string) $s['decision'] : null,
+                'suppression_reason_code' => $s['suppression_reason_code'] ? (string) $s['suppression_reason_code'] : null,
+                'suppression_reason_text' => $s['suppression_reason_text'] ? (string) $s['suppression_reason_text'] : null,
+                'detected_at' => $s['detected_at'] ? (string) $s['detected_at'] : null,
+            ], $siblings),
+            'page_snapshot' => $pageSnapshot ? [
+                'id' => (int) $pageSnapshot['id'],
+                'url' => (string) ($pageSnapshot['url'] ?? ''),
+                'page_type' => (string) ($pageSnapshot['page_type'] ?? ''),
+                'h1' => $pageSnapshot['h1'] !== null ? (string) $pageSnapshot['h1'] : null,
+                'title_tag' => $pageSnapshot['title_tag'] !== null ? (string) $pageSnapshot['title_tag'] : null,
+                'h1_matches_title' => $pageSnapshot['h1_matches_title'] !== null ? (bool) $pageSnapshot['h1_matches_title'] : null,
+                'word_count' => isset($pageSnapshot['word_count']) ? (int) $pageSnapshot['word_count'] : null,
+                'is_noindex' => $pageSnapshot['is_noindex'] !== null ? (bool) $pageSnapshot['is_noindex'] : null,
+                'crawled_at' => $pageSnapshot['crawled_at'] ? (string) $pageSnapshot['crawled_at'] : null,
+            ] : null,
+        ]);
     }
 
     #[Route('/api/tasks/{id}/complete', name: 'api_tasks_complete', methods: ['POST'])]
