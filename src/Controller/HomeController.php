@@ -317,6 +317,187 @@ class HomeController extends AbstractController
         ]);
     }
 
+    #[Route('/api/runs', name: 'api_runs_list', methods: ['GET'])]
+    public function listRuns(Request $request): JsonResponse
+    {
+        $limit = min(50, max(1, (int) $request->query->get('limit', 20)));
+        $before = (int) $request->query->get('before', 0);
+
+        $sql = "SELECT id, started_at, status, triggered_by, tasks_promoted, tasks_suppressed, violations_recorded
+                FROM rule_runs";
+        $params = [];
+        if ($before > 0) {
+            $sql .= " WHERE id < ?";
+            $params[] = $before;
+        }
+        $sql .= " ORDER BY id DESC LIMIT ?";
+        $params[] = $limit;
+
+        $runs = $this->db->fetchAllAssociative($sql, $params);
+        $total = (int) $this->db->fetchOne("SELECT COUNT(*) FROM rule_runs");
+
+        return $this->safeJson([
+            'runs' => array_map(static fn(array $r) => [
+                'id' => (int) $r['id'],
+                'started_at' => $r['started_at'] ? (string) $r['started_at'] : null,
+                'status' => (string) ($r['status'] ?? ''),
+                'triggered_by' => $r['triggered_by'] ? (string) $r['triggered_by'] : null,
+                'tasks_promoted' => isset($r['tasks_promoted']) ? (int) $r['tasks_promoted'] : 0,
+                'tasks_suppressed' => isset($r['tasks_suppressed']) ? (int) $r['tasks_suppressed'] : 0,
+                'violations_recorded' => isset($r['violations_recorded']) ? (int) $r['violations_recorded'] : 0,
+            ], $runs),
+            'total' => $total,
+        ]);
+    }
+
+    #[Route('/api/runs/{id}/summary', name: 'api_run_summary', methods: ['GET'])]
+    public function getRunSummary(int $id): JsonResponse
+    {
+        $run = $this->db->fetchAssociative(
+            "SELECT id, started_at, ended_at, status, triggered_by,
+                    rules_attempted, rules_succeeded, rules_failed,
+                    violations_recorded, tasks_promoted, tasks_suppressed, summary_json
+             FROM rule_runs
+             WHERE id = ?",
+            [$id]
+        );
+        if (!$run) {
+            return $this->safeJson(['error' => 'Run not found'], 404);
+        }
+
+        $summary = $this->decodeJsonColumn($run['summary_json'] ?? null) ?? [];
+        $suppressedByReason = is_array($summary['suppressed_by_reason'] ?? null) ? $summary['suppressed_by_reason'] : [];
+        arsort($suppressedByReason);
+        $suppressionBreakdown = [];
+        foreach ($suppressedByReason as $code => $count) {
+            $suppressionBreakdown[] = [
+                'reason_code' => (string) $code,
+                'count' => (int) $count,
+            ];
+        }
+
+        $promotedByRole = $this->db->fetchAllAssociative(
+            "SELECT COALESCE(NULLIF(assigned_role,''), 'default') AS assigned_role, COUNT(*) AS count
+             FROM tasks
+             WHERE run_id = ?
+             GROUP BY COALESCE(NULLIF(assigned_role,''), 'default')
+             ORDER BY COUNT(*) DESC",
+            [$id]
+        );
+
+        $promotedByActionFamily = $this->db->fetchAllAssociative(
+            "SELECT COALESCE(NULLIF(rv.action_family,''), 'general_fix') AS action_family, COUNT(*) AS count
+             FROM tasks t
+             JOIN rule_violations rv ON rv.id = t.source_violation_id
+             WHERE t.run_id = ?
+             GROUP BY COALESCE(NULLIF(rv.action_family,''), 'general_fix')
+             ORDER BY COUNT(*) DESC",
+            [$id]
+        );
+
+        $topPromotedTasks = $this->db->fetchAllAssociative(
+            "SELECT t.id AS task_id, COALESCE(NULLIF(t.rule_id,''), rv.rule_id) AS rule_id,
+                    rv.url, t.avr_score, t.title
+             FROM tasks t
+             LEFT JOIN rule_violations rv ON rv.id = t.source_violation_id
+             WHERE t.run_id = ?
+             ORDER BY t.avr_score DESC NULLS LAST, t.id ASC
+             LIMIT 10",
+            [$id]
+        );
+
+        $durationSeconds = null;
+        if (!empty($run['started_at']) && !empty($run['ended_at'])) {
+            $durationSeconds = max(0, strtotime((string) $run['ended_at']) - strtotime((string) $run['started_at']));
+        }
+
+        return $this->safeJson([
+            'run' => [
+                'id' => (int) $run['id'],
+                'started_at' => $run['started_at'] ? (string) $run['started_at'] : null,
+                'ended_at' => $run['ended_at'] ? (string) $run['ended_at'] : null,
+                'duration_seconds' => $durationSeconds,
+                'status' => (string) ($run['status'] ?? ''),
+                'triggered_by' => $run['triggered_by'] ? (string) $run['triggered_by'] : null,
+                'rules_attempted' => isset($run['rules_attempted']) ? (int) $run['rules_attempted'] : 0,
+                'rules_succeeded' => isset($run['rules_succeeded']) ? (int) $run['rules_succeeded'] : 0,
+                'rules_failed' => isset($run['rules_failed']) ? (int) $run['rules_failed'] : 0,
+                'violations_recorded' => isset($run['violations_recorded']) ? (int) $run['violations_recorded'] : 0,
+                'tasks_promoted' => isset($run['tasks_promoted']) ? (int) $run['tasks_promoted'] : 0,
+                'tasks_suppressed' => isset($run['tasks_suppressed']) ? (int) $run['tasks_suppressed'] : 0,
+            ],
+            'suppression_breakdown' => $suppressionBreakdown,
+            'promoted_by_role' => array_map(static fn(array $r) => [
+                'assigned_role' => (string) ($r['assigned_role'] ?? 'default'),
+                'count' => (int) ($r['count'] ?? 0),
+            ], $promotedByRole),
+            'promoted_by_action_family' => array_map(static fn(array $r) => [
+                'action_family' => (string) ($r['action_family'] ?? 'general_fix'),
+                'count' => (int) ($r['count'] ?? 0),
+            ], $promotedByActionFamily),
+            'rules_that_failed' => is_array($summary['rules_failed_details'] ?? null) ? $summary['rules_failed_details'] : [],
+            'top_promoted_tasks' => array_map(static fn(array $t) => [
+                'task_id' => (int) ($t['task_id'] ?? 0),
+                'rule_id' => (string) ($t['rule_id'] ?? ''),
+                'url' => $t['url'] ? (string) $t['url'] : null,
+                'avr_score' => isset($t['avr_score']) ? (int) $t['avr_score'] : null,
+                'title' => (string) ($t['title'] ?? ''),
+            ], $topPromotedTasks),
+        ]);
+    }
+
+    #[Route('/api/runs/{id}/suppressions/{reasonCode}', name: 'api_run_suppression_drill', methods: ['GET'])]
+    public function getRunSuppressionsByReason(int $id, string $reasonCode, Request $request): JsonResponse
+    {
+        $allowed = ['ASSET_URL', 'INVALID_URL', 'URL_REDIRECTED', 'URL_EVIDENCE_MISMATCH', 'EXISTING_OPEN_TASK', 'CROSS_RULE_COLLISION', 'LOW_AVR_SCORE', 'ROLE_CAPACITY_EXCEEDED'];
+        if (!in_array($reasonCode, $allowed, true)) {
+            return $this->safeJson(['error' => 'Unknown reason code'], 400);
+        }
+
+        $exists = (int) $this->db->fetchOne("SELECT COUNT(*) FROM rule_runs WHERE id = ?", [$id]);
+        if ($exists === 0) {
+            return $this->safeJson(['error' => 'Run not found'], 404);
+        }
+
+        $limit = min(100, max(1, (int) $request->query->get('limit', 50)));
+        $offset = max(0, (int) $request->query->get('offset', 0));
+
+        $rows = $this->db->fetchAllAssociative(
+            "SELECT rv.id AS violation_id, rv.rule_id, rv.url, rv.avr_score, rv.suppression_reason_text, rv.detected_at
+             FROM rule_violations rv
+             WHERE rv.run_id = ?
+               AND rv.suppression_reason_code = ?
+             ORDER BY rv.avr_score DESC NULLS LAST, rv.id DESC
+             LIMIT ? OFFSET ?",
+            [$id, $reasonCode, $limit, $offset],
+            [\PDO::PARAM_INT, \PDO::PARAM_STR, \PDO::PARAM_INT, \PDO::PARAM_INT]
+        );
+
+        $total = (int) $this->db->fetchOne(
+            "SELECT COUNT(*) FROM rule_violations WHERE run_id = ? AND suppression_reason_code = ?",
+            [$id, $reasonCode]
+        );
+
+        return $this->safeJson([
+            'run_id' => $id,
+            'reason_code' => $reasonCode,
+            'count' => $total,
+            'items' => array_map(static fn(array $r) => [
+                'violation_id' => (int) ($r['violation_id'] ?? 0),
+                'rule_id' => (string) ($r['rule_id'] ?? ''),
+                'url' => (string) ($r['url'] ?? ''),
+                'avr_score' => isset($r['avr_score']) ? (int) $r['avr_score'] : null,
+                'suppression_reason_text' => $r['suppression_reason_text'] ? (string) $r['suppression_reason_text'] : null,
+                'detected_at' => $r['detected_at'] ? (string) $r['detected_at'] : null,
+            ], $rows),
+            'pagination' => [
+                'limit' => $limit,
+                'offset' => $offset,
+                'has_more' => ($offset + $limit) < $total,
+            ],
+        ]);
+    }
+
     // ─────────────────────────────────────────────
     //  CHAT
     // ─────────────────────────────────────────────

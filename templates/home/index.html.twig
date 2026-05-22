@@ -1238,7 +1238,8 @@
             font-weight: 700;
             color: var(--text-primary);
         }
-        #suppression-drill-modal .modal-box {
+        #suppression-drill-modal .modal-box,
+        #run-suppression-drill-modal .modal-box {
             width: 920px;
             max-width: 96vw;
             max-height: 82vh;
@@ -1246,7 +1247,8 @@
             display: flex;
             flex-direction: column;
         }
-        #suppression-drill-list {
+        #suppression-drill-list,
+        #run-suppression-drill-list {
             overflow-y: auto;
             border: 1px solid var(--border-subtle);
             border-radius: 8px;
@@ -1271,6 +1273,144 @@
             font-size: 11px;
             color: var(--accent-blue);
             word-break: break-all;
+        }
+        .runs-strip {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            margin-bottom: 12px;
+            padding-bottom: 4px;
+        }
+        .run-chip {
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-card);
+            color: var(--text-secondary);
+            border-radius: var(--radius-md);
+            padding: 8px 10px;
+            min-width: 116px;
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .run-chip.active {
+            border-color: var(--accent-blue-border);
+            background: var(--accent-blue-dim);
+            color: var(--accent-blue);
+        }
+        .run-chip-id {
+            font-size: 12px;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+        .run-chip-meta {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+        .runs-summary-card,
+        .runs-suppressions-card,
+        .runs-promoted-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            padding: 14px 16px;
+            margin-bottom: 12px;
+        }
+        .runs-section-title {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.6px;
+            margin-bottom: 10px;
+        }
+        .runs-headline {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin-bottom: 6px;
+        }
+        .runs-meta {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+        }
+        .runs-glance-grid {
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 8px;
+        }
+        .runs-glance-item {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-sm);
+            padding: 8px;
+        }
+        .runs-glance-num {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            line-height: 1;
+        }
+        .runs-glance-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-top: 4px;
+        }
+        .run-suppress-row { margin-bottom: 10px; }
+        .run-suppress-row:last-child { margin-bottom: 0; }
+        .run-suppress-btn {
+            width: 100%;
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-secondary);
+            border-radius: var(--radius-sm);
+            padding: 8px;
+            cursor: pointer;
+            text-align: left;
+        }
+        .run-suppress-top {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 6px;
+            gap: 10px;
+        }
+        .run-suppress-bar-track {
+            height: 8px;
+            background: #eef2ff;
+            border-radius: 999px;
+            overflow: hidden;
+        }
+        .run-suppress-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #2563eb 0%, #60a5fa 100%);
+            border-radius: 999px;
+        }
+        .runs-kv-line {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+        .runs-kv-line strong { color: var(--text-primary); }
+        .runs-task-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .runs-task-btn {
+            width: 100%;
+            text-align: left;
+            border: 1px solid var(--border-subtle);
+            background: var(--bg-secondary);
+            border-radius: var(--radius-sm);
+            padding: 8px 10px;
+            cursor: pointer;
+        }
+        .runs-task-btn:hover,
+        .run-suppress-btn:hover,
+        .run-chip:hover {
+            border-color: var(--accent-blue-border);
+            background: var(--accent-blue-dim);
         }
 
         /* Results grid */
@@ -1874,6 +2014,7 @@
             <button class="header-nav-pill" id="nav-board" onclick="switchView('board')">Board</button>
             <button class="header-nav-pill" id="nav-results" onclick="switchView('results')">Results</button>
             <button class="header-nav-pill" id="nav-rules" onclick="switchView('rules')">Rules</button>
+            <button class="header-nav-pill" id="nav-runs" onclick="switchView('runs')">Runs</button>
             <button class="header-nav-pill" id="nav-memory" onclick="switchView('memory')">Memory</button>
         </div>
         <div class="topbar-stats">
@@ -2020,6 +2161,25 @@
                 </div>
             </div>
 
+            <!-- ═══ RUNS VIEW (shown when Runs tab active) ═══ -->
+            <div id="runs-view-content" style="display:none;">
+                <div class="runs-strip" id="runs-strip">
+                    <div class="dash-empty">Loading recent runs…</div>
+                </div>
+
+                <div class="runs-summary-card" id="runs-summary-card">
+                    <div class="dash-empty">Select a run to view summary.</div>
+                </div>
+
+                <div class="runs-suppressions-card" id="runs-suppressions-card">
+                    <div class="dash-empty">Suppression breakdown appears here.</div>
+                </div>
+
+                <div class="runs-promoted-card" id="runs-promoted-card">
+                    <div class="dash-empty">Top promoted tasks will appear here.</div>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -2033,6 +2193,21 @@
                 <button class="modal-cancel" onclick="closeSuppressionDrillDown()" style="padding:6px 10px;">Close</button>
             </div>
             <div id="suppression-drill-list">
+                <div class="dash-empty">Loading…</div>
+            </div>
+        </div>
+    </div>
+
+    <div id="run-suppression-drill-modal" style="display:none;position:fixed;inset:0;z-index:261;background:rgba(0,0,0,0.35);align-items:center;justify-content:center;">
+        <div class="modal-box">
+            <div class="modal-header">
+                <div>
+                    <div class="modal-title" id="run-suppression-drill-title" style="margin-bottom:2px;">Run Suppression Drill-down</div>
+                    <div style="font-size:12px;color:var(--text-muted);" id="run-suppression-drill-sub">Loading…</div>
+                </div>
+                <button class="modal-close-btn" onclick="closeRunSuppressionDrill()">Close</button>
+            </div>
+            <div id="run-suppression-drill-list">
                 <div class="dash-empty">Loading…</div>
             </div>
         </div>
@@ -4153,10 +4328,19 @@
         if (e.target === backdrop) closeWhyPanel();
     });
 
+    document.addEventListener('click', (e) => {
+        const runBackdrop = document.getElementById('run-suppression-drill-modal');
+        if (runBackdrop && runBackdrop.style.display === 'flex' && e.target === runBackdrop) {
+            closeRunSuppressionDrill();
+        }
+    });
+
     document.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') {
             closeWhyPanel();
             removeAvrBreakdownPopover();
+            closeSuppressionDrillDown();
+            closeRunSuppressionDrill();
         }
     });
 
@@ -4164,12 +4348,12 @@
 
 
     // ── View switching ──────────────────────────────────
-    let currentView = 'dashboard'; // dashboard | board | results | rules
+    let currentView = 'dashboard'; // dashboard | board | results | rules | runs
 
     function switchView(view) {
         currentView = view;
         // Update nav pills
-        ['dashboard','board','results','rules','memory'].forEach(v => {
+        ['dashboard','board','results','rules','runs','memory'].forEach(v => {
             const pill = document.getElementById('nav-' + v);
             if (pill) pill.classList.toggle('active', v === view);
         });
@@ -4196,6 +4380,7 @@
         const dashSections = ['reviewer-summary-panel','dash-focus-cards','dash-view-all-plays','dash-suppression-panel','dash-results-grid','dash-proposals-title','dash-proposals-list'];
         const resultsContent = document.getElementById('results-view-content');
         const rulesContent = document.getElementById('rules-view-content');
+        const runsContent = document.getElementById('runs-view-content');
 
         if (view === 'dashboard') {
             dashEl.style.display = 'block';
@@ -4204,6 +4389,7 @@
             document.querySelectorAll('.dash-grid, .dash-section-title, #reviewer-summary-panel, #dash-focus-cards, .dash-view-all, .results-grid').forEach(el => el.style.display = '');
             if (resultsContent) resultsContent.style.display = 'none';
             if (rulesContent) rulesContent.style.display = 'none';
+            if (runsContent) runsContent.style.display = 'none';
             loadDashboardData();
         } else if (view === 'board') {
             boardEl.style.display = '';
@@ -4218,6 +4404,7 @@
             document.querySelectorAll('.dash-section-title').forEach(el => el.style.display = 'none');
             if (resultsContent) resultsContent.style.display = 'block';
             if (rulesContent) rulesContent.style.display = 'none';
+            if (runsContent) runsContent.style.display = 'none';
             loadResultsView();
         } else if (view === 'rules') {
             dashEl.style.display = 'block';
@@ -4227,7 +4414,18 @@
             document.querySelectorAll('.dash-section-title').forEach(el => el.style.display = 'none');
             if (resultsContent) resultsContent.style.display = 'none';
             if (rulesContent) rulesContent.style.display = 'block';
+            if (runsContent) runsContent.style.display = 'none';
             loadRulesView();
+        } else if (view === 'runs') {
+            dashEl.style.display = 'block';
+            dashEl.classList.add('active');
+            document.getElementById('board-title').textContent = 'Run Summary';
+            document.querySelectorAll('.dash-grid, #reviewer-summary-panel, #dash-focus-cards, .dash-view-all, #dash-results-grid').forEach(el => el.style.display = 'none');
+            document.querySelectorAll('.dash-section-title').forEach(el => el.style.display = 'none');
+            if (resultsContent) resultsContent.style.display = 'none';
+            if (rulesContent) rulesContent.style.display = 'none';
+            if (runsContent) runsContent.style.display = 'block';
+            loadRunsView();
         } else if (view === 'memory') {
             memoryEl.style.display = 'block';
             document.getElementById('board-title').textContent = "Logiri's Memory";
@@ -4690,6 +4888,242 @@
             console.error('Suppression drill-down failed:', e);
             sub.textContent = 'Could not load';
             list.innerHTML = '<div class="dash-empty">Could not load drill-down data.</div>';
+        }
+    }
+
+    let runsViewLoaded = false;
+    let runsListCache = [];
+    let selectedRunId = null;
+
+    function formatRunClock(value) {
+        if (!value) return '—';
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return escapeHtml(String(value));
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatRunDateTime(value) {
+        if (!value) return '—';
+        const d = new Date(value);
+        if (Number.isNaN(d.getTime())) return escapeHtml(String(value));
+        return d.toLocaleString([], { year: 'numeric', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+
+    function formatDuration(seconds) {
+        const sec = Number(seconds);
+        if (!Number.isFinite(sec) || sec < 0) return '—';
+        const min = Math.floor(sec / 60);
+        const rem = sec % 60;
+        return min + 'm ' + rem + 's';
+    }
+
+    function renderRunsStrip(runs) {
+        const strip = document.getElementById('runs-strip');
+        if (!strip) return;
+        if (!Array.isArray(runs) || runs.length === 0) {
+            strip.innerHTML = '<div class="dash-empty">No runs available.</div>';
+            return;
+        }
+
+        const top = runs.slice(0, 5);
+        strip.innerHTML = top.map((run) => {
+            const id = Number(run.id || 0);
+            const active = id === Number(selectedRunId);
+            const safeStatus = escapeHtml(String(run.status || 'unknown'));
+            const safeTrigger = escapeHtml(String(run.triggered_by || 'unknown'));
+            return '<button class="run-chip' + (active ? ' active' : '') + '" onclick="loadRunSummary(' + id + ')">' +
+                '<div class="run-chip-id">Run ' + id + '</div>' +
+                '<div class="run-chip-meta">' + formatRunClock(run.started_at) + ' · ' + safeStatus + '</div>' +
+                '<div class="run-chip-meta">' + safeTrigger + '</div>' +
+            '</button>';
+        }).join('');
+    }
+
+    function renderRunSummaryCards(payload) {
+        const summaryCard = document.getElementById('runs-summary-card');
+        const suppressCard = document.getElementById('runs-suppressions-card');
+        const promotedCard = document.getElementById('runs-promoted-card');
+        if (!summaryCard || !suppressCard || !promotedCard) return;
+
+        const run = payload && payload.run ? payload.run : {};
+        const suppressionBreakdown = Array.isArray(payload && payload.suppression_breakdown) ? payload.suppression_breakdown : [];
+        const promotedByRole = Array.isArray(payload && payload.promoted_by_role) ? payload.promoted_by_role : [];
+        const promotedByAction = Array.isArray(payload && payload.promoted_by_action_family) ? payload.promoted_by_action_family : [];
+        const topTasks = Array.isArray(payload && payload.top_promoted_tasks) ? payload.top_promoted_tasks : [];
+
+        summaryCard.innerHTML =
+            '<div class="runs-section-title">Run Overview</div>' +
+            '<div class="runs-headline">Run #' + escapeHtml(String(run.id || '—')) + '</div>' +
+            '<div class="runs-meta">Started ' + formatRunDateTime(run.started_at) + ' · Duration: ' + formatDuration(run.duration_seconds) + ' · Triggered by: ' + escapeHtml(String(run.triggered_by || 'unknown')) + ' · Status: ' + escapeHtml(String(run.status || 'unknown')) + '</div>' +
+            '<div class="runs-glance-grid">' +
+                '<div class="runs-glance-item"><div class="runs-glance-num">' + Number(run.violations_recorded || 0).toLocaleString() + '</div><div class="runs-glance-label">Candidates evaluated</div></div>' +
+                '<div class="runs-glance-item"><div class="runs-glance-num">' + Number(run.tasks_suppressed || 0).toLocaleString() + '</div><div class="runs-glance-label">Suppressed by gates</div></div>' +
+                '<div class="runs-glance-item"><div class="runs-glance-num">' + Number(run.tasks_promoted || 0).toLocaleString() + '</div><div class="runs-glance-label">Surfaced as tasks</div></div>' +
+                '<div class="runs-glance-item"><div class="runs-glance-num">' + Number(run.rules_failed || 0).toLocaleString() + '</div><div class="runs-glance-label">Rules failed</div></div>' +
+            '</div>';
+
+        if (suppressionBreakdown.length === 0) {
+            suppressCard.innerHTML = '<div class="runs-section-title">Suppression Breakdown</div><div class="dash-empty">No candidates suppressed this run.</div>';
+        } else {
+            const maxCount = Math.max(...suppressionBreakdown.map((row) => Number(row.count || 0)), 1);
+            const rowsHtml = suppressionBreakdown.map((row) => {
+                const code = String(row.reason_code || 'UNKNOWN');
+                const count = Number(row.count || 0);
+                const widthPct = Math.max(0, Math.min(100, Math.round((count / maxCount) * 100)));
+                const codeJs = code.replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+                return '<div class="run-suppress-row">' +
+                    '<button class="run-suppress-btn" onclick="openRunSuppressionDrill(' + Number(run.id || 0) + ', \'' + codeJs + '\')">' +
+                        '<div class="run-suppress-top"><span>' + escapeHtml(code) + '</span><strong>' + count.toLocaleString() + '</strong></div>' +
+                        '<div class="run-suppress-bar-track"><div class="run-suppress-bar" style="width:' + widthPct + '%;"></div></div>' +
+                    '</button>' +
+                '</div>';
+            }).join('');
+            suppressCard.innerHTML =
+                '<div class="runs-section-title">Suppression Breakdown</div>' +
+                rowsHtml +
+                '<div class="runs-meta" style="margin-top:8px;margin-bottom:0;">Click a bar to inspect suppressed URLs for that reason.</div>';
+        }
+
+        const roleLine = promotedByRole.length
+            ? promotedByRole.map((r) => escapeHtml(String(r.assigned_role || 'default')) + ' (' + Number(r.count || 0).toLocaleString() + ')').join(' · ')
+            : 'No promoted tasks';
+        const actionLine = promotedByAction.length
+            ? promotedByAction.map((a) => escapeHtml(String(a.action_family || 'general_fix')) + ' (' + Number(a.count || 0).toLocaleString() + ')').join(' · ')
+            : 'No promoted tasks';
+        const taskList = topTasks.length
+            ? '<div class="runs-task-list">' + topTasks.map((task) => {
+                const avrRaw = Number(task.avr_score);
+                const avrLabel = Number.isFinite(avrRaw) ? avrRaw : '—';
+                const title = escapeHtml(String(task.title || 'Untitled task'));
+                return '<button class="runs-task-btn" onclick="openWhyPanel(' + Number(task.task_id || 0) + ')">AVR ' + avrLabel + ' — ' + title + '</button>';
+            }).join('') + '</div>'
+            : '<div class="dash-empty">No promoted tasks in this run.</div>';
+
+        promotedCard.innerHTML =
+            '<div class="runs-section-title">Promoted Tasks</div>' +
+            '<div class="runs-kv-line"><strong>By role:</strong> ' + roleLine + '</div>' +
+            '<div class="runs-kv-line"><strong>By action family:</strong> ' + actionLine + '</div>' +
+            '<div class="runs-kv-line" style="margin-top:10px;"><strong>Top tasks this run (by AVR)</strong></div>' +
+            taskList;
+    }
+
+    async function loadRunSummary(runId) {
+        const id = Number(runId || 0);
+        if (!id) return;
+        selectedRunId = id;
+        renderRunsStrip(runsListCache);
+
+        const summaryCard = document.getElementById('runs-summary-card');
+        const suppressCard = document.getElementById('runs-suppressions-card');
+        const promotedCard = document.getElementById('runs-promoted-card');
+        if (summaryCard) summaryCard.innerHTML = '<div class="dash-empty">Loading run summary…</div>';
+        if (suppressCard) suppressCard.innerHTML = '<div class="dash-empty">Loading suppression breakdown…</div>';
+        if (promotedCard) promotedCard.innerHTML = '<div class="dash-empty">Loading promoted tasks…</div>';
+
+        try {
+            const r = await fetch('/api/runs/' + id + '/summary');
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+            renderRunSummaryCards(data);
+        } catch (err) {
+            const msg = 'Could not load run #' + id + ': ' + (err.message || err);
+            if (summaryCard) summaryCard.innerHTML = '<div class="dash-empty">' + escapeHtml(msg) + '</div>';
+            if (suppressCard) suppressCard.innerHTML = '<div class="dash-empty">Suppression breakdown unavailable.</div>';
+            if (promotedCard) promotedCard.innerHTML = '<div class="dash-empty">Promoted tasks unavailable.</div>';
+        }
+    }
+
+    async function loadRunsView(force = false) {
+        if (runsViewLoaded && !force) return;
+        const strip = document.getElementById('runs-strip');
+        if (strip) strip.innerHTML = '<div class="dash-empty">Loading recent runs…</div>';
+        try {
+            const r = await fetch('/api/runs?limit=20');
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+            const runs = Array.isArray(data.runs) ? data.runs : [];
+            runsListCache = runs;
+            const completed = runs.find((run) => String(run.status || '').toLowerCase() === 'completed');
+            selectedRunId = completed ? Number(completed.id) : (runs[0] ? Number(runs[0].id) : null);
+            renderRunsStrip(runs);
+            if (selectedRunId) {
+                await loadRunSummary(selectedRunId);
+            } else {
+                const summaryCard = document.getElementById('runs-summary-card');
+                if (summaryCard) summaryCard.innerHTML = '<div class="dash-empty">No runs available yet.</div>';
+            }
+            runsViewLoaded = true;
+        } catch (err) {
+            if (strip) strip.innerHTML = '<div class="dash-empty">Could not load runs list.</div>';
+            const summaryCard = document.getElementById('runs-summary-card');
+            if (summaryCard) summaryCard.innerHTML = '<div class="dash-empty">Could not load run summary.</div>';
+        }
+    }
+
+    function closeRunSuppressionDrill() {
+        const modal = document.getElementById('run-suppression-drill-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
+    async function openRunSuppressionDrill(runId, reasonCode, offset = 0) {
+        const modal = document.getElementById('run-suppression-drill-modal');
+        const title = document.getElementById('run-suppression-drill-title');
+        const sub = document.getElementById('run-suppression-drill-sub');
+        const list = document.getElementById('run-suppression-drill-list');
+        if (!modal || !title || !sub || !list) return;
+
+        modal.style.display = 'flex';
+        title.textContent = 'Run #' + runId + ' · ' + reasonCode;
+        sub.textContent = 'Loading…';
+        list.innerHTML = '<div class="dash-empty">Loading…</div>';
+
+        try {
+            const limit = 50;
+            const r = await fetch('/api/runs/' + encodeURIComponent(runId) + '/suppressions/' + encodeURIComponent(reasonCode) + '?limit=' + limit + '&offset=' + Number(offset || 0));
+            const data = await r.json();
+            if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+
+            const total = Number(data.count || 0);
+            const rows = Array.isArray(data.items) ? data.items : [];
+            const safeOffset = Number(offset || 0);
+            sub.textContent = total.toLocaleString() + ' total · showing ' + (safeOffset + 1) + '-' + Math.min(total, safeOffset + rows.length);
+
+            if (rows.length === 0) {
+                list.innerHTML = '<div class="dash-empty">No suppressed rows found for this reason in this run.</div>';
+                return;
+            }
+
+            const rowsHtml = rows.map((row) => {
+                const avrRaw = Number(row.avr_score);
+                const avr = Number.isFinite(avrRaw) ? avrRaw : '—';
+                const text = row.suppression_reason_text ? escapeHtml(String(row.suppression_reason_text)) : '—';
+                return '<div class="suppression-drill-row">' +
+                    '<div class="suppression-drill-top">' +
+                        '<strong>' + escapeHtml(String(row.rule_id || '—')) + '</strong>' +
+                        '<span style="font-size:11px;color:var(--text-muted);">AVR ' + avr + '</span>' +
+                    '</div>' +
+                    '<div class="suppression-drill-url">' + escapeHtml(String(row.url || '—')) + '</div>' +
+                    '<div style="margin-top:4px;font-size:11px;color:var(--text-muted);">Violation #' + escapeHtml(String(row.violation_id || '—')) + ' · ' + escapeHtml(String(row.detected_at || '—')) + '</div>' +
+                    '<div style="margin-top:4px;font-size:11px;color:var(--text-secondary);">' + text + '</div>' +
+                '</div>';
+            }).join('');
+
+            let pager = '';
+            const hasPrev = safeOffset > 0;
+            const hasNext = data.pagination && data.pagination.has_more;
+            if (hasPrev || hasNext) {
+                const prevOffset = Math.max(0, safeOffset - 50);
+                const nextOffset = safeOffset + 50;
+                pager = '<div style="display:flex;justify-content:space-between;gap:8px;padding:10px 2px;">' +
+                    '<button class="topbar-filter-btn" ' + (hasPrev ? '' : 'disabled') + ' onclick="openRunSuppressionDrill(' + Number(runId) + ', \'' + String(reasonCode).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\', ' + prevOffset + ')">← Previous</button>' +
+                    '<button class="topbar-filter-btn" ' + (hasNext ? '' : 'disabled') + ' onclick="openRunSuppressionDrill(' + Number(runId) + ', \'' + String(reasonCode).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + '\', ' + nextOffset + ')">Next →</button>' +
+                '</div>';
+            }
+
+            list.innerHTML = rowsHtml + pager;
+        } catch (err) {
+            sub.textContent = 'Could not load';
+            list.innerHTML = '<div class="dash-empty">Could not load suppression rows.</div>';
         }
     }
 
