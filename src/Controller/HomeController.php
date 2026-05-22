@@ -462,16 +462,18 @@ class HomeController extends AbstractController
         $limit = min(100, max(1, (int) $request->query->get('limit', 50)));
         $offset = max(0, (int) $request->query->get('offset', 0));
 
-        $rows = $this->db->fetchAllAssociative(
-            "SELECT rv.id AS violation_id, rv.rule_id, rv.url, rv.avr_score, rv.suppression_reason_text, rv.detected_at
-             FROM rule_violations rv
-             WHERE rv.run_id = ?
-               AND rv.suppression_reason_code = ?
-             ORDER BY rv.avr_score DESC NULLS LAST, rv.id DESC
-             LIMIT ? OFFSET ?",
-            [$id, $reasonCode, $limit, $offset],
-            [\PDO::PARAM_INT, \PDO::PARAM_STR, \PDO::PARAM_INT, \PDO::PARAM_INT]
-        );
+        $rows = $this->db->createQueryBuilder()
+            ->select('rv.id AS violation_id', 'rv.rule_id', 'rv.url', 'rv.suppression_reason_text', 'rv.detected_at')
+            ->from('rule_violations', 'rv')
+            ->where('rv.run_id = :run_id')
+            ->andWhere('rv.suppression_reason_code = :reason')
+            ->orderBy('rv.detected_at', 'DESC')
+            ->setMaxResults($limit)
+            ->setFirstResult($offset)
+            ->setParameter('run_id', $id)
+            ->setParameter('reason', $reasonCode)
+            ->executeQuery()
+            ->fetchAllAssociative();
 
         $total = (int) $this->db->fetchOne(
             "SELECT COUNT(*) FROM rule_violations WHERE run_id = ? AND suppression_reason_code = ?",
@@ -481,12 +483,12 @@ class HomeController extends AbstractController
         return $this->safeJson([
             'run_id' => $id,
             'reason_code' => $reasonCode,
+            'total' => $total,
             'count' => $total,
             'items' => array_map(static fn(array $r) => [
                 'violation_id' => (int) ($r['violation_id'] ?? 0),
                 'rule_id' => (string) ($r['rule_id'] ?? ''),
                 'url' => (string) ($r['url'] ?? ''),
-                'avr_score' => isset($r['avr_score']) ? (int) $r['avr_score'] : null,
                 'suppression_reason_text' => $r['suppression_reason_text'] ? (string) $r['suppression_reason_text'] : null,
                 'detected_at' => $r['detected_at'] ? (string) $r['detected_at'] : null,
             ], $rows),
