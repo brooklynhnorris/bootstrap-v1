@@ -32,7 +32,12 @@ class RuleEvaluationService
         }
 
         $snapshotVersion = (int) $this->db->fetchOne('SELECT COALESCE(MAX(snapshot_version), 0) + 1 FROM rule_violations');
-        $pages = $this->db->fetchAllAssociative('SELECT * FROM page_facts ORDER BY url');
+        $pageSelect = 'SELECT * FROM page_facts';
+        if ($this->tableHasColumn('page_facts', 'is_soft_404')) {
+            $pageSelect .= ' WHERE COALESCE(is_soft_404, FALSE) = FALSE';
+        }
+        $pageSelect .= ' ORDER BY url';
+        $pages = $this->db->fetchAllAssociative($pageSelect);
         $suppressionTable = $this->tableExists('suppressed_tasks');
 
         $inserted = 0;
@@ -49,6 +54,9 @@ class RuleEvaluationService
 
         try {
             foreach ($pages as $page) {
+                if ($this->isSoft404Row($page)) {
+                    continue;
+                }
                 $violations = $this->determineViolationsForPage($page);
                 foreach ($violations as $violation) {
                     $status = 'fail';
@@ -138,6 +146,9 @@ class RuleEvaluationService
                     : null;
 
                 $pageFacts = $this->getPageFactsForUrl($normalizedUrl);
+                if ($this->isSoft404Row($pageFacts)) {
+                    continue;
+                }
                 $ruleMeta = $this->getRuleMetadata($ruleId);
                 $violationForScore = [
                     'rule_id' => $ruleId,
@@ -425,6 +436,9 @@ class RuleEvaluationService
                 if ($this->assetUrlClassifier->isAssetUrl($norm) !== null) {
                     continue;
                 }
+                if ($this->isSoft404Row($row)) {
+                    continue;
+                }
 
                 $results[] = [
                     'rule_id' => (string) $rule['rule_id'],
@@ -492,6 +506,20 @@ class RuleEvaluationService
         );
 
         return is_array($row) ? $row : ['url' => $normalizedUrl];
+    }
+
+    private function isSoft404Row(array $row): bool
+    {
+        $value = $row['is_soft_404'] ?? null;
+        if ($value === null) {
+            return false;
+        }
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        return in_array(strtolower(trim((string) $value)), ['1', 't', 'true', 'yes'], true);
     }
 
     private function buildViolation(string $ruleId, string $severity, string $assignee, string $message, array $evidence): array
