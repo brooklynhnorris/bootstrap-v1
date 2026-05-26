@@ -1569,6 +1569,13 @@ class CrawlPagesCommand extends Command
             }
         } catch (\Exception $e) {}
 
+        $isSoft404 = $this->detectSoft404(
+            (string) ($h1 ?? ''),
+            (string) ($titleTag ?? ''),
+            (int) $wordCount,
+            (string) $bodyTextSnippet
+        );
+
         return [
             'url'                  => $path,
             'http_status'          => $httpStatus,
@@ -1586,6 +1593,7 @@ class CrawlPagesCommand extends Command
             'h1_matches_title'     => $h1MatchesTitle ? 1 : 0,
             'schema_types'         => json_encode($schemaTypes),
             'schema_parse_status'  => $schemaParseStatus,
+            'is_soft_404'          => $isSoft404 ? 1 : 0,
             'canonical_url'        => $canonicalUrl ? substr($canonicalUrl, 0, 500) : null,
             'is_noindex'           => $isNoindex ? 1 : 0,
             'page_type'            => $pageType,
@@ -2184,6 +2192,23 @@ class CrawlPagesCommand extends Command
         return array_values(array_unique($types));
     }
 
+    private function detectSoft404(string $h1, string $titleTag, int $wordCount, string $bodyTextSnippet): bool
+    {
+        if (preg_match('/^\s*page not found/i', trim($h1)) === 1) {
+            return true;
+        }
+
+        if (preg_match('/^\s*page not found/i', trim($titleTag)) === 1) {
+            return true;
+        }
+
+        if ($wordCount < 100 && preg_match('/(page (cannot be )?found|404|doesn[\'’]t exist)/i', $bodyTextSnippet) === 1) {
+            return true;
+        }
+
+        return false;
+    }
+
     private function ensureSchema(): void
     {
         $tables = $this->db->fetchFirstColumn(
@@ -2209,6 +2234,7 @@ class CrawlPagesCommand extends Command
                     h1_matches_title        BOOLEAN DEFAULT FALSE,
                     schema_types            TEXT DEFAULT NULL,
                     schema_parse_status     VARCHAR(20) DEFAULT 'ok',
+                    is_soft_404             BOOLEAN DEFAULT FALSE,
                     canonical_url           TEXT DEFAULT NULL,
                     is_noindex              BOOLEAN DEFAULT FALSE,
                     page_type               VARCHAR(20) DEFAULT NULL,
@@ -2248,6 +2274,7 @@ class CrawlPagesCommand extends Command
                 'has_product_image'   => 'BOOLEAN DEFAULT FALSE',
                 'schema_errors'       => 'TEXT DEFAULT NULL',
                 'schema_parse_status' => "VARCHAR(20) DEFAULT 'ok'",
+                'is_soft_404'         => 'BOOLEAN DEFAULT FALSE',
                 // Perplexity-inspired columns
                 'content_category'    => "VARCHAR(30) DEFAULT NULL",
                 'h1_count'            => 'INT DEFAULT 0',
